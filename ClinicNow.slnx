@@ -1,0 +1,6 @@
+<Solution>
+  <Project Path="ClinicNow.API/ClinicNow.API.csproj" />
+  <Project Path="ClinicNow.Model/ClinicNow.Model.csproj" />
+  <Project Path="ClinicNow.Services/ClinicNow.Services.csproj" />
+  <Project Path="ClinicNow.Worker/ClinicNow.Worker.csproj" />
+</Solution>

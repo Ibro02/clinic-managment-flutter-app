@@ -1,0 +1,101 @@
+services:
+  clinicnow-sql:
+    # Explicitly versioned (rulebook Part II §B: never `:latest` for key
+    # services) - a real, currently published tag, not a floating alias.
+    image: mcr.microsoft.com/mssql/server:2022-CU26-ubuntu-22.04
+    container_name: clinicnow-sql
+    restart: unless-stopped
+    user: root
+    environment:
+      - ACCEPT_EULA=Y
+      - MSSQL_SA_PASSWORD=${DB_SA_PASSWORD}
+      - MSSQL_PID=Developer
+    ports:
+      - "1433:1433"
+    volumes:
+      - clinicnow-sql-data:/var/opt/mssql
+    healthcheck:
+      # Recent SQL Server Linux images ship mssql-tools18 (requiring -C to
+      # trust the server cert); fall back to the older mssql-tools path if a
+      # given image build still uses it.
+      test:
+        [
+          "CMD-SHELL",
+          "/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P \"$$MSSQL_SA_PASSWORD\" -C -Q 'SELECT 1' -b -o /dev/null || /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P \"$$MSSQL_SA_PASSWORD\" -Q 'SELECT 1' -b -o /dev/null"
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 25s
+    networks:
+      - clinicnow-net
+
+  rabbitmq:
+    image: rabbitmq:4.3.5-management
+    container_name: clinicnow-rabbitmq
+    hostname: rabbitmq
+    restart: unless-stopped
+    ports:
+      - "15672:15672" # management UI
+      - "5673:5672"   # AMQP, host-mapped (containers use 5672 internally)
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 15s
+    networks:
+      - clinicnow-net
+
+  clinicnow-api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    container_name: clinicnow-api
+    restart: unless-stopped
+    # Centralized config (rulebook Part II §C): the whole .env file is passed
+    # through as-is, then the handful of values below are overridden because
+    # they must point at other *containers* (by service name) rather than the
+    # localhost/LocalDB values .env holds for running the API bare on a host
+    # machine. DB_SA_PASSWORD/DB_NAME stay single-sourced from .env either way.
+    env_file:
+      - .env
+    environment:
+      - DB_CONNECTION_STRING=Server=clinicnow-sql,1433;Database=${DB_NAME};User Id=sa;Password=${DB_SA_PASSWORD};TrustServerCertificate=True;ConnectRetryCount=5
+      - RABBITMQ_HOST=rabbitmq
+      - RABBITMQ_PORT=5672
+      - ASPNETCORE_ENVIRONMENT=Development
+      - ASPNETCORE_URLS=http://+:5203
+    ports:
+      - "5203:5203"
+    depends_on:
+      clinicnow-sql:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - clinicnow-net
+
+  clinicnow-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+    container_name: clinicnow-worker
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      - RABBITMQ_HOST=rabbitmq
+      - RABBITMQ_PORT=5672
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - clinicnow-net
+
+networks:
+  clinicnow-net:
+    driver: bridge
+
+volumes:
+  clinicnow-sql-data:

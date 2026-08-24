@@ -1,0 +1,54 @@
+# =============================================================================
+# Secrets - never committed. See .env.example for the template.
+# =============================================================================
+.env
+*.env
+!.env.example
+
+# =============================================================================
+# .NET
+# =============================================================================
+bin/
+obj/
+*.user
+*.suo
+.vs/
+[Dd]ebug/
+[Rr]elease/
+publish/
+
+# EF Core / ML.NET artifacts that must be regenerated, not committed
+*.mdf
+*.ldf
+model.zip
+
+# =============================================================================
+# Flutter / Dart
+# (each UI/* app also has its own generated .gitignore for app-specific paths;
+# these are repo-root-level catch-alls)
+# =============================================================================
+**/.dart_tool/
+**/.flutter-plugins
+**/.flutter-plugins-dependencies
+**/.pub-cache/
+**/.pub/
+**/build/
+**/android/**/gradle-wrapper.jar
+**/android/.gradle
+**/android/local.properties
+**/ios/Flutter/.last_build_id
+
+# =============================================================================
+# Build/release artifacts - shipped via GitHub Releases, never committed
+# (rulebook §9.2: "Build fajlovi se ne postavljaju u Git historiju")
+# =============================================================================
+*.apk
+*.aab
+fit-build-*.zip
+
+# =============================================================================
+# OS / editor noise
+# =============================================================================
+.DS_Store
+Thumbs.db
+*.swp

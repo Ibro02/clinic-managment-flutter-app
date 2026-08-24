@@ -1,0 +1,27 @@
+# syntax=docker/dockerfile:1
+#
+# Multi-stage build for ClinicNow.Worker - the mandatory second, separate
+# microservice (rulebook Part II §B): its own project, its own Dockerfile, its
+# own container, consuming RabbitMQ in the background. Build context is the
+# repository root (see docker-compose.yml: `context: .`).
+
+FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
+WORKDIR /src
+
+COPY ClinicNow.Model/ClinicNow.Model.csproj ClinicNow.Model/
+COPY ClinicNow.Worker/ClinicNow.Worker.csproj ClinicNow.Worker/
+RUN dotnet restore ClinicNow.Worker/ClinicNow.Worker.csproj
+
+COPY ClinicNow.Model/ ClinicNow.Model/
+COPY ClinicNow.Worker/ ClinicNow.Worker/
+RUN dotnet publish ClinicNow.Worker/ClinicNow.Worker.csproj -c Release -o /app --no-restore
+
+# Plain "runtime" (not "aspnet") - the Worker hosts no web server, just
+# Microsoft.Extensions.Hosting + a BackgroundService, so it needs nothing more.
+FROM mcr.microsoft.com/dotnet/runtime:10.0 AS runtime
+WORKDIR /app
+COPY --from=build /app .
+
+USER app
+
+ENTRYPOINT ["dotnet", "ClinicNow.Worker.dll"]

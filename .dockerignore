@@ -1,0 +1,36 @@
+# =============================================================================
+# Docker build context exclusions.
+#
+# Root cause this file fixes: without it, `COPY ClinicNow.Worker/ ClinicNow.Worker/`
+# (and the equivalent for every other project) sends this machine's own bin/obj/
+# folders into the build context. Those folders contain restore artifacts
+# (project.assets.json, *.nuget.g.props) with this HOST'S absolute paths baked in
+# (e.g. a Windows NuGet fallback folder path) - copying them into a Linux build
+# container overwrites the correct Linux-native restore output that
+# `RUN dotnet restore` just produced inside the container, and `dotnet publish
+# --no-restore` then fails trying to resolve packages via a path that doesn't
+# exist in Linux. Same category of bug .gitignore already prevents for git;
+# Docker needs its own, separate exclusion file.
+# =============================================================================
+
+# --- .NET build output - always regenerated inside the container ---
+**/bin/
+**/obj/
+**/*.user
+**/*.suo
+**/.vs/
+
+# --- Secrets - Dockerfiles never COPY .env; keep it out of the build context too ---
+.env
+.env.example
+*.env
+
+# --- Flutter/Dart UI - neither Dockerfile ever COPYs UI/, excluding it keeps the
+# build context small (Flutter build/.dart_tool output can be large) ---
+UI/
+
+# --- VCS / tooling noise ---
+.git/
+.gitignore
+.dockerignore
+*.md

@@ -1,0 +1,31 @@
+# syntax=docker/dockerfile:1
+#
+# Multi-stage build for ClinicNow.API. Build context is the repository root
+# (see docker-compose.yml: `context: .`) because this project references
+# ClinicNow.Model and ClinicNow.Services via ProjectReference.
+
+FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
+WORKDIR /src
+
+# Restore first, using only the .csproj files, so Docker's layer cache is
+# reused on every subsequent build unless a project reference actually changed.
+COPY ClinicNow.Model/ClinicNow.Model.csproj ClinicNow.Model/
+COPY ClinicNow.Services/ClinicNow.Services.csproj ClinicNow.Services/
+COPY ClinicNow.API/ClinicNow.API.csproj ClinicNow.API/
+RUN dotnet restore ClinicNow.API/ClinicNow.API.csproj
+
+# Now copy the actual source and publish.
+COPY ClinicNow.Model/ ClinicNow.Model/
+COPY ClinicNow.Services/ ClinicNow.Services/
+COPY ClinicNow.API/ ClinicNow.API/
+RUN dotnet publish ClinicNow.API/ClinicNow.API.csproj -c Release -o /app --no-restore
+
+FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS runtime
+WORKDIR /app
+COPY --from=build /app .
+
+# Run as the non-root "app" user built into the official .NET runtime images
+# (CLAUDE.md "Security & Secrets": least-privilege by default).
+USER app
+
+ENTRYPOINT ["dotnet", "ClinicNow.API.dll"]

@@ -1,0 +1,45 @@
+name: clinicnow_desktop
+description: "ClinicNow - staff desktop app (patients, doctors, appointments, medical documentation, reports)."
+publish_to: 'none'
+version: 0.1.0+1
+
+environment:
+  sdk: ^3.12.2
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # HTTP + JSON
+  http: ^1.6.0
+  json_annotation: ^4.12.0
+
+  # State management (matches the reference repo's proven pattern - CLAUDE.md §3)
+  provider: ^6.1.5
+
+  # Forms + validation (rulebook §4: full validation incl. edit forms, specific
+  # format/constraint messages rendered below the control).
+  # flutter_form_builder is pinned to 10.3.0+2 (latest version compatible with
+  # the installed Dart SDK 3.12.2 - 11.x requires Dart >=3.13.0) rather than
+  # the newest tag, per "latest compatible" not "latest regardless of SDK".
+  flutter_form_builder: 10.3.0+2
+  form_builder_validators: ^11.3.0
+
+  # Date/number formatting, UTC -> local display conversions (CLAUDE.md "Time
+  # Handling"). Pinned to exactly what the installed Flutter SDK's own
+  # flutter_localizations requires (see `dart pub deps`) - anything else
+  # fails resolution since the SDK itself pins this transitively.
+  intl: 0.20.2
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+  # 2.16.0 pulls in an `analyzer` that needs `meta ^1.18.3`, which conflicts
+  # with `meta 1.18.0` pinned by flutter_test in the installed Flutter SDK -
+  # 2.15.1 is the newest version compatible with that SDK-level pin.
+  build_runner: ^2.15.1
+  json_serializable: ^6.14.1
+
+flutter:
+  uses-material-design: true
