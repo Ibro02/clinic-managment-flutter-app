@@ -1,16 +1,16 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:clinicnow_mobile/main.dart';
+import 'package:clinicnow_desktop/main.dart';
 
 void main() {
   testWidgets('App boots to the login screen with a working form',
       (WidgetTester tester) async {
-    await tester.pumpWidget(const ClinicNowMobileApp());
+    await tester.pumpWidget(const ClinicNowDesktopApp());
     await tester.pumpAndSettle();
 
     // The login screen (the app's initial route) renders its title and both
     // credential fields.
-    expect(find.text('ClinicNow'), findsOneWidget);
+    expect(find.text('ClinicNow — Osoblje'), findsOneWidget);
     expect(find.text('Email'), findsOneWidget);
     expect(find.text('Lozinka'), findsOneWidget);
 

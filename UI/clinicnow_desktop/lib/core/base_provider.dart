@@ -35,6 +35,20 @@ abstract class BaseProvider<T> {
   /// by delegating to a generated `T.fromJson` (json_serializable).
   T fromJson(Map<String, dynamic> json);
 
+  /// Exposed (not `_`-prefixed) so subclasses with actions beyond plain CRUD
+  /// (e.g. `AppointmentProvider.confirm`/`cancel`/`availableSlots`, hitting
+  /// `POST api/Appointment/{id}/confirm` etc.) can build correctly-authorized
+  /// requests without duplicating this logic.
+  Uri buildUri(String path, [Map<String, dynamic>? query]) => _uri(path, query);
+
+  Map<String, String> authHeaders() => _headers();
+
+  /// Decodes a response the same way the CRUD methods below do (backend
+  /// validation messages surfaced, session cleared on 401) - exposed for the
+  /// same reason as [buildUri]/[authHeaders].
+  dynamic decode(http.Response response, {bool allowEmptyBody = false}) =>
+      _decode(response, allowEmptyBody: allowEmptyBody);
+
   Uri _uri(String path, [Map<String, dynamic>? query]) {
     final normalizedBase = baseUrl.endsWith('/') ? baseUrl : '$baseUrl/';
     final uri = Uri.parse('$normalizedBase$path');

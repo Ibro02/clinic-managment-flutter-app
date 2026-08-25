@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import 'core/auth_session.dart';
+import 'layouts/app_shell.dart';
 import 'screens/login_screen.dart';
 
 void main() {
@@ -25,7 +26,15 @@ class ClinicNowDesktopApp extends StatelessWidget {
           colorScheme: ColorScheme.fromSeed(seedColor: Colors.teal),
           useMaterial3: true,
         ),
-        home: const LoginScreen(),
+        // Reactive root: whichever screen is shown follows AuthSession
+        // directly, so logging in, explicit logout, AND an HTTP 401 clearing
+        // the session mid-use (BaseProvider) all redirect correctly without
+        // any screen needing to call Navigator itself (rulebook §5/Appendix
+        // A.2 - expired tokens must redirect to login).
+        home: Consumer<AuthSession>(
+          builder: (context, session, child) =>
+              session.isLoggedIn ? const AppShell() : const LoginScreen(),
+        ),
       ),
     );
   }

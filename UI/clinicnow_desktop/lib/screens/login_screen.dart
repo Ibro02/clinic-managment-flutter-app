@@ -6,11 +6,20 @@ import 'package:provider/provider.dart';
 import '../core/api_exception.dart';
 import '../core/auth_api.dart';
 import '../core/auth_session.dart';
-import '../layouts/app_shell.dart';
+import '../core/roles.dart';
 
-/// Staff login screen. This UI is already final - only the backend endpoint
-/// it calls (`AuthApi.login` -> `POST api/auth/login`) is still pending
-/// (Phase 1), so nothing here needs to change once that lands.
+/// Roles allowed to sign in on the staff desktop app. A patient account that
+/// tries to log in here is rejected client-side with a clear message - the
+/// mobile app is where patients belong (rulebook Part II §K role-aware
+/// navigation; the backend independently enforces per-endpoint authorization
+/// regardless of what this check does, this is just the right UX).
+const List<String> _kAllowedDesktopRoles = [Roles.administrator, Roles.staff, Roles.doctor];
+
+/// Staff login screen. `main.dart` watches `AuthSession.isLoggedIn` and swaps
+/// to `AppShell` automatically once `_submit` populates the session - this
+/// screen never navigates directly, which is also what makes an HTTP 401
+/// anywhere in the app (session cleared by `BaseProvider`) redirect back here
+/// automatically too.
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
 
@@ -34,23 +43,24 @@ class _LoginScreenState extends State<LoginScreen> {
       _errorMessage = null;
     });
 
-    final username = form.value['username'] as String;
+    final email = form.value['email'] as String;
     final password = form.value['password'] as String;
 
     try {
-      final result =
-          await _authApi.login(username: username, password: password);
+      final result = await _authApi.login(email: email, password: password);
+
+      final isAllowed = result.roles.any(_kAllowedDesktopRoles.contains);
+      if (!isAllowed) {
+        // Token was already issued server-side; revoke it immediately rather
+        // than leaving a valid-but-unused token sitting around.
+        await _authApi.logout(result.accessToken);
+        setState(() => _errorMessage =
+            'Ovaj nalog nema pristup desktop aplikaciji. Pacijenti se prijavljuju kroz mobilnu aplikaciju.');
+        return;
+      }
+
       if (!mounted) return;
-
-      context.read<AuthSession>().setSession(
-            token: result.token,
-            username: result.username,
-            roles: result.roles,
-          );
-
-      Navigator.of(context).pushReplacement(
-        MaterialPageRoute(builder: (_) => const AppShell()),
-      );
+      result.applyTo(context.read<AuthSession>());
     } on ApiException catch (e) {
       setState(() => _errorMessage = e.message);
     } catch (_) {
@@ -82,12 +92,17 @@ class _LoginScreenState extends State<LoginScreen> {
                   ),
                   const SizedBox(height: 24),
                   FormBuilderTextField(
-                    name: 'username',
-                    decoration:
-                        const InputDecoration(labelText: 'Korisničko ime'),
-                    validator: FormBuilderValidators.required(
-                      errorText: 'Korisničko ime je obavezno.',
-                    ),
+                    name: 'email',
+                    decoration: const InputDecoration(labelText: 'Email'),
+                    keyboardType: TextInputType.emailAddress,
+                    validator: FormBuilderValidators.compose([
+                      FormBuilderValidators.required(
+                        errorText: 'Email je obavezan.',
+                      ),
+                      FormBuilderValidators.email(
+                        errorText: 'Unesite ispravnu email adresu.',
+                      ),
+                    ]),
                     enabled: !_isSubmitting,
                   ),
                   const SizedBox(height: 16),
@@ -99,6 +114,7 @@ class _LoginScreenState extends State<LoginScreen> {
                       errorText: 'Lozinka je obavezna.',
                     ),
                     enabled: !_isSubmitting,
+                    onSubmitted: (_) => _submit(),
                   ),
                   if (_errorMessage != null) ...[
                     const SizedBox(height: 16),

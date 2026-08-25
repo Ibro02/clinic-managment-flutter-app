@@ -15,12 +15,17 @@ IB210082). See `recommender-dokumentacija.md` for the recommender system design.
 
 ## Project status
 
-This repository is at **Phase 0 (Foundations & Skeleton)** of the plan — the layered solution,
-Docker stack, EF Core + migrations pipeline, and both Flutter app shells (login screen + master
-layout) exist and are wired correctly, but no business features (patients, doctors, appointments,
-etc.) are implemented yet. The `/api/auth/login` endpoint the login screens call does not exist
-yet either — that's Phase 1. Login credentials will be documented here once seeded (see
-"Planned test accounts" below).
+This repository is at **Phase 4 (Appointments + State Machine)** of the plan — the heart of the
+system. JWT auth (Phase 1), the four codebooks with full CRUD (Phase 2), and `Patient`/`Doctor`/
+`WorkingHours`/`ScheduleBlock` (Phase 3) are all in place. Phase 4 adds the central `Appointment`
+entity and its centralized state machine (`Pending → Confirmed → Completed`, `Cancelled` from any
+non-terminal state), with backend-enforced availability/overlap/duplicate checks (double-booking is
+impossible even under concurrent requests - the check-and-insert runs inside a Serializable
+transaction), a full audit trail (`AppointmentAuditLog`), the patient 48h cancellation cutoff, and a
+real free-slot computation endpoint. Both Flutter clients have the full lifecycle: desktop staff can
+search/filter/confirm/complete/cancel; mobile patients get a multi-step booking flow (doctor →
+service → date → time slot → location) and a "My appointments" master-detail with cancel. Medical
+documentation, notifications, and payments start at Phase 5+.
 
 ## Architecture
 
@@ -150,6 +155,21 @@ Two things differ from the emulator, both already wired up:
   reject the browser's requests - already set in `.env.example`. If you pick a different
   `--web-port`, update `CORS_ALLOWED_ORIGINS` to match.
 
+### Debugging `clinicnow_desktop` in a browser (no Visual Studio C++ workload required)
+
+Same idea as above, for staff-side screens, useful while the "Desktop development with C++"
+Visual Studio workload isn't installed yet. `clinicnow_desktop` also has the Flutter web platform
+enabled purely for this - the graded deliverable is still the native Windows build (rulebook
+§9.2.1).
+
+```bash
+cd UI/clinicnow_desktop
+flutter run -d chrome --web-port=5001 --dart-define=API_BASE_URL=http://localhost:5203/
+```
+
+Uses port `5001` (not `5000`) so both apps' web dev servers can run side by side without a port
+clash - both origins are already present in `.env.example`'s `CORS_ALLOWED_ORIGINS`.
+
 ## 4. Building release artifacts
 
 Per the rulebook's submission requirements (§9.2):
@@ -172,16 +192,24 @@ For submission, both artifacts are zipped together as `fit-build-YYYY-MM-DD.zip`
 a GitHub **Immutable Release** (never committed to git history) — see `.env.example` and the
 rulebook for the full delivery procedure.
 
-## Planned test accounts
+## Test accounts
 
-Not available yet (Phase 1 adds authentication). Once seeded, this section will list working
-credentials for each context, following the rulebook's convention:
+Seeded via the `AddIdentity` migration (`ClinicNow.Services/Database/Configurations/UserConfiguration.cs`).
+All four demo accounts use the password `test`; the desktop app accepts Administrator/Staff/Doctor
+accounts only, the mobile app accepts Patient accounts only (checked client-side after login, and
+independently enforced per-endpoint on the backend).
 
-| Context | Username | Password |
+| Context | Email | Password |
 |---|---|---|
-| Desktop | `desktop` | `test` |
-| Mobile | `mobile` | `test` |
-| Per role | `administrator` / `staff` / `doctor` / `patient` | `test` |
+| Desktop — Administrator | `administrator@clinicnow.test` | `test` |
+| Desktop — Staff | `staff@clinicnow.test` | `test` |
+| Desktop — Doctor | `doctor@clinicnow.test` | `test` |
+| Desktop — Doctor (2nd, Kardiologija) | `doctor2@clinicnow.test` | `test` |
+| Mobile — Patient | `patient@clinicnow.test` | `test` |
+
+New patient accounts can also self-register from the mobile app's "Registruj se" link
+(`POST api/auth/register`) - registration always creates a Patient-role account; the server never
+accepts a client-supplied role (rulebook §5).
 
 ## Testing
 

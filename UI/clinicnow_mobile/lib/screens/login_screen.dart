@@ -6,13 +6,16 @@ import 'package:provider/provider.dart';
 import '../core/api_exception.dart';
 import '../core/auth_api.dart';
 import '../core/auth_session.dart';
-import '../layouts/app_shell.dart';
+import 'register_screen.dart';
 
-/// Patient login screen. This UI is already final - only the backend
-/// endpoint it calls (`AuthApi.login` -> `POST api/auth/login`) is still
-/// pending (Phase 1), so nothing here needs to change once that lands.
-/// Registration and password reset (rulebook §2.3 mobile functionalities)
-/// are added alongside the real auth backend in Phase 1.
+/// Only patients belong on the mobile app - a staff/doctor/admin account
+/// logging in here is rejected client-side with a clear message (the
+/// backend's own per-endpoint authorization is the real enforcement; this is
+/// just the right UX - rulebook Part II §K role-aware navigation).
+const List<String> _kAllowedMobileRoles = ['Patient'];
+
+/// Patient login screen. `main.dart` watches `AuthSession.isLoggedIn` and
+/// swaps to `AppShell` automatically once `_submit` populates the session.
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
 
@@ -36,23 +39,22 @@ class _LoginScreenState extends State<LoginScreen> {
       _errorMessage = null;
     });
 
-    final username = form.value['username'] as String;
+    final email = form.value['email'] as String;
     final password = form.value['password'] as String;
 
     try {
-      final result =
-          await _authApi.login(username: username, password: password);
+      final result = await _authApi.login(email: email, password: password);
+
+      final isAllowed = result.roles.any(_kAllowedMobileRoles.contains);
+      if (!isAllowed) {
+        await _authApi.logout(result.accessToken);
+        setState(() => _errorMessage =
+            'Ovaj nalog nema pristup mobilnoj aplikaciji. Osoblje se prijavljuje kroz desktop aplikaciju.');
+        return;
+      }
+
       if (!mounted) return;
-
-      context.read<AuthSession>().setSession(
-            token: result.token,
-            username: result.username,
-            roles: result.roles,
-          );
-
-      Navigator.of(context).pushReplacement(
-        MaterialPageRoute(builder: (_) => const AppShell()),
-      );
+      result.applyTo(context.read<AuthSession>());
     } on ApiException catch (e) {
       setState(() => _errorMessage = e.message);
     } catch (_) {
@@ -85,13 +87,17 @@ class _LoginScreenState extends State<LoginScreen> {
                   ),
                   const SizedBox(height: 32),
                   FormBuilderTextField(
-                    name: 'username',
-                    decoration: const InputDecoration(
-                      labelText: 'E-mail ili korisničko ime',
-                    ),
-                    validator: FormBuilderValidators.required(
-                      errorText: 'Ovo polje je obavezno.',
-                    ),
+                    name: 'email',
+                    decoration: const InputDecoration(labelText: 'Email'),
+                    keyboardType: TextInputType.emailAddress,
+                    validator: FormBuilderValidators.compose([
+                      FormBuilderValidators.required(
+                        errorText: 'Email je obavezan.',
+                      ),
+                      FormBuilderValidators.email(
+                        errorText: 'Unesite ispravnu email adresu.',
+                      ),
+                    ]),
                     enabled: !_isSubmitting,
                   ),
                   const SizedBox(height: 16),
@@ -103,6 +109,7 @@ class _LoginScreenState extends State<LoginScreen> {
                       errorText: 'Lozinka je obavezna.',
                     ),
                     enabled: !_isSubmitting,
+                    onSubmitted: (_) => _submit(),
                   ),
                   if (_errorMessage != null) ...[
                     const SizedBox(height: 16),
@@ -122,6 +129,16 @@ class _LoginScreenState extends State<LoginScreen> {
                             child: CircularProgressIndicator(strokeWidth: 2),
                           )
                         : const Text('Prijava'),
+                  ),
+                  const SizedBox(height: 12),
+                  TextButton(
+                    onPressed: _isSubmitting
+                        ? null
+                        : () => Navigator.of(context).push(
+                              MaterialPageRoute(
+                                  builder: (_) => const RegisterScreen()),
+                            ),
+                    child: const Text('Nemate nalog? Registrujte se'),
                   ),
                 ],
               ),

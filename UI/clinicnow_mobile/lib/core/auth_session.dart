@@ -1,42 +1,64 @@
 import 'package:flutter/foundation.dart';
 
 /// Holds the current authentication state for the whole app: the JWT access
-/// token and basic identity claims. A single instance is created in
-/// `main.dart` and provided app-wide via `ChangeNotifierProvider<AuthSession>`
-/// - screens/providers read it via `context.read`/`context.watch` instead of
-/// the reference repo's raw static-field bag, so it's testable and reactive.
-///
-/// Real login/register wiring lands in Phase 1 once the backend Auth
-/// endpoints exist; this class is already the final shape, so screens built
-/// now (see LoginScreen) don't need structural changes later.
+/// token, its expiry, and the logged-in user's own profile/roles. A single
+/// instance is created in `main.dart` and provided app-wide via
+/// `ChangeNotifierProvider<AuthSession>` - screens/providers read it via
+/// `context.read`/`context.watch`, and `main.dart` itself watches
+/// [isLoggedIn] to decide which screen to show, so clearing the session from
+/// anywhere (explicit logout, or [BaseProvider] reacting to an HTTP 401)
+/// automatically redirects to the login screen (rulebook §5/Appendix A.2:
+/// "istekle tokene ne treba ignorisati").
 class AuthSession extends ChangeNotifier {
   String? _token;
-  String? _username;
+  DateTime? _expiresAtUtc;
+  int? _userId;
+  String? _email;
+  String? _firstName;
+  String? _lastName;
   List<String> _roles = const [];
 
   String? get token => _token;
-  String? get username => _username;
+  DateTime? get expiresAtUtc => _expiresAtUtc;
+  int? get userId => _userId;
+  String? get email => _email;
+  String? get firstName => _firstName;
+  String? get lastName => _lastName;
+  String get fullName => [_firstName, _lastName].where((s) => s != null && s.isNotEmpty).join(' ');
   List<String> get roles => List.unmodifiable(_roles);
   bool get isLoggedIn => _token != null;
 
+  bool hasRole(String role) => _roles.contains(role);
+
   void setSession({
     required String token,
-    required String username,
+    required DateTime expiresAtUtc,
+    required int userId,
+    required String email,
+    required String firstName,
+    required String lastName,
     required List<String> roles,
   }) {
     _token = token;
-    _username = username;
+    _expiresAtUtc = expiresAtUtc;
+    _userId = userId;
+    _email = email;
+    _firstName = firstName;
+    _lastName = lastName;
     _roles = roles;
     notifyListeners();
   }
 
   /// Clears the session - called on explicit logout, and automatically by
-  /// [BaseProvider] whenever the API returns HTTP 401 (expired/invalid
-  /// token), per rulebook Appendix A.2 ("Frontend mora pravilno obraditi
-  /// HTTP 401 odgovor (redirect na login ili refresh token mehanizam)").
+  /// [BaseProvider] whenever the API returns HTTP 401 (expired/invalid/
+  /// revoked token).
   void clear() {
     _token = null;
-    _username = null;
+    _expiresAtUtc = null;
+    _userId = null;
+    _email = null;
+    _firstName = null;
+    _lastName = null;
     _roles = const [];
     notifyListeners();
   }
