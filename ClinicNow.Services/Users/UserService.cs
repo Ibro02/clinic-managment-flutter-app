@@ -83,7 +83,19 @@ public partial class UserService : IUserService
             FirstName = user.FirstName,
             LastName = user.LastName,
             PhoneNumber = user.PhoneNumber,
+            Email = user.Email,
             CreatedAtUtc = user.CreatedAtUtc
+        };
+
+        // "Every patient has exactly one medical file" must hold from the
+        // moment the patient exists, including a self-registered one - not
+        // just patients created through PatientService (whose AfterInsertAsync
+        // hook does the same thing for the staff-facing walk-in flow). Created
+        // in the same SaveChanges via navigation, same reasoning as User/Patient above.
+        patient.MedicalRecord = new MedicalRecord
+        {
+            CreatedAtUtc = user.CreatedAtUtc,
+            UpdatedAtUtc = user.CreatedAtUtc
         };
 
         _context.Patients.Add(patient);

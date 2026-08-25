@@ -6,8 +6,10 @@ import '../core/auth_session.dart';
 import '../core/roles.dart';
 import '../screens/appointments/appointment_screen.dart';
 import '../screens/codebooks/codebooks_screen.dart';
+import '../screens/news/news_screen.dart';
 import '../screens/people/doctor_screen.dart';
 import '../screens/people/patient_screen.dart';
+import '../widgets/notifications_bell.dart';
 
 /// Post-login shell for the desktop (staff) app - a persistent side
 /// navigation rail plus a content area, matching the reference repo's
@@ -104,6 +106,14 @@ class _AppShellState extends State<AppShell> {
           ),
           builder: (_) => const CodebooksScreen(),
         ),
+      _NavEntry(
+        destination: const NavigationRailDestination(
+          icon: Icon(Icons.campaign_outlined),
+          selectedIcon: Icon(Icons.campaign),
+          label: Text('Obavijesti'),
+        ),
+        builder: (_) => const NewsScreen(),
+      ),
     ];
 
     // If a role change (re-login) shrinks the destination list, don't leave
@@ -158,7 +168,21 @@ class _AppShellState extends State<AppShell> {
             destinations: entries.map((e) => e.destination).toList(),
           ),
           const VerticalDivider(width: 1),
-          Expanded(child: entries[selectedIndex].builder(context)),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: Padding(
+                    padding: const EdgeInsets.only(top: 4, right: 8),
+                    child: NotificationsBell(authSession: authSession),
+                  ),
+                ),
+                Expanded(child: entries[selectedIndex].builder(context)),
+              ],
+            ),
+          ),
         ],
       ),
     );

@@ -1,5 +1,6 @@
 using ClinicNow.Model.Configuration;
 using ClinicNow.Worker;
+using ClinicNow.Worker.Mail;
 using ClinicNow.Worker.Messaging;
 using Microsoft.Extensions.Hosting;
 
@@ -20,6 +21,7 @@ builder.Services.AddSingleton(rabbitMqOptions);
 builder.Services.AddSingleton(smtpOptions);
 
 builder.Services.AddSingleton<RabbitMqConnectionProvider>();
+builder.Services.AddScoped<IMailSender, MailSender>();
 
 // If MailQueueConsumerWorker.ExecuteAsync throws (e.g. RabbitMQ connection retries
 // exhausted), stop the host instead of leaving a zombie process behind - so

@@ -48,6 +48,14 @@ public class ClinicNowContext : DbContext
     public DbSet<Appointment> Appointments => Set<Appointment>();
     public DbSet<AppointmentAuditLog> AppointmentAuditLogs => Set<AppointmentAuditLog>();
 
+    public DbSet<Notification> Notifications => Set<Notification>();
+    public DbSet<NewsItem> NewsItems => Set<NewsItem>();
+
+    public DbSet<MedicalDocument> MedicalDocuments => Set<MedicalDocument>();
+
+    public DbSet<MedicalRecord> MedicalRecords => Set<MedicalRecord>();
+    public DbSet<MedicalRecordEntry> MedicalRecordEntries => Set<MedicalRecordEntry>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);

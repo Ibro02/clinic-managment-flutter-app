@@ -17,6 +17,12 @@ public class PeopleMappingConfig : IRegister
 {
     public void Register(TypeAdapterConfig config)
     {
+        // MedicalRecord is only populated when explicitly Include()-d (see
+        // PatientService.ApplyFilter/GetByIdAsync) - null-safe here so mapping
+        // a Patient without that Include still succeeds instead of throwing.
+        config.NewConfig<Patient, PatientDto>()
+            .Map(dest => dest.MedicalRecordId, src => src.MedicalRecord != null ? src.MedicalRecord.Id : (int?)null);
+
         config.NewConfig<Doctor, DoctorDto>()
             .Map(dest => dest.FirstName, src => src.User.FirstName)
             .Map(dest => dest.LastName, src => src.User.LastName)

@@ -62,7 +62,12 @@ public class PatientController : BaseCRUDController<PatientDto, PatientSearchObj
     {
         var userId = int.Parse(User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)!.Value);
 
-        var patient = await _context.Patients.SingleOrDefaultAsync(p => p.UserId == userId, cancellationToken)
+        // MedicalRecord must be Include()-d for PatientDto.MedicalRecordId to
+        // populate (same reasoning as PatientService.GetByIdAsync/ApplyFilter -
+        // this endpoint bypasses the service entirely, so needs its own Include).
+        var patient = await _context.Patients
+            .Include(p => p.MedicalRecord)
+            .SingleOrDefaultAsync(p => p.UserId == userId, cancellationToken)
             ?? throw new NotFoundException("Nije pronađen medicinski karton za ovaj nalog.");
 
         return Ok(_mapper.Map<PatientDto>(patient));

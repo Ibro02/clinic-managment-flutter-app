@@ -15,17 +15,36 @@ IB210082). See `recommender-dokumentacija.md` for the recommender system design.
 
 ## Project status
 
-This repository is at **Phase 4 (Appointments + State Machine)** of the plan — the heart of the
-system. JWT auth (Phase 1), the four codebooks with full CRUD (Phase 2), and `Patient`/`Doctor`/
-`WorkingHours`/`ScheduleBlock` (Phase 3) are all in place. Phase 4 adds the central `Appointment`
-entity and its centralized state machine (`Pending → Confirmed → Completed`, `Cancelled` from any
-non-terminal state), with backend-enforced availability/overlap/duplicate checks (double-booking is
-impossible even under concurrent requests - the check-and-insert runs inside a Serializable
-transaction), a full audit trail (`AppointmentAuditLog`), the patient 48h cancellation cutoff, and a
-real free-slot computation endpoint. Both Flutter clients have the full lifecycle: desktop staff can
-search/filter/confirm/complete/cancel; mobile patients get a multi-step booking flow (doctor →
-service → date → time slot → location) and a "My appointments" master-detail with cancel. Medical
-documentation, notifications, and payments start at Phase 5+.
+This repository is at **Phase 6 (Medical Documentation)** of the plan. JWT auth (Phase 1), the
+four codebooks (Phase 2), `Patient`/`Doctor`/`WorkingHours`/`ScheduleBlock` (Phase 3), the full
+appointment state machine (Phase 4), and notifications/news/async email (Phase 5) are all in
+place. Phase 6 adds:
+
+- **`MedicalDocument`** — a file (PDF/PNG/JPEG) plus an optional finding note attached to a
+  patient's record. Uploads are validated server-side against **both** the declared MIME type
+  **and** the file's actual magic bytes (a renamed file can't fake its way past the check), and
+  legally-retained health data is soft-delete only, never hard-deleted.
+- Ownership enforced server-side: Administrator/Staff/Doctor can view/upload for any patient; a
+  Patient can only ever see (and download) their **own** documents, regardless of what filter the
+  client sends.
+- Desktop: attach/view/download/delete on a patient's record (a new "Dokumenti" row action on the
+  Patients screen), using `file_picker` for a real pick-a-file/save-a-file flow. Mobile: a
+  read-only "Dokumenti" tab where a patient views and downloads only their own files.
+
+Since Phase 6, a full patient **medical file ("medicinski karton")** was added — distinct from
+`MedicalDocument`'s file attachments:
+
+- **`MedicalRecord`** — exactly one per patient (DB-level unique index), with a header (name, age,
+  gender, address, email, phone — all denormalized onto one response), an allergies/notes section,
+  and a **`MedicalRecordEntry`** treatment-history table (Date/Treatment/Description, all required).
+- A **Doctor can only ever add content** — append to allergies/notes, add a history row — never
+  edit or delete anything already applied to the file; this is enforced structurally (there is no
+  Doctor-reachable code path that overwrites/removes prior content), not just a role check.
+- **Administrator has full CRUD** over the same content (replace notes, edit/delete any entry).
+- Desktop: a new "medicinski karton" row action on the Patients screen opens the full
+  view/editor. No mobile UI for this yet (out of scope for now).
+
+The recommender and payments start at Phase 7+.
 
 ## Architecture
 

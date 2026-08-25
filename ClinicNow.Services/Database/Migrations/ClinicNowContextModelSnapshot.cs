@@ -55,6 +55,9 @@ namespace ClinicNow.Services.Database.Migrations
                     b.Property<int>("PatientId")
                         .HasColumnType("int");
 
+                    b.Property<DateTime?>("ReminderSentAtUtc")
+                        .HasColumnType("datetime2");
+
                     b.Property<DateTime>("StartUtc")
                         .HasColumnType("datetime2");
 
@@ -407,6 +410,176 @@ namespace ClinicNow.Services.Database.Migrations
                         });
                 });
 
+            modelBuilder.Entity("ClinicNow.Services.Database.Entities.MedicalDocument", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("ContentType")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime?>("DeletedAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("Description")
+                        .HasMaxLength(2000)
+                        .HasColumnType("nvarchar(2000)");
+
+                    b.Property<byte[]>("FileData")
+                        .IsRequired()
+                        .HasColumnType("varbinary(max)");
+
+                    b.Property<string>("FileName")
+                        .IsRequired()
+                        .HasMaxLength(260)
+                        .HasColumnType("nvarchar(260)");
+
+                    b.Property<long>("FileSizeBytes")
+                        .HasColumnType("bigint");
+
+                    b.Property<bool>("IsDeleted")
+                        .HasColumnType("bit");
+
+                    b.Property<int>("PatientId")
+                        .HasColumnType("int");
+
+                    b.Property<int>("UploadedByUserId")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("PatientId");
+
+                    b.HasIndex("UploadedByUserId");
+
+                    b.ToTable("MedicalDocuments");
+
+                    b.HasData(
+                        new
+                        {
+                            Id = 1,
+                            ContentType = "application/pdf",
+                            CreatedAtUtc = new DateTime(2026, 8, 18, 10, 0, 0, 0, DateTimeKind.Utc),
+                            Description = "Nalaz kompletne krvne slike - uredni parametri.",
+                            FileData = new byte[] { 37, 80, 68, 70, 45, 49, 46, 52, 10, 49, 32, 48, 32, 111, 98, 106, 60, 60, 47, 84, 121, 112, 101, 47, 67, 97, 116, 97, 108, 111, 103, 47, 80, 97, 103, 101, 115, 32, 50, 32, 48, 32, 82, 62, 62, 101, 110, 100, 111, 98, 106, 10, 50, 32, 48, 32, 111, 98, 106, 60, 60, 47, 84, 121, 112, 101, 47, 80, 97, 103, 101, 115, 47, 75, 105, 100, 115, 91, 51, 32, 48, 32, 82, 93, 47, 67, 111, 117, 110, 116, 32, 49, 62, 62, 101, 110, 100, 111, 98, 106, 10, 51, 32, 48, 32, 111, 98, 106, 60, 60, 47, 84, 121, 112, 101, 47, 80, 97, 103, 101, 47, 80, 97, 114, 101, 110, 116, 32, 50, 32, 48, 32, 82, 47, 77, 101, 100, 105, 97, 66, 111, 120, 91, 48, 32, 48, 32, 50, 48, 48, 32, 50, 48, 48, 93, 62, 62, 101, 110, 100, 111, 98, 106, 10, 120, 114, 101, 102, 10, 48, 32, 52, 10, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48, 32, 54, 53, 53, 51, 53, 32, 102, 32, 10, 116, 114, 97, 105, 108, 101, 114, 60, 60, 47, 83, 105, 122, 101, 32, 52, 47, 82, 111, 111, 116, 32, 49, 32, 48, 32, 82, 62, 62, 10, 115, 116, 97, 114, 116, 120, 114, 101, 102, 10, 48, 10, 37, 37, 69, 79, 70 },
+                            FileName = "nalaz-krvna-slika.pdf",
+                            FileSizeBytes = 240L,
+                            IsDeleted = false,
+                            PatientId = 1,
+                            UploadedByUserId = 2
+                        });
+                });
+
+            modelBuilder.Entity("ClinicNow.Services.Database.Entities.MedicalRecord", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("Allergies")
+                        .HasMaxLength(2000)
+                        .HasColumnType("nvarchar(2000)");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("MedicalNotes")
+                        .HasMaxLength(4000)
+                        .HasColumnType("nvarchar(4000)");
+
+                    b.Property<int>("PatientId")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime>("UpdatedAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("PatientId")
+                        .IsUnique();
+
+                    b.ToTable("MedicalRecords");
+
+                    b.HasData(
+                        new
+                        {
+                            Id = 1,
+                            Allergies = "Penicilin",
+                            CreatedAtUtc = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Utc),
+                            MedicalNotes = "Bez hroničnih oboljenja.",
+                            PatientId = 1,
+                            UpdatedAtUtc = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Utc)
+                        },
+                        new
+                        {
+                            Id = 2,
+                            CreatedAtUtc = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Utc),
+                            PatientId = 2,
+                            UpdatedAtUtc = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Utc)
+                        });
+                });
+
+            modelBuilder.Entity("ClinicNow.Services.Database.Entities.MedicalRecordEntry", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<int>("CreatedByUserId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("Description")
+                        .IsRequired()
+                        .HasMaxLength(2000)
+                        .HasColumnType("nvarchar(2000)");
+
+                    b.Property<DateOnly>("EntryDate")
+                        .HasColumnType("date");
+
+                    b.Property<int>("MedicalRecordId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("Treatment")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CreatedByUserId");
+
+                    b.HasIndex("MedicalRecordId");
+
+                    b.ToTable("MedicalRecordEntries");
+
+                    b.HasData(
+                        new
+                        {
+                            Id = 1,
+                            CreatedAtUtc = new DateTime(2026, 8, 10, 9, 30, 0, 0, DateTimeKind.Utc),
+                            CreatedByUserId = 3,
+                            Description = "Opći pregled bez nalaza. Preporučena kontrola za 6 mjeseci.",
+                            EntryDate = new DateOnly(2026, 8, 10),
+                            MedicalRecordId = 1,
+                            Treatment = "Redovni pregled"
+                        });
+                });
+
             modelBuilder.Entity("ClinicNow.Services.Database.Entities.MedicalService", b =>
                 {
                     b.Property<int>("Id")
@@ -480,6 +653,133 @@ namespace ClinicNow.Services.Database.Migrations
                         });
                 });
 
+            modelBuilder.Entity("ClinicNow.Services.Database.Entities.NewsItem", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("ImageContentType")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<byte[]>("ImageData")
+                        .HasColumnType("varbinary(max)");
+
+                    b.Property<string>("Text")
+                        .IsRequired()
+                        .HasMaxLength(4000)
+                        .HasColumnType("nvarchar(4000)");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("NewsItems");
+
+                    b.HasData(
+                        new
+                        {
+                            Id = 1,
+                            CreatedAtUtc = new DateTime(2026, 8, 15, 8, 0, 0, 0, DateTimeKind.Utc),
+                            ImageContentType = "image/png",
+                            ImageData = new byte[] { 137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82, 0, 0, 0, 1, 0, 0, 0, 1, 8, 4, 0, 0, 0, 181, 28, 12, 2, 0, 0, 0, 11, 73, 68, 65, 84, 120, 218, 99, 100, 248, 15, 0, 1, 5, 1, 1, 39, 24, 227, 102, 0, 0, 0, 0, 73, 69, 78, 68, 174, 66, 96, 130 },
+                            Text = "Poliklinika Sunce proširuje radno vrijeme kardiologije od 1. septembra.",
+                            Title = "Nove ordinacije od septembra"
+                        },
+                        new
+                        {
+                            Id = 2,
+                            CreatedAtUtc = new DateTime(2026, 8, 20, 12, 0, 0, 0, DateTimeKind.Utc),
+                            Text = "Sada možete zakazati termin direktno iz mobilne aplikacije, bez poziva.",
+                            Title = "Online zakazivanje termina"
+                        },
+                        new
+                        {
+                            Id = 3,
+                            CreatedAtUtc = new DateTime(2026, 8, 23, 15, 0, 0, 0, DateTimeKind.Utc),
+                            ImageContentType = "image/png",
+                            ImageData = new byte[] { 137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82, 0, 0, 0, 1, 0, 0, 0, 1, 8, 4, 0, 0, 0, 181, 28, 12, 2, 0, 0, 0, 11, 73, 68, 65, 84, 120, 218, 99, 100, 248, 15, 0, 1, 5, 1, 1, 39, 24, 227, 102, 0, 0, 0, 0, 73, 69, 78, 68, 174, 66, 96, 130 },
+                            Text = "Preporučujemo redovne godišnje preglede - zakažite svoj termin na vrijeme.",
+                            Title = "Sezonski pregledi"
+                        });
+                });
+
+            modelBuilder.Entity("ClinicNow.Services.Database.Entities.Notification", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<bool>("IsRead")
+                        .HasColumnType("bit");
+
+                    b.Property<DateTime?>("ReadAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("Text")
+                        .IsRequired()
+                        .HasMaxLength(2000)
+                        .HasColumnType("nvarchar(2000)");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<int>("UserId")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UserId");
+
+                    b.ToTable("Notifications");
+
+                    b.HasData(
+                        new
+                        {
+                            Id = 1,
+                            CreatedAtUtc = new DateTime(2026, 8, 20, 9, 0, 0, 0, DateTimeKind.Utc),
+                            IsRead = false,
+                            Text = "Vaš nalog je uspješno kreiran. Zakažite svoj prvi termin iz aplikacije.",
+                            Title = "Dobrodošli u ClinicNow",
+                            UserId = 4
+                        },
+                        new
+                        {
+                            Id = 2,
+                            CreatedAtUtc = new DateTime(2026, 8, 21, 10, 30, 0, 0, DateTimeKind.Utc),
+                            IsRead = true,
+                            ReadAtUtc = new DateTime(2026, 8, 21, 11, 0, 0, 0, DateTimeKind.Utc),
+                            Text = "Pacijent Amina Selimović je zakazao/la termin za pregled.",
+                            Title = "Novi termin zakazan",
+                            UserId = 3
+                        },
+                        new
+                        {
+                            Id = 3,
+                            CreatedAtUtc = new DateTime(2026, 8, 24, 8, 0, 0, 0, DateTimeKind.Utc),
+                            IsRead = false,
+                            Text = "Provjerite raspored za sutra - nekoliko termina čeka potvrdu.",
+                            Title = "Podsjetnik: nadolazeći termini",
+                            UserId = 2
+                        });
+                });
+
             modelBuilder.Entity("ClinicNow.Services.Database.Entities.Patient", b =>
                 {
                     b.Property<int>("Id")
@@ -501,10 +801,17 @@ namespace ClinicNow.Services.Database.Migrations
                     b.Property<DateTime?>("DeletedAtUtc")
                         .HasColumnType("datetime2");
 
+                    b.Property<string>("Email")
+                        .HasMaxLength(320)
+                        .HasColumnType("nvarchar(320)");
+
                     b.Property<string>("FirstName")
                         .IsRequired()
                         .HasMaxLength(100)
                         .HasColumnType("nvarchar(100)");
+
+                    b.Property<int?>("Gender")
+                        .HasColumnType("int");
 
                     b.Property<bool>("IsDeleted")
                         .HasColumnType("bit");
@@ -544,7 +851,9 @@ namespace ClinicNow.Services.Database.Migrations
                             Address = "Ferhadija 1, Sarajevo",
                             CreatedAtUtc = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Utc),
                             DateOfBirth = new DateOnly(1990, 1, 1),
+                            Email = "patient@clinicnow.test",
                             FirstName = "Hana",
+                            Gender = 1,
                             IsDeleted = false,
                             LastName = "Pacijentić",
                             PersonalIdNumber = "0101990175008",
@@ -557,7 +866,9 @@ namespace ClinicNow.Services.Database.Migrations
                             Address = "Zmaja od Bosne 10, Sarajevo",
                             CreatedAtUtc = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Utc),
                             DateOfBirth = new DateOnly(1985, 3, 15),
+                            Email = "amar.sehic@example.test",
                             FirstName = "Amar",
+                            Gender = 0,
                             IsDeleted = false,
                             LastName = "Šehić",
                             PersonalIdNumber = "1503985180012",
@@ -1078,6 +1389,65 @@ namespace ClinicNow.Services.Database.Migrations
                     b.Navigation("City");
                 });
 
+            modelBuilder.Entity("ClinicNow.Services.Database.Entities.MedicalDocument", b =>
+                {
+                    b.HasOne("ClinicNow.Services.Database.Entities.Patient", "Patient")
+                        .WithMany()
+                        .HasForeignKey("PatientId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("ClinicNow.Services.Database.Entities.User", "UploadedByUser")
+                        .WithMany()
+                        .HasForeignKey("UploadedByUserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Patient");
+
+                    b.Navigation("UploadedByUser");
+                });
+
+            modelBuilder.Entity("ClinicNow.Services.Database.Entities.MedicalRecord", b =>
+                {
+                    b.HasOne("ClinicNow.Services.Database.Entities.Patient", "Patient")
+                        .WithOne("MedicalRecord")
+                        .HasForeignKey("ClinicNow.Services.Database.Entities.MedicalRecord", "PatientId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.Navigation("Patient");
+                });
+
+            modelBuilder.Entity("ClinicNow.Services.Database.Entities.MedicalRecordEntry", b =>
+                {
+                    b.HasOne("ClinicNow.Services.Database.Entities.User", "CreatedByUser")
+                        .WithMany()
+                        .HasForeignKey("CreatedByUserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("ClinicNow.Services.Database.Entities.MedicalRecord", "MedicalRecord")
+                        .WithMany("Entries")
+                        .HasForeignKey("MedicalRecordId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("CreatedByUser");
+
+                    b.Navigation("MedicalRecord");
+                });
+
+            modelBuilder.Entity("ClinicNow.Services.Database.Entities.Notification", b =>
+                {
+                    b.HasOne("ClinicNow.Services.Database.Entities.User", "User")
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("User");
+                });
+
             modelBuilder.Entity("ClinicNow.Services.Database.Entities.Patient", b =>
                 {
                     b.HasOne("ClinicNow.Services.Database.Entities.User", "User")
@@ -1146,6 +1516,16 @@ namespace ClinicNow.Services.Database.Migrations
                     b.Navigation("ScheduleBlocks");
 
                     b.Navigation("WorkingHoursList");
+                });
+
+            modelBuilder.Entity("ClinicNow.Services.Database.Entities.MedicalRecord", b =>
+                {
+                    b.Navigation("Entries");
+                });
+
+            modelBuilder.Entity("ClinicNow.Services.Database.Entities.Patient", b =>
+                {
+                    b.Navigation("MedicalRecord");
                 });
 
             modelBuilder.Entity("ClinicNow.Services.Database.Entities.Role", b =>

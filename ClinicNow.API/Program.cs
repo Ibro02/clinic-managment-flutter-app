@@ -12,7 +12,12 @@ using ClinicNow.Services.Appointments;
 using ClinicNow.Services.Appointments.AppointmentStateMachine;
 using ClinicNow.Services.Codebooks;
 using ClinicNow.Services.Database;
+using ClinicNow.Services.Documents;
+using ClinicNow.Services.Messaging;
+using ClinicNow.Services.News;
+using ClinicNow.Services.Notifications;
 using ClinicNow.Services.People;
+using ClinicNow.Services.Records;
 using ClinicNow.Services.Security;
 using ClinicNow.Services.Users;
 using Mapster;
@@ -96,6 +101,25 @@ builder.Services.AddScoped<ConfirmedAppointmentState>();
 builder.Services.AddScoped<CompletedAppointmentState>();
 builder.Services.AddScoped<CancelledAppointmentState>();
 
+// --- Notifications, News & async email (Phase 5) -----------------------------------
+builder.Services.AddSingleton<RabbitMqPublisherConnectionProvider>();
+builder.Services.AddScoped<IEmailPublisher, RabbitMqEmailPublisher>();
+builder.Services.AddScoped<INotificationService, NotificationService>();
+builder.Services.AddScoped<ICRUDService<NewsItemDto, NewsItemSearchObject, NewsItemInsertRequest, NewsItemUpdateRequest>, NewsItemService>();
+builder.Services.AddHostedService<PreAppointmentReminderHostedService>();
+
+// --- Medical documentation (Phase 6) -----------------------------------------------
+builder.Services.AddScoped<IMedicalDocumentService, MedicalDocumentService>();
+
+// --- Medical record ("medicinski karton") ---------------------------------------
+builder.Services.AddScoped<IMedicalRecordService, MedicalRecordService>();
+
+// SignalR for real-time notification auto-refresh (rulebook Part II §G) - the JWT
+// is delivered via the `access_token` query string since browsers/WebSockets can't
+// set an Authorization header on the initial handshake (wired below, OnMessageReceived).
+builder.Services.AddSignalR();
+builder.Services.AddSingleton<Microsoft.AspNetCore.SignalR.IUserIdProvider, NotificationUserIdProvider>();
+
 // --- Controllers + centralized exception handling ------------------------------
 builder.Services.AddControllers(options =>
 {
@@ -171,6 +195,21 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
         };
         options.Events = new JwtBearerEvents
         {
+            // SignalR/WebSocket clients can't set an Authorization header on the
+            // initial handshake, so the JWT arrives via the `access_token` query
+            // string instead for hub requests specifically (never for regular API
+            // calls - AccessTokenProvider on the client only sets this for the hub
+            // connection URL).
+            OnMessageReceived = context =>
+            {
+                var accessToken = context.Request.Query["access_token"];
+                var path = context.HttpContext.Request.Path;
+                if (!string.IsNullOrEmpty(accessToken) && path.StartsWithSegments("/hubs"))
+                {
+                    context.Token = accessToken;
+                }
+                return Task.CompletedTask;
+            },
             OnTokenValidated = async context =>
             {
                 var jti = context.Principal?.FindFirstValue(System.IdentityModel.Tokens.Jwt.JwtRegisteredClaimNames.Jti);
@@ -237,6 +276,7 @@ app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapControllers();
+app.MapHub<ClinicNow.Services.Notifications.NotificationsHub>("/hubs/notifications");
 
 // Health endpoint required for every service (CLAUDE.md "Observability"). Verifies
 // real DB connectivity rather than just returning a static 200, so it's useful for

@@ -6,9 +6,12 @@ using ClinicNow.Model.Exceptions;
 using ClinicNow.Model.Requests;
 using ClinicNow.Model.SearchObjects;
 using ClinicNow.Model.Security;
+using ClinicNow.Model.Messaging;
 using ClinicNow.Services.Appointments.AppointmentStateMachine;
 using ClinicNow.Services.Database;
 using ClinicNow.Services.Database.Entities;
+using ClinicNow.Services.Messaging;
+using ClinicNow.Services.Notifications;
 using MapsterMapper;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
@@ -38,17 +41,23 @@ public class AppointmentService : IAppointmentService
     private readonly IMapper _mapper;
     private readonly IServiceProvider _serviceProvider;
     private readonly IHttpContextAccessor _httpContextAccessor;
+    private readonly INotificationService _notificationService;
+    private readonly IEmailPublisher _emailPublisher;
 
     public AppointmentService(
         ClinicNowContext context,
         IMapper mapper,
         IServiceProvider serviceProvider,
-        IHttpContextAccessor httpContextAccessor)
+        IHttpContextAccessor httpContextAccessor,
+        INotificationService notificationService,
+        IEmailPublisher emailPublisher)
     {
         _context = context;
         _mapper = mapper;
         _serviceProvider = serviceProvider;
         _httpContextAccessor = httpContextAccessor;
+        _notificationService = notificationService;
+        _emailPublisher = emailPublisher;
     }
 
     public async Task<ClinicNow.Model.Common.PagedResult<AppointmentDto>> GetPagedAsync(AppointmentSearchObject search, CancellationToken cancellationToken = default)
@@ -129,7 +138,19 @@ public class AppointmentService : IAppointmentService
             patientId, request.DoctorId, request.MedicalServiceId,
             request.StartUtc, actingUserId, cancellationToken);
 
-        return MapToDto(await ReloadAsync(appointment.Id, cancellationToken));
+        var reloaded = await ReloadAsync(appointment.Id, cancellationToken);
+
+        // Booking-event notification: the rulebook requires notifications for
+        // "all relevant events" (booking, cancellation, status change, payment),
+        // broader coverage than emails (confirm/cancel/payment only) - notify the
+        // doctor that a new appointment landed on their schedule.
+        await _notificationService.CreateAsync(
+            reloaded.Doctor.UserId,
+            "Novi termin zakazan",
+            $"Pacijent {reloaded.Patient.FirstName} {reloaded.Patient.LastName} je zakazao/la termin za {reloaded.StartUtc:dd.MM.yyyy HH:mm} UTC.",
+            cancellationToken);
+
+        return MapToDto(reloaded);
     }
 
     public async Task<AppointmentDto> ConfirmAsync(int id, CancellationToken cancellationToken = default)
@@ -146,7 +167,28 @@ public class AppointmentService : IAppointmentService
         var state = BaseAppointmentState.CreateState(appointment.Status, _serviceProvider);
         await state.ConfirmAsync(appointment, CurrentUserId(principal), cancellationToken);
 
-        return MapToDto(await ReloadAsync(appointment.Id, cancellationToken));
+        var reloaded = await ReloadAsync(appointment.Id, cancellationToken);
+
+        if (reloaded.Patient.UserId is int patientUserId)
+        {
+            await _notificationService.CreateAsync(
+                patientUserId,
+                "Termin potvrđen",
+                $"Vaš termin kod dr. {reloaded.Doctor.User.FirstName} {reloaded.Doctor.User.LastName} za {reloaded.StartUtc:dd.MM.yyyy HH:mm} UTC je potvrđen.",
+                cancellationToken);
+        }
+
+        if (reloaded.Patient.User is not null)
+        {
+            await _emailPublisher.PublishAsync(new EmailMessage
+            {
+                To = reloaded.Patient.User.Email,
+                Subject = "ClinicNow - termin potvrđen",
+                Body = $"Vaš termin kod dr. {reloaded.Doctor.User.FirstName} {reloaded.Doctor.User.LastName} za {reloaded.StartUtc:dd.MM.yyyy HH:mm} UTC je potvrđen."
+            }, cancellationToken);
+        }
+
+        return MapToDto(reloaded);
     }
 
     public async Task<AppointmentDto> CompleteAsync(int id, CancellationToken cancellationToken = default)
@@ -163,7 +205,18 @@ public class AppointmentService : IAppointmentService
         var state = BaseAppointmentState.CreateState(appointment.Status, _serviceProvider);
         await state.CompleteAsync(appointment, CurrentUserId(principal), cancellationToken);
 
-        return MapToDto(await ReloadAsync(appointment.Id, cancellationToken));
+        var reloaded = await ReloadAsync(appointment.Id, cancellationToken);
+
+        if (reloaded.Patient.UserId is int patientUserId)
+        {
+            await _notificationService.CreateAsync(
+                patientUserId,
+                "Termin završen",
+                $"Vaš termin kod dr. {reloaded.Doctor.User.FirstName} {reloaded.Doctor.User.LastName} je označen kao završen.",
+                cancellationToken);
+        }
+
+        return MapToDto(reloaded);
     }
 
     public async Task<AppointmentDto> CancelAsync(int id, AppointmentCancelRequest request, CancellationToken cancellationToken = default)
@@ -199,7 +252,36 @@ public class AppointmentService : IAppointmentService
         var state = BaseAppointmentState.CreateState(appointment.Status, _serviceProvider);
         await state.CancelAsync(appointment, actingUserId, request.Reason, enforceCutoff, cancellationToken);
 
-        return MapToDto(await ReloadAsync(appointment.Id, cancellationToken));
+        var reloaded = await ReloadAsync(appointment.Id, cancellationToken);
+
+        // Cancellation notifies both sides (rulebook Part II §G: rejection/
+        // cancellation must trigger a notification with the reason).
+        if (reloaded.Patient.UserId is int patientUserId)
+        {
+            await _notificationService.CreateAsync(
+                patientUserId,
+                "Termin otkazan",
+                $"Vaš termin kod dr. {reloaded.Doctor.User.FirstName} {reloaded.Doctor.User.LastName} za {reloaded.StartUtc:dd.MM.yyyy HH:mm} UTC je otkazan. Razlog: {request.Reason}",
+                cancellationToken);
+        }
+
+        await _notificationService.CreateAsync(
+            reloaded.Doctor.UserId,
+            "Termin otkazan",
+            $"Termin sa pacijentom {reloaded.Patient.FirstName} {reloaded.Patient.LastName} za {reloaded.StartUtc:dd.MM.yyyy HH:mm} UTC je otkazan. Razlog: {request.Reason}",
+            cancellationToken);
+
+        if (reloaded.Patient.User is not null)
+        {
+            await _emailPublisher.PublishAsync(new EmailMessage
+            {
+                To = reloaded.Patient.User.Email,
+                Subject = "ClinicNow - termin otkazan",
+                Body = $"Vaš termin kod dr. {reloaded.Doctor.User.FirstName} {reloaded.Doctor.User.LastName} za {reloaded.StartUtc:dd.MM.yyyy HH:mm} UTC je otkazan. Razlog: {request.Reason}"
+            }, cancellationToken);
+        }
+
+        return MapToDto(reloaded);
     }
 
     public async Task<List<DateTime>> GetAvailableSlotsAsync(int doctorId, int medicalServiceId, DateOnly date, CancellationToken cancellationToken = default)
@@ -261,7 +343,7 @@ public class AppointmentService : IAppointmentService
     // --- helpers -----------------------------------------------------------------
 
     private static IQueryable<Appointment> IncludeAll(IQueryable<Appointment> query) => query
-        .Include(a => a.Patient)
+        .Include(a => a.Patient).ThenInclude(p => p!.User)
         .Include(a => a.Doctor).ThenInclude(d => d.User)
         .Include(a => a.MedicalService)
         .Include(a => a.Location);

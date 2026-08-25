@@ -1,9 +1,15 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../core/auth_api.dart';
 import '../core/auth_session.dart';
+import '../providers/notification_provider.dart';
 import '../screens/appointments/my_appointments_screen.dart';
+import '../screens/documents/my_documents_screen.dart';
+import '../screens/news/news_list_screen.dart';
+import '../screens/notifications/notifications_screen.dart';
 
 /// Post-login shell for the mobile (patient) app - a bottom navigation bar
 /// plus a content area. Real destinations (browse & book, "My appointments",
@@ -26,6 +32,37 @@ class _AppShellState extends State<AppShell> {
   int _selectedIndex = 0;
   final _authApi = AuthApi();
   bool _isLoggingOut = false;
+  NotificationProvider? _notificationProvider;
+  Timer? _pollTimer;
+  int _unreadCount = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    // Deferred to didChangeDependencies-equivalent timing via a post-frame
+    // callback so `context.read<AuthSession>()` is safe to call once.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _notificationProvider = NotificationProvider(context.read<AuthSession>());
+      _refreshUnreadCount();
+      _pollTimer = Timer.periodic(const Duration(seconds: 20), (_) => _refreshUnreadCount());
+    });
+  }
+
+  @override
+  void dispose() {
+    _pollTimer?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _refreshUnreadCount() async {
+    try {
+      final count = await _notificationProvider?.getUnreadCount();
+      if (mounted && count != null) setState(() => _unreadCount = count);
+    } catch (error) {
+      // A failed background poll shouldn't surface an error - retry next tick.
+    }
+  }
 
   Future<void> _logout(BuildContext context) async {
     final session = context.read<AuthSession>();
@@ -47,6 +84,20 @@ class _AppShellState extends State<AppShell> {
         title: Text(authSession.fullName.isNotEmpty ? authSession.fullName : 'ClinicNow'),
         actions: [
           IconButton(
+            tooltip: 'Obavijesti',
+            onPressed: () async {
+              await Navigator.of(context).push(MaterialPageRoute(
+                builder: (_) => const NotificationsScreen(),
+              ));
+              _refreshUnreadCount();
+            },
+            icon: Badge(
+              label: Text('$_unreadCount'),
+              isLabelVisible: _unreadCount > 0,
+              child: const Icon(Icons.notifications_outlined),
+            ),
+          ),
+          IconButton(
             tooltip: 'Odjava',
             icon: _isLoggingOut
                 ? const SizedBox(
@@ -61,15 +112,17 @@ class _AppShellState extends State<AppShell> {
       ),
       body: switch (_selectedIndex) {
         1 => const MyAppointmentsScreen(),
-        _ => const Center(
+        2 => const MyDocumentsScreen(),
+        3 => const Center(
             child: Padding(
               padding: EdgeInsets.all(24),
               child: Text(
-                'ClinicNow — dokumentacija i preporuke dolaze u narednim fazama.',
+                'ClinicNow — preporuke i profil dolaze u narednim fazama.',
                 textAlign: TextAlign.center,
               ),
             ),
           ),
+        _ => const NewsListScreen(),
       },
       bottomNavigationBar: NavigationBar(
         selectedIndex: _selectedIndex,
@@ -85,6 +138,11 @@ class _AppShellState extends State<AppShell> {
             icon: Icon(Icons.event_available_outlined),
             selectedIcon: Icon(Icons.event_available),
             label: 'Termini',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.folder_outlined),
+            selectedIcon: Icon(Icons.folder),
+            label: 'Dokumenti',
           ),
           NavigationDestination(
             icon: Icon(Icons.person_outline),

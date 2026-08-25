@@ -29,6 +29,7 @@ dependencies:
   # flutter_localizations requires - anything else fails resolution since the
   # SDK pins this transitively.
   intl: 0.20.2
+  file_picker: ^12.1.0
 
 dev_dependencies:
   flutter_test:

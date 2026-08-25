@@ -1,3 +1,4 @@
+using ClinicNow.Model.Common;
 using ClinicNow.Services.Database.Entities;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
@@ -14,6 +15,7 @@ public class PatientConfiguration : IEntityTypeConfiguration<Patient>
         builder.Property(p => p.LastName).IsRequired().HasMaxLength(100);
         builder.Property(p => p.PersonalIdNumber).HasMaxLength(20);
         builder.Property(p => p.PhoneNumber).HasMaxLength(30);
+        builder.Property(p => p.Email).HasMaxLength(320);
         builder.Property(p => p.Address).HasMaxLength(250);
 
         builder.HasIndex(p => p.PersonalIdNumber).IsUnique().HasFilter("[PersonalIdNumber] IS NOT NULL");
@@ -37,7 +39,9 @@ public class PatientConfiguration : IEntityTypeConfiguration<Patient>
                 LastName = "Pacijentić",
                 PersonalIdNumber = "0101990175008",
                 DateOfBirth = new DateOnly(1990, 1, 1),
+                Gender = Gender.Female,
                 PhoneNumber = "+38761000004",
+                Email = "patient@clinicnow.test",
                 Address = "Ferhadija 1, Sarajevo",
                 CreatedAtUtc = SeedCreatedAtUtc,
                 IsDeleted = false
@@ -50,7 +54,9 @@ public class PatientConfiguration : IEntityTypeConfiguration<Patient>
                 LastName = "Šehić",
                 PersonalIdNumber = "1503985180012",
                 DateOfBirth = new DateOnly(1985, 3, 15),
+                Gender = Gender.Male,
                 PhoneNumber = "+38762111222",
+                Email = "amar.sehic@example.test",
                 Address = "Zmaja od Bosne 10, Sarajevo",
                 CreatedAtUtc = SeedCreatedAtUtc,
                 IsDeleted = false

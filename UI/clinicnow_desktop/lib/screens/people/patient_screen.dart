@@ -7,9 +7,12 @@ import 'package:provider/provider.dart';
 import '../../core/api_exception.dart';
 import '../../core/auth_session.dart';
 import '../../core/roles.dart';
+import '../../models/gender.dart';
 import '../../models/patient.dart';
 import '../../providers/patient_provider.dart';
 import '../../widgets/paged_codebook_table.dart';
+import 'medical_record_screen.dart';
+import 'patient_documents_screen.dart';
 
 class PatientScreen extends StatefulWidget {
   const PatientScreen({super.key});
@@ -48,7 +51,9 @@ class _PatientScreenState extends State<PatientScreen> {
                 'lastName': initial?.lastName ?? '',
                 'personalIdNumber': initial?.personalIdNumber ?? '',
                 'dateOfBirth': initial?.dateOfBirth,
+                'gender': initial?.gender,
                 'phoneNumber': initial?.phoneNumber ?? '',
+                'email': initial?.email ?? '',
                 'address': initial?.address ?? '',
               },
               child: Column(
@@ -90,10 +95,29 @@ class _PatientScreenState extends State<PatientScreen> {
                     lastDate: DateTime.now(),
                   ),
                   const SizedBox(height: 12),
+                  FormBuilderDropdown<Gender>(
+                    name: 'gender',
+                    decoration: InputDecoration(labelText: 'Spol', errorText: fieldErrors['gender']?.first),
+                    validator: FormBuilderValidators.required(errorText: 'Spol je obavezan.'),
+                    items: Gender.values
+                        .map((g) => DropdownMenuItem(value: g, child: Text(g.label)))
+                        .toList(),
+                  ),
+                  const SizedBox(height: 12),
                   FormBuilderTextField(
                     name: 'phoneNumber',
                     decoration: const InputDecoration(labelText: 'Broj telefona (opcionalno)'),
                     keyboardType: TextInputType.phone,
+                  ),
+                  const SizedBox(height: 12),
+                  FormBuilderTextField(
+                    name: 'email',
+                    decoration: InputDecoration(
+                      labelText: 'Email (opcionalno)',
+                      errorText: fieldErrors['email']?.first,
+                    ),
+                    keyboardType: TextInputType.emailAddress,
+                    validator: FormBuilderValidators.email(errorText: 'Unesite ispravnu email adresu (npr. ime@domena.com).'),
                   ),
                   const SizedBox(height: 12),
                   FormBuilderTextField(
@@ -121,8 +145,10 @@ class _PatientScreenState extends State<PatientScreen> {
                       });
 
                       final dateOfBirth = form.value['dateOfBirth'] as DateTime?;
+                      final gender = form.value['gender'] as Gender?;
                       final personalId = (form.value['personalIdNumber'] as String?)?.trim();
                       final phone = (form.value['phoneNumber'] as String?)?.trim();
+                      final email = (form.value['email'] as String?)?.trim();
                       final address = (form.value['address'] as String?)?.trim();
 
                       final request = {
@@ -132,7 +158,9 @@ class _PatientScreenState extends State<PatientScreen> {
                         'dateOfBirth': dateOfBirth == null
                             ? null
                             : '${dateOfBirth.year.toString().padLeft(4, '0')}-${dateOfBirth.month.toString().padLeft(2, '0')}-${dateOfBirth.day.toString().padLeft(2, '0')}',
+                        'gender': gender?.toInt(),
                         'phoneNumber': phone?.isEmpty == true ? null : phone,
+                        'email': email?.isEmpty == true ? null : email,
                         'address': address?.isEmpty == true ? null : address,
                       };
 
@@ -185,6 +213,22 @@ class _PatientScreenState extends State<PatientScreen> {
         DataCell(Text(patient.personalIdNumber ?? '—')),
         DataCell(Text(patient.dateOfBirth == null ? '—' : _dateFormat.format(patient.dateOfBirth!))),
         DataCell(Text(patient.phoneNumber ?? '—')),
+      ],
+      extraRowActions: (patient) => [
+        IconButton(
+          tooltip: 'Medicinski karton',
+          icon: const Icon(Icons.folder_shared_outlined),
+          onPressed: () => Navigator.of(context).push(
+            MaterialPageRoute(builder: (_) => MedicalRecordScreen(patient: patient)),
+          ),
+        ),
+        IconButton(
+          tooltip: 'Dokumenti',
+          icon: const Icon(Icons.folder_outlined),
+          onPressed: () => Navigator.of(context).push(
+            MaterialPageRoute(builder: (_) => PatientDocumentsScreen(patient: patient)),
+          ),
+        ),
       ],
       onAdd: () => _openForm(),
       onEdit: (patient) => _openForm(initial: patient),

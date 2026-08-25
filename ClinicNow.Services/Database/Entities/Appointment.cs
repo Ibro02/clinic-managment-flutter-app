@@ -44,5 +44,12 @@ public class Appointment
 
     public DateTime CreatedAtUtc { get; set; }
 
+    /// <summary>
+    /// Set once a pre-appointment reminder email/notification has been sent for
+    /// this appointment (<c>PreAppointmentReminderHostedService</c>), so the
+    /// periodic scanner never sends the same reminder twice.
+    /// </summary>
+    public DateTime? ReminderSentAtUtc { get; set; }
+
     public ICollection<AppointmentAuditLog> AuditLogs { get; set; } = [];
 }
