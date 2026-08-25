@@ -4,6 +4,7 @@ using ClinicNow.Services.Database;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -11,9 +12,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace ClinicNow.Services.Database.Migrations
 {
     [DbContext(typeof(ClinicNowContext))]
-    partial class ClinicNowContextModelSnapshot : ModelSnapshot
+    [Migration("20260825081337_AddPatientsAndDoctors")]
+    partial class AddPatientsAndDoctors
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -21,210 +24,6 @@ namespace ClinicNow.Services.Database.Migrations
                 .HasAnnotation("Relational:MaxIdentifierLength", 128);
 
             SqlServerModelBuilderExtensions.UseIdentityColumns(modelBuilder);
-
-            modelBuilder.Entity("ClinicNow.Services.Database.Entities.Appointment", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("int");
-
-                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
-
-                    b.Property<string>("CancellationReason")
-                        .HasMaxLength(500)
-                        .HasColumnType("nvarchar(500)");
-
-                    b.Property<DateTime>("CreatedAtUtc")
-                        .HasColumnType("datetime2");
-
-                    b.Property<int>("CreatedByUserId")
-                        .HasColumnType("int");
-
-                    b.Property<int>("DoctorId")
-                        .HasColumnType("int");
-
-                    b.Property<DateTime>("EndUtc")
-                        .HasColumnType("datetime2");
-
-                    b.Property<int>("LocationId")
-                        .HasColumnType("int");
-
-                    b.Property<int>("MedicalServiceId")
-                        .HasColumnType("int");
-
-                    b.Property<int>("PatientId")
-                        .HasColumnType("int");
-
-                    b.Property<DateTime>("StartUtc")
-                        .HasColumnType("datetime2");
-
-                    b.Property<int>("Status")
-                        .HasColumnType("int");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("CreatedByUserId");
-
-                    b.HasIndex("DoctorId");
-
-                    b.HasIndex("LocationId");
-
-                    b.HasIndex("MedicalServiceId");
-
-                    b.HasIndex("PatientId");
-
-                    b.HasIndex("Status");
-
-                    b.ToTable("Appointments");
-
-                    b.HasData(
-                        new
-                        {
-                            Id = 1,
-                            CreatedAtUtc = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Utc),
-                            CreatedByUserId = 2,
-                            DoctorId = 1,
-                            EndUtc = new DateTime(2026, 8, 18, 9, 30, 0, 0, DateTimeKind.Utc),
-                            LocationId = 1,
-                            MedicalServiceId = 1,
-                            PatientId = 1,
-                            StartUtc = new DateTime(2026, 8, 18, 9, 0, 0, 0, DateTimeKind.Utc),
-                            Status = 2
-                        },
-                        new
-                        {
-                            Id = 2,
-                            CancellationReason = "Pacijent se razbolio.",
-                            CreatedAtUtc = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Utc),
-                            CreatedByUserId = 2,
-                            DoctorId = 1,
-                            EndUtc = new DateTime(2026, 8, 20, 10, 30, 0, 0, DateTimeKind.Utc),
-                            LocationId = 1,
-                            MedicalServiceId = 2,
-                            PatientId = 2,
-                            StartUtc = new DateTime(2026, 8, 20, 10, 0, 0, 0, DateTimeKind.Utc),
-                            Status = 3
-                        },
-                        new
-                        {
-                            Id = 3,
-                            CreatedAtUtc = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Utc),
-                            CreatedByUserId = 4,
-                            DoctorId = 2,
-                            EndUtc = new DateTime(2026, 8, 26, 9, 45, 0, 0, DateTimeKind.Utc),
-                            LocationId = 2,
-                            MedicalServiceId = 5,
-                            PatientId = 1,
-                            StartUtc = new DateTime(2026, 8, 26, 9, 0, 0, 0, DateTimeKind.Utc),
-                            Status = 1
-                        },
-                        new
-                        {
-                            Id = 4,
-                            CreatedAtUtc = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Utc),
-                            CreatedByUserId = 2,
-                            DoctorId = 1,
-                            EndUtc = new DateTime(2026, 8, 27, 8, 30, 0, 0, DateTimeKind.Utc),
-                            LocationId = 1,
-                            MedicalServiceId = 1,
-                            PatientId = 2,
-                            StartUtc = new DateTime(2026, 8, 27, 8, 0, 0, 0, DateTimeKind.Utc),
-                            Status = 0
-                        },
-                        new
-                        {
-                            Id = 5,
-                            CreatedAtUtc = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Utc),
-                            CreatedByUserId = 4,
-                            DoctorId = 2,
-                            EndUtc = new DateTime(2026, 9, 2, 11, 15, 0, 0, DateTimeKind.Utc),
-                            LocationId = 2,
-                            MedicalServiceId = 4,
-                            PatientId = 1,
-                            StartUtc = new DateTime(2026, 9, 2, 11, 0, 0, 0, DateTimeKind.Utc),
-                            Status = 0
-                        });
-                });
-
-            modelBuilder.Entity("ClinicNow.Services.Database.Entities.AppointmentAuditLog", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("int");
-
-                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
-
-                    b.Property<int>("ActingUserId")
-                        .HasColumnType("int");
-
-                    b.Property<int>("AppointmentId")
-                        .HasColumnType("int");
-
-                    b.Property<string>("Description")
-                        .HasMaxLength(500)
-                        .HasColumnType("nvarchar(500)");
-
-                    b.Property<DateTime>("OccurredAtUtc")
-                        .HasColumnType("datetime2");
-
-                    b.Property<int>("Status")
-                        .HasColumnType("int");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("ActingUserId");
-
-                    b.HasIndex("AppointmentId");
-
-                    b.ToTable("AppointmentAuditLogs");
-
-                    b.HasData(
-                        new
-                        {
-                            Id = 1,
-                            ActingUserId = 2,
-                            AppointmentId = 1,
-                            Description = "Termin završen.",
-                            OccurredAtUtc = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Utc),
-                            Status = 2
-                        },
-                        new
-                        {
-                            Id = 2,
-                            ActingUserId = 2,
-                            AppointmentId = 2,
-                            Description = "Pacijent se razbolio.",
-                            OccurredAtUtc = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Utc),
-                            Status = 3
-                        },
-                        new
-                        {
-                            Id = 3,
-                            ActingUserId = 4,
-                            AppointmentId = 3,
-                            Description = "Termin potvrđen.",
-                            OccurredAtUtc = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Utc),
-                            Status = 1
-                        },
-                        new
-                        {
-                            Id = 4,
-                            ActingUserId = 2,
-                            AppointmentId = 4,
-                            Description = "Termin zakazan.",
-                            OccurredAtUtc = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Utc),
-                            Status = 0
-                        },
-                        new
-                        {
-                            Id = 5,
-                            ActingUserId = 4,
-                            AppointmentId = 5,
-                            Description = "Termin zakazan.",
-                            OccurredAtUtc = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Utc),
-                            Status = 0
-                        });
-                });
 
             modelBuilder.Entity("ClinicNow.Services.Database.Entities.City", b =>
                 {
@@ -293,15 +92,10 @@ namespace ClinicNow.Services.Database.Migrations
                         .HasMaxLength(50)
                         .HasColumnType("nvarchar(50)");
 
-                    b.Property<int>("LocationId")
-                        .HasColumnType("int");
-
                     b.Property<int>("UserId")
                         .HasColumnType("int");
 
                     b.HasKey("Id");
-
-                    b.HasIndex("LocationId");
 
                     b.HasIndex("UserId")
                         .IsUnique();
@@ -315,7 +109,6 @@ namespace ClinicNow.Services.Database.Migrations
                             Bio = "Doktor opće medicine sa 10 godina iskustva.",
                             CreatedAtUtc = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Utc),
                             LicenseNumber = "LKB-10023",
-                            LocationId = 1,
                             UserId = 3
                         },
                         new
@@ -324,7 +117,6 @@ namespace ClinicNow.Services.Database.Migrations
                             Bio = "Specijalista kardiologije.",
                             CreatedAtUtc = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Utc),
                             LicenseNumber = "LKB-10087",
-                            LocationId = 2,
                             UserId = 5
                         });
                 });
@@ -968,82 +760,13 @@ namespace ClinicNow.Services.Database.Migrations
                         });
                 });
 
-            modelBuilder.Entity("ClinicNow.Services.Database.Entities.Appointment", b =>
-                {
-                    b.HasOne("ClinicNow.Services.Database.Entities.User", "CreatedByUser")
-                        .WithMany()
-                        .HasForeignKey("CreatedByUserId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.HasOne("ClinicNow.Services.Database.Entities.Doctor", "Doctor")
-                        .WithMany()
-                        .HasForeignKey("DoctorId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.HasOne("ClinicNow.Services.Database.Entities.Location", "Location")
-                        .WithMany()
-                        .HasForeignKey("LocationId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.HasOne("ClinicNow.Services.Database.Entities.MedicalService", "MedicalService")
-                        .WithMany()
-                        .HasForeignKey("MedicalServiceId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.HasOne("ClinicNow.Services.Database.Entities.Patient", "Patient")
-                        .WithMany()
-                        .HasForeignKey("PatientId")
-                        .OnDelete(DeleteBehavior.Restrict);
-
-                    b.Navigation("CreatedByUser");
-
-                    b.Navigation("Doctor");
-
-                    b.Navigation("Location");
-
-                    b.Navigation("MedicalService");
-
-                    b.Navigation("Patient");
-                });
-
-            modelBuilder.Entity("ClinicNow.Services.Database.Entities.AppointmentAuditLog", b =>
-                {
-                    b.HasOne("ClinicNow.Services.Database.Entities.User", "ActingUser")
-                        .WithMany()
-                        .HasForeignKey("ActingUserId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.HasOne("ClinicNow.Services.Database.Entities.Appointment", "Appointment")
-                        .WithMany("AuditLogs")
-                        .HasForeignKey("AppointmentId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("ActingUser");
-
-                    b.Navigation("Appointment");
-                });
-
             modelBuilder.Entity("ClinicNow.Services.Database.Entities.Doctor", b =>
                 {
-                    b.HasOne("ClinicNow.Services.Database.Entities.Location", "Location")
-                        .WithMany()
-                        .HasForeignKey("LocationId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
                     b.HasOne("ClinicNow.Services.Database.Entities.User", "User")
                         .WithMany()
                         .HasForeignKey("UserId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
-
-                    b.Navigation("Location");
 
                     b.Navigation("User");
                 });
@@ -1127,11 +850,6 @@ namespace ClinicNow.Services.Database.Migrations
                         .IsRequired();
 
                     b.Navigation("Doctor");
-                });
-
-            modelBuilder.Entity("ClinicNow.Services.Database.Entities.Appointment", b =>
-                {
-                    b.Navigation("AuditLogs");
                 });
 
             modelBuilder.Entity("ClinicNow.Services.Database.Entities.City", b =>

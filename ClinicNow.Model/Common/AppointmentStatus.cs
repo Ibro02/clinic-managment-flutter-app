@@ -17,3 +17,16 @@ public enum AppointmentStatus
     Completed = 2,
     Cancelled = 3
 }
+
+public static class AppointmentStatusExtensions
+{
+    /// <summary>Bosnian display label - a pure function so it's usable from both Mapster mapping configs and services without any DI.</summary>
+    public static string ToDisplayName(this AppointmentStatus status) => status switch
+    {
+        AppointmentStatus.Pending => "Na čekanju",
+        AppointmentStatus.Confirmed => "Potvrđen",
+        AppointmentStatus.Completed => "Završen",
+        AppointmentStatus.Cancelled => "Otkazan",
+        _ => status.ToString()
+    };
+}

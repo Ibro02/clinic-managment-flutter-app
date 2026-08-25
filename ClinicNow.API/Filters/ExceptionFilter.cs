@@ -36,6 +36,7 @@ public class ExceptionFilter : ExceptionFilterAttribute
             BusinessException business => (HttpStatusCode.BadRequest, SingleError(business.Message)),
             NotFoundException notFound => (HttpStatusCode.NotFound, SingleError(notFound.Message)),
             ForbiddenException forbidden => (HttpStatusCode.Forbidden, SingleError(forbidden.Message)),
+            AuthenticationException authentication => (HttpStatusCode.Unauthorized, SingleError(authentication.Message)),
             _ => (HttpStatusCode.InternalServerError, SingleError(GenericServerErrorMessage))
         };
 
