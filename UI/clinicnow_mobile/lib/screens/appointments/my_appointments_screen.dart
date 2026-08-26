@@ -80,6 +80,13 @@ class _MyAppointmentsScreenState extends State<MyAppointmentsScreen> {
         _ => Colors.grey,
       };
 
+  // Status 1 (Confirmed) uses colorScheme.tertiary as its background, which is
+  // a pale tone in dark mode - white icons/text on it are illegible, so it
+  // needs onTertiary instead. Every other status is a fixed Material mid-tone
+  // that stays legible with white in both themes.
+  Color _statusForegroundColor(BuildContext context, int status) =>
+      status == 1 ? Theme.of(context).colorScheme.onTertiary : Colors.white;
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -106,7 +113,7 @@ class _MyAppointmentsScreenState extends State<MyAppointmentsScreen> {
                           return ListTile(
                             leading: CircleAvatar(
                               backgroundColor: _statusColor(context, appointment.status),
-                              child: const Icon(Icons.event, color: Colors.white),
+                              child: Icon(Icons.event, color: _statusForegroundColor(context, appointment.status)),
                             ),
                             title: Text('${appointment.doctorName} — ${appointment.medicalServiceName}'),
                             subtitle: Text('${_dateTimeFormat.format(appointment.startUtc)} · ${appointment.locationName}'),

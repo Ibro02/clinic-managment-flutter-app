@@ -47,6 +47,13 @@ class _AppointmentDetailScreenState extends State<AppointmentDetailScreen> {
         _ => Colors.grey,
       };
 
+  // Status 1 (Confirmed) uses colorScheme.tertiary as its background, which is
+  // a pale tone in dark mode - white text on it is illegible, so it needs
+  // onTertiary instead. Every other status is a fixed Material mid-tone that
+  // stays legible with white text in both themes.
+  Color _statusForegroundColor(BuildContext context, int status) =>
+      status == 1 ? Theme.of(context).colorScheme.onTertiary : Colors.white;
+
   Future<void> _cancel() async {
     final reasonController = TextEditingController();
     String? reasonError;
@@ -141,7 +148,10 @@ class _AppointmentDetailScreenState extends State<AppointmentDetailScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Chip(
-              label: Text(_appointment.statusName, style: const TextStyle(color: Colors.white)),
+              label: Text(
+                _appointment.statusName,
+                style: TextStyle(color: _statusForegroundColor(context, _appointment.status)),
+              ),
               backgroundColor: _statusColor(context, _appointment.status),
             ),
             const SizedBox(height: 16),

@@ -328,6 +328,13 @@ class _AppointmentScreenState extends State<AppointmentScreen> {
         _ => Colors.grey,
       };
 
+  // Status 1 (Confirmed) uses colorScheme.tertiary as its background, which is
+  // a pale tone in dark mode - white text on it is illegible, so it needs
+  // onTertiary instead. Every other status is a fixed Material mid-tone that
+  // stays legible with white text in both themes.
+  Color _statusForegroundColor(BuildContext context, int status) =>
+      status == 1 ? Theme.of(context).colorScheme.onTertiary : Colors.white;
+
   /// Backend `PaymentStatusExtensions.ToDisplayName(PartiallyRefunded)` - the
   /// appointment DTO carries the payment status only as its display name, so
   /// this is the one value the color mapping below has to recognise by text.
@@ -407,7 +414,7 @@ class _AppointmentScreenState extends State<AppointmentScreen> {
                               mainAxisSize: MainAxisSize.min,
                               children: [
                                 Text(d.fullName),
-                                Text(d.locationName, style: TextStyle(fontSize: 12, color: clinicColor(d.locationId))),
+                                Text(d.locationName, style: TextStyle(fontSize: 12, color: clinicColor(d.locationId, Theme.of(context).brightness))),
                               ],
                             ),
                           ),
@@ -469,7 +476,10 @@ class _AppointmentScreenState extends State<AppointmentScreen> {
                                 DataCell(Text(appointment.medicalServiceName)),
                                 DataCell(Text(appointment.locationName)),
                                 DataCell(Chip(
-                                  label: Text(appointment.statusName, style: const TextStyle(color: Colors.white, fontSize: 12)),
+                                  label: Text(
+                                    appointment.statusName,
+                                    style: TextStyle(color: _statusForegroundColor(context, appointment.status), fontSize: 12),
+                                  ),
                                   backgroundColor: _statusColor(context, appointment.status),
                                   visualDensity: VisualDensity.compact,
                                   padding: EdgeInsets.zero,

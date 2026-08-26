@@ -417,7 +417,7 @@ class _DoctorOption extends StatelessWidget {
         Text('${doctor.fullName}${doctor.specializations.isNotEmpty ? ' (${doctor.specializations.join(', ')})' : ''}'),
         Text(
           doctor.locationName,
-          style: TextStyle(fontSize: 12, color: clinicColor(doctor.locationId)),
+          style: TextStyle(fontSize: 12, color: clinicColor(doctor.locationId, Theme.of(context).brightness)),
         ),
       ],
     );
