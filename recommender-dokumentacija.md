@@ -135,9 +135,32 @@ w(h) = frequencyFactor(h) · recencyFactor(h)
 recencyFactor(h) = 1 / (1 + daysSinceAppointment(h) / 30)
 ```
 
-Time nedavni i češće birani obrasci imaju veći uticaj. Kandidati koji odgovaraju terminima koje je
-pacijent već obavio isključuju se iz preporuke. Rezultati se sortiraju opadajuće po `score(c)` i
-uzima se **Top-N** (podrazumijevano `N = 5`).
+Time nedavni i češće birani obrasci imaju veći uticaj. Kandidati koji odgovaraju terminima koje
+pacijent već ima rezervisane (status `Pending`/`Confirmed`) isključuju se iz preporuke - ne nudi se
+ponovo isti termin koji je već zakazan; već završeni (`Completed`) termini ostaju validni kandidati,
+jer upravo oni najčešće grade profil za buduće preporuke. Rezultati se sortiraju opadajuće po
+`score(c)` i uzima se **Top-N** (podrazumijevano `N = 5`).
+
+### 5.3. Preciziranje `frequencyFactor` i doprinosa interakcija
+
+`frequencyFactor(h)` iz poglavlja 5.2 definisan je kao broj ponavljanja iste
+kombinacije **(doktor, usluga)** unutar historije pacijenta `H` - pacijent
+koji je istom doktoru/usluzi dolazio više puta dobija veći uticaj tog
+obrasca na rangiranje.
+
+Stavke iz `RecommenderInteraction` (poglavlje 3, red "Interakcije") ulaze u
+`H` kao dodatne, slabije ponderisane stavke - **baznom težinom 0.4** u
+odnosu na obavljen termin (`w(i) = 0.4 · frequencyFactor(i) · recencyFactor(i)`,
+ista formula skorašnjosti kao za termine), gdje je `frequencyFactor(i)` broj
+ponavljanja iste kombinacije (`InteractionType`, doktor, usluga) unutar
+posljednjih 180 dana. Time je zadovoljen zahtjev da se **svaki** prikupljeni
+signal zaista koristi u bodovanju (poglavlje 3), a ne samo evidentira.
+
+Kandidati (poglavlje 5.2's `C`) traže se kao najraniji stvarno slobodan
+termin za svaki par (doktor, usluga) unutar konfigurabilnog prozora
+(`RECOMMENDER_CANDIDATE_LOOKAHEAD_DAYS`, podrazumijevano 14 dana) - ograničeno
+po dizajnu na obim demonstracionog kataloga (nekoliko doktora/usluga), u
+skladu sa obimom seminarskog rada.
 
 ---
 
@@ -181,8 +204,8 @@ učitani model) dijele se na nivou aplikacije uz odgovarajuće keširanje.
   **uvijek preuzima iz JWT tokena**, nikada iz rute ili tijela zahtjeva.
 - **Servisni sloj:** `IRecommenderService` → `RecommenderService`; kontroler ne sadrži poslovnu
   logiku niti direktno pristupa bazi.
-- **Mobilna aplikacija:** preporuke se prikazuju na **početnom ekranu** i u **toku zakazivanja**
-  termina (prijedlozi slobodnih termina uz obrazloženje).
+- **Mobilna aplikacija:** preporuke se prikazuju na zasebnom tabu **„Preporuke“** i u **toku
+  zakazivanja** termina (prijedlozi slobodnih termina uz obrazloženje).
 - **Podaci za rangiranje** dolaze isključivo iz baze (historija termina, katalog usluga/doktora,
   interakcije), čime je zadovoljen zahtjev da ulazni signali budu stvarni.
 
@@ -193,7 +216,7 @@ učitani model) dijele se na nivou aplikacije uz odgovarajuće keširanje.
 - **Novi pacijent bez historije** → popularity-based fallback (poglavlje 2.2).
 - **Nema dostupnih slobodnih termina** → prazna lista uz jasnu poruku, bez greške.
 - **Nedovoljno usluga u katalogu** → sistem vraća najbliže dostupne, bez pada.
-- **Svi kandidati već obavljeni** → isključuju se; ako nema novih, koristi se popularnost.
+- **Svi kandidati koje pacijent već ima rezervisane** → isključuju se; ako nema novih, koristi se popularnost.
 
 ---
 

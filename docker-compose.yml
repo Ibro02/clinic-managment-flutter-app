@@ -66,6 +66,10 @@ services:
       - RABBITMQ_PORT=5672
       - ASPNETCORE_ENVIRONMENT=Development
       - ASPNETCORE_URLS=http://+:5203
+      # .env's relative default resolves against the container's WORKDIR
+      # (/app), which the non-root "app" user cannot write to. Dockerfile.api
+      # creates /app/models owned by that user for exactly this file.
+      - RECOMMENDER_MODEL_PATH=/app/models/recommender-model.zip
     ports:
       - "5203:5203"
     depends_on:

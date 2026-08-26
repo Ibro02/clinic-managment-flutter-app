@@ -24,6 +24,12 @@ FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS runtime
 WORKDIR /app
 COPY --from=build /app .
 
+# /app and everything copied into it is owned by root, so the non-root "app"
+# user below cannot write there. The recommender serializes its trained ML.NET
+# model to disk (RECOMMENDER_MODEL_PATH), so give it one directory it actually
+# owns; docker-compose.yml points RECOMMENDER_MODEL_PATH at this directory.
+RUN mkdir -p /app/models && chown app:app /app/models
+
 # Run as the non-root "app" user built into the official .NET runtime images
 # (CLAUDE.md "Security & Secrets": least-privilege by default).
 USER app

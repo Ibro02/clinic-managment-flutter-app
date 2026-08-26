@@ -24,10 +24,13 @@ public class RecommenderOptions : EnvOptionsBase
 
     public RecommenderOptions()
     {
-        TopN = GetOrDefault("RECOMMENDER_TOP_N", 5);
+        // Clamped: TopN = 0 would make every response empty, and a
+        // retrain interval of 0 (or negative) would make the cache TTL
+        // non-positive, retraining the model on every single request.
+        TopN = Math.Max(1, GetOrDefault("RECOMMENDER_TOP_N", 5));
         PopularityWindowDays = GetOrDefault("RECOMMENDER_POPULARITY_WINDOW_DAYS", 90);
         CandidateLookaheadDays = GetOrDefault("RECOMMENDER_CANDIDATE_LOOKAHEAD_DAYS", 14);
         ModelPath = GetOrDefault("RECOMMENDER_MODEL_PATH", "recommender-model.zip");
-        RetrainIntervalMinutes = GetOrDefault("RECOMMENDER_RETRAIN_INTERVAL_MINUTES", 30);
+        RetrainIntervalMinutes = Math.Max(1, GetOrDefault("RECOMMENDER_RETRAIN_INTERVAL_MINUTES", 30));
     }
 }

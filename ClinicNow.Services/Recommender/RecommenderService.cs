@@ -47,6 +47,14 @@ public class RecommenderService : IRecommenderService
     {
         ArgumentNullException.ThrowIfNull(request);
 
+        if (!Enum.IsDefined(typeof(InteractionType), request.Type))
+        {
+            // Model binding happily turns any int into an InteractionType, so
+            // without this an undefined value (e.g. `{"type": 99}`) would be
+            // persisted and then silently never match any scoring branch.
+            throw new ValidationException("type", "Nepoznat tip interakcije.");
+        }
+
         if (request.DoctorId is null && request.MedicalServiceId is null)
         {
             // A row with neither can never be turned into a feature row (see
@@ -185,10 +193,18 @@ public class RecommenderService : IRecommenderService
     /// double-checked locking, so a cache-miss stampede produces exactly one
     /// train-or-load and every other racer reuses its result rather than
     /// racing it to write the model file.
+    ///
+    /// Only the <see cref="ITransformer"/> is cached, never the
+    /// <see cref="MLContext"/> that produced it: <c>MLContext</c> is not
+    /// thread-safe for concurrent operations, so a shared instance driving
+    /// every concurrent request's featurization would be a data race. A
+    /// transformer does not depend on its originating context - any
+    /// <c>MLContext</c> can drive <c>Transform</c> - so callers create a cheap
+    /// per-request one instead (see <see cref="GetRecommendationsAsync"/>).
     /// </summary>
-    private async Task<(MLContext MlContext, ITransformer Model)> GetOrTrainModelAsync(CancellationToken cancellationToken)
+    private async Task<ITransformer> GetOrTrainModelAsync(CancellationToken cancellationToken)
     {
-        if (_cache.TryGetValue(ModelCacheKey, out (MLContext MlContext, ITransformer Model) cached))
+        if (_cache.TryGetValue(ModelCacheKey, out ITransformer? cached) && cached is not null)
         {
             return cached;
         }
@@ -200,7 +216,7 @@ public class RecommenderService : IRecommenderService
             // trained/loaded and repopulated the cache while this caller was
             // waiting. Reuse that instead of doing the work (and the file
             // write) all over again.
-            if (_cache.TryGetValue(ModelCacheKey, out (MLContext MlContext, ITransformer Model) cachedAfterWait))
+            if (_cache.TryGetValue(ModelCacheKey, out ITransformer? cachedAfterWait) && cachedAfterWait is not null)
             {
                 return cachedAfterWait;
             }
@@ -232,8 +248,8 @@ public class RecommenderService : IRecommenderService
                 model = await TrainAndSaveAsync(mlContext, cancellationToken);
             }
 
-            _cache.Set(ModelCacheKey, (mlContext, model), TimeSpan.FromMinutes(_options.RetrainIntervalMinutes));
-            return (mlContext, model);
+            _cache.Set(ModelCacheKey, model, TimeSpan.FromMinutes(_options.RetrainIntervalMinutes));
+            return model;
         }
         finally
         {
@@ -273,13 +289,25 @@ public class RecommenderService : IRecommenderService
         var pipeline = BuildPipeline(mlContext);
         var model = pipeline.Fit(trainingData);
 
-        var directory = Path.GetDirectoryName(Path.GetFullPath(_options.ModelPath));
-        if (!string.IsNullOrEmpty(directory))
+        // Persisting is an optimization, never a precondition: the freshly
+        // trained model is cached in IMemoryCache regardless. A read-only
+        // volume, a directory the process user cannot write to, or a locked
+        // file must degrade to "serve from memory, retrain next TTL" rather
+        // than 500 the whole recommendation endpoint.
+        try
         {
-            Directory.CreateDirectory(directory);
+            var directory = Path.GetDirectoryName(Path.GetFullPath(_options.ModelPath));
+            if (!string.IsNullOrEmpty(directory))
+            {
+                Directory.CreateDirectory(directory);
+            }
+            mlContext.Model.Save(model, trainingData.Schema, _options.ModelPath);
+            _logger.LogInformation("Recommender model trained on {Count} catalog rows and saved to {Path}.", catalogRows.Count, _options.ModelPath);
         }
-        mlContext.Model.Save(model, trainingData.Schema, _options.ModelPath);
-        _logger.LogInformation("Recommender model trained on {Count} catalog rows and saved to {Path}.", catalogRows.Count, _options.ModelPath);
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Recommender model trained on {Count} catalog rows but could not be persisted to {Path} - continuing with the in-memory model only.", catalogRows.Count, _options.ModelPath);
+        }
 
         return model;
     }
@@ -434,7 +462,9 @@ public class RecommenderService : IRecommenderService
                     var slots = await _appointmentService.GetAvailableSlotsAsync(doctor.Id, service.Id, date, cancellationToken);
                     if (slots.Count > 0)
                     {
-                        candidates.Add((doctor, service, slots[0]));
+                        // Earliest slot, not merely the first returned -
+                        // GetAvailableSlotsAsync does not promise ordering.
+                        candidates.Add((doctor, service, slots.Min()));
                         break;
                     }
                 }
@@ -457,6 +487,22 @@ public class RecommenderService : IRecommenderService
             .Take(_options.TopN)
             .ToListAsync(cancellationToken);
 
+        if (popular.Count == 0)
+        {
+            // Nothing booked inside the window - most often a freshly migrated
+            // database whose seeded appointments predate it. Returning an empty
+            // list here would defeat the entire point of the fallback (this is
+            // the cold-start path), so widen to all-time most-booked pairs
+            // before giving up.
+            popular = await _context.Appointments
+                .Where(a => a.Status != Model.Common.AppointmentStatus.Cancelled)
+                .GroupBy(a => new { a.DoctorId, a.MedicalServiceId })
+                .Select(g => new { g.Key.DoctorId, g.Key.MedicalServiceId, Count = g.Count() })
+                .OrderByDescending(g => g.Count)
+                .Take(_options.TopN)
+                .ToListAsync(cancellationToken);
+        }
+
         var doctors = await _context.Doctors.Include(d => d.User).Include(d => d.Location)
             .Include(d => d.DoctorSpecializations).ThenInclude(ds => ds.Specialization)
             .ToDictionaryAsync(d => d.Id, cancellationToken);
@@ -477,7 +523,10 @@ public class RecommenderService : IRecommenderService
             for (var offset = 0; offset < _options.CandidateLookaheadDays; offset++)
             {
                 var slots = await _appointmentService.GetAvailableSlotsAsync(doctor.Id, service.Id, DateOnly.FromDateTime(nowUtc.AddDays(offset)), cancellationToken);
-                if (slots.Count > 0) { suggestedStart = slots[0]; break; }
+                // GetAvailableSlotsAsync appends per working-hours window and
+                // does not promise an ordered list, so take the minimum rather
+                // than the first element - the DTO promises the earliest slot.
+                if (slots.Count > 0) { suggestedStart = slots.Min(); break; }
             }
             if (suggestedStart is null) continue;
 
@@ -493,7 +542,7 @@ public class RecommenderService : IRecommenderService
                 LocationName = doctor.Location.Name,
                 SuggestedStartUtc = suggestedStart.Value,
                 Score = 0,
-                Reason = $"Popularno ove sedmice: {service.Name} je jedan od najčešće zakazivanih usluga.",
+                Reason = $"Popularno u posljednje vrijeme: {service.Name} je jedna od najčešće zakazivanih usluga.",
                 IsPopularityFallback = true
             });
         }
@@ -526,7 +575,13 @@ public class RecommenderService : IRecommenderService
             return await GetPopularityFallbackAsync(patientId, nowUtc, cancellationToken);
         }
 
-        var (mlContext, model) = await GetOrTrainModelAsync(cancellationToken);
+        var model = await GetOrTrainModelAsync(cancellationToken);
+
+        // MLContext is not thread-safe for concurrent operations, so this
+        // request gets its own throwaway instance to drive featurization
+        // rather than sharing the cached model's originating context with
+        // every other in-flight request. Constructing one is cheap.
+        var mlContext = new MLContext(seed: 0);
 
         var historyRows = history.Select(h => h.Features).ToList();
         var candidateRows = candidates.Select(c => BuildFeatureRow(c.Doctor, c.MedicalService, c.StartUtc)).ToList();

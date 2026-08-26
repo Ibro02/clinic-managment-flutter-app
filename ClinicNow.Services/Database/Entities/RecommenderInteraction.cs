@@ -9,10 +9,12 @@ namespace ClinicNow.Services.Database.Entities;
 /// toward the ≥10 non-reference tables (rulebook Part II §A).
 ///
 /// <see cref="DoctorId"/>/<see cref="MedicalServiceId"/> are both nullable
-/// because a single interaction only ever concerns one of the two (a
-/// <see cref="Model.Common.InteractionType.DoctorView"/> row has no
-/// service; a <see cref="Model.Common.InteractionType.MedicalServiceView"/>
-/// row has no doctor) - but never both null, enforced in
+/// because which of the two a row carries depends on the interaction type: a
+/// <see cref="Model.Common.InteractionType.DoctorView"/> row carries exactly
+/// the doctor and a <see cref="Model.Common.InteractionType.MedicalServiceView"/>
+/// row exactly the service, while a <see cref="Model.Common.InteractionType.Search"/>
+/// row may legitimately carry both at once (a search term that matched a
+/// doctor *and* a service). Never both null, though - enforced in
 /// <c>RecommenderService.LogInteractionAsync</c>, since a row with neither
 /// can never feed into scoring (see RecommenderService.BuildInteractionHistoryRows).
 /// </summary>

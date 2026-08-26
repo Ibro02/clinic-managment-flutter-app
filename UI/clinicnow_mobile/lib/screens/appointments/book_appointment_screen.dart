@@ -70,7 +70,14 @@ class _BookAppointmentScreenState extends State<BookAppointmentScreen> {
     _serviceProvider = MedicalServiceProvider(authSession);
     _recommendationProvider = RecommendationProvider(authSession);
     _loadOptions();
-    _loadTopRecommendation();
+    // The "Preporučeno" banner exists to surface a recommendation to someone
+    // who arrived here without one. When the screen was pre-filled from a
+    // recommendation card (or a search result), the user already has that
+    // data, so re-running the server-side candidate scoring just to render
+    // the banner is wasted work.
+    if (widget.initialDoctorId == null) {
+      _loadTopRecommendation();
+    }
   }
 
   Future<void> _loadOptions() async {
