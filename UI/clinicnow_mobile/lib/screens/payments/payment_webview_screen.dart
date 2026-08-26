@@ -22,6 +22,15 @@ class _PaymentWebViewScreenState extends State<PaymentWebViewScreen> {
 
   late final WebViewController _controller;
 
+  /// PayPal's redirect chain can trigger `onNavigationRequest` more than once
+  /// for the same sentinel URL (an intermediate redirect hop, a reload, a
+  /// duplicate frame event before the WebView is actually torn down). Without
+  /// this guard a second call would run `Navigator.of(context)` against a
+  /// context the first `pop()` already deactivated, throwing from inside a
+  /// raw navigation callback that nothing else in the app wraps in a
+  /// try/catch.
+  bool _resultHandled = false;
+
   @override
   void initState() {
     super.initState();
@@ -30,10 +39,16 @@ class _PaymentWebViewScreenState extends State<PaymentWebViewScreen> {
       ..setNavigationDelegate(NavigationDelegate(
         onNavigationRequest: (request) {
           if (request.url.startsWith(_returnUrlPrefix)) {
+            if (_resultHandled) return NavigationDecision.prevent;
+            if (!mounted) return NavigationDecision.prevent;
+            _resultHandled = true;
             Navigator.of(context).pop(true);
             return NavigationDecision.prevent;
           }
           if (request.url.startsWith(_cancelUrlPrefix)) {
+            if (_resultHandled) return NavigationDecision.prevent;
+            if (!mounted) return NavigationDecision.prevent;
+            _resultHandled = true;
             Navigator.of(context).pop(false);
             return NavigationDecision.prevent;
           }
