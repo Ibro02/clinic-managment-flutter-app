@@ -20,6 +20,7 @@ using ClinicNow.Services.Payments;
 using ClinicNow.Services.People;
 using ClinicNow.Services.Records;
 using ClinicNow.Services.Recommender;
+using ClinicNow.Services.Reports;
 using ClinicNow.Services.Security;
 using ClinicNow.Services.Users;
 using Mapster;
@@ -29,6 +30,7 @@ using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
+using QuestPDF.Infrastructure;
 using Scalar.AspNetCore;
 
 // Load .env before anything else reads configuration. TraversePath() walks up from
@@ -124,6 +126,13 @@ builder.Services.AddScoped<IRecommenderService, RecommenderService>();
 // --- Payments (Phase 8) -----------------------------------------------------------
 builder.Services.AddScoped<IPayPalClient, PayPalClient>();
 builder.Services.AddScoped<IPaymentService, PaymentService>();
+
+// --- Reports & Dashboard (Phase 9) ------------------------------------------------
+// QuestPDF requires its license accepted exactly once per process before the
+// first GeneratePdf() call - Community is the free tier and fits this project.
+QuestPDF.Settings.License = LicenseType.Community;
+builder.Services.AddScoped<IDashboardService, DashboardService>();
+builder.Services.AddScoped<IReportPdfService, ReportPdfService>();
 
 // SignalR for real-time notification auto-refresh (rulebook Part II §G) - the JWT
 // is delivered via the `access_token` query string since browsers/WebSockets can't
