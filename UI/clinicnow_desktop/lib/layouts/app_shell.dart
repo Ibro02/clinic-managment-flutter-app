@@ -6,6 +6,7 @@ import '../core/auth_session.dart';
 import '../core/roles.dart';
 import '../screens/appointments/appointment_screen.dart';
 import '../screens/codebooks/codebooks_screen.dart';
+import '../screens/dashboard/dashboard_screen.dart';
 import '../screens/news/news_screen.dart';
 import '../screens/people/doctor_screen.dart';
 import '../screens/people/patient_screen.dart';
@@ -61,18 +62,21 @@ class _AppShellState extends State<AppShell> {
     // independently enforces the same boundaries on every write endpoint
     // regardless of what the nav rail shows.
     final canManageCodebooks = authSession.hasRole(Roles.administrator) || authSession.hasRole(Roles.staff);
+    // Same condition as canManageCodebooks today, named separately because the
+    // two visibility rules (dashboard/reports vs. codebook CRUD) are
+    // independent business decisions that happen to currently coincide.
+    final canViewReports = authSession.hasRole(Roles.administrator) || authSession.hasRole(Roles.staff);
 
     final entries = <_NavEntry>[
-      _NavEntry(
-        destination: const NavigationRailDestination(
-          icon: Icon(Icons.dashboard_outlined),
-          selectedIcon: Icon(Icons.dashboard),
-          label: Text('Početna'),
+      if (canViewReports)
+        _NavEntry(
+          destination: const NavigationRailDestination(
+            icon: Icon(Icons.dashboard_outlined),
+            selectedIcon: Icon(Icons.dashboard),
+            label: Text('Početna'),
+          ),
+          builder: (_) => const DashboardScreen(),
         ),
-        builder: (_) => const Center(
-          child: Text('ClinicNow — dashboard i moduli dolaze u narednim fazama.'),
-        ),
-      ),
       _NavEntry(
         destination: const NavigationRailDestination(
           icon: Icon(Icons.people_outline),
