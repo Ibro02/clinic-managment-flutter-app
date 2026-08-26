@@ -10,6 +10,7 @@ import '../screens/dashboard/dashboard_screen.dart';
 import '../screens/news/news_screen.dart';
 import '../screens/people/doctor_screen.dart';
 import '../screens/people/patient_screen.dart';
+import '../screens/reports/reports_screen.dart';
 import '../widgets/notifications_bell.dart';
 
 /// Post-login shell for the desktop (staff) app - a persistent side
@@ -101,6 +102,15 @@ class _AppShellState extends State<AppShell> {
         ),
         builder: (_) => const AppointmentScreen(),
       ),
+      if (canViewReports)
+        _NavEntry(
+          destination: const NavigationRailDestination(
+            icon: Icon(Icons.bar_chart_outlined),
+            selectedIcon: Icon(Icons.bar_chart),
+            label: Text('Izvještaji'),
+          ),
+          builder: (_) => const ReportsScreen(),
+        ),
       if (canManageCodebooks)
         _NavEntry(
           destination: const NavigationRailDestination(
