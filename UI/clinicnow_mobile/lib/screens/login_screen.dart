@@ -48,8 +48,10 @@ class _LoginScreenState extends State<LoginScreen> {
       final isAllowed = result.roles.any(_kAllowedMobileRoles.contains);
       if (!isAllowed) {
         await _authApi.logout(result.accessToken);
-        setState(() => _errorMessage =
-            'Ovaj nalog nema pristup mobilnoj aplikaciji. Osoblje se prijavljuje kroz desktop aplikaciju.');
+        setState(
+          () => _errorMessage =
+              'Ovaj nalog nema pristup mobilnoj aplikaciji. Osoblje se prijavljuje kroz desktop aplikaciju.',
+        );
         return;
       }
 
@@ -58,8 +60,10 @@ class _LoginScreenState extends State<LoginScreen> {
     } on ApiException catch (e) {
       setState(() => _errorMessage = e.message);
     } catch (_) {
-      setState(() =>
-          _errorMessage = 'Neočekivana greška. Provjerite internetsku vezu.');
+      setState(
+        () =>
+            _errorMessage = 'Neočekivana greška. Provjerite internetsku vezu.',
+      );
     } finally {
       if (mounted) setState(() => _isSubmitting = false);
     }
@@ -72,75 +76,104 @@ class _LoginScreenState extends State<LoginScreen> {
         child: Center(
           child: SingleChildScrollView(
             padding: const EdgeInsets.all(24),
-            child: FormBuilder(
-              key: _formKey,
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  const Icon(Icons.local_hospital, size: 56),
-                  const SizedBox(height: 12),
-                  Text(
-                    'ClinicNow',
-                    style: Theme.of(context).textTheme.headlineMedium,
-                    textAlign: TextAlign.center,
-                  ),
-                  const SizedBox(height: 32),
-                  FormBuilderTextField(
-                    name: 'email',
-                    decoration: const InputDecoration(labelText: 'Email'),
-                    keyboardType: TextInputType.emailAddress,
-                    validator: FormBuilderValidators.compose([
-                      FormBuilderValidators.required(
-                        errorText: 'Email je obavezan.',
+            child: Card(
+              child: Padding(
+                padding: const EdgeInsets.all(28),
+                child: FormBuilder(
+                  key: _formKey,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      CircleAvatar(
+                        radius: 36,
+                        backgroundColor: Theme.of(
+                          context,
+                        ).colorScheme.primaryContainer,
+                        child: Icon(
+                          Icons.local_hospital,
+                          color: Theme.of(
+                            context,
+                          ).colorScheme.onPrimaryContainer,
+                          size: 36,
+                        ),
                       ),
-                      FormBuilderValidators.email(
-                        errorText: 'Unesite ispravnu email adresu.',
+                      const SizedBox(height: 16),
+                      Text(
+                        'ClinicNow',
+                        style: Theme.of(context).textTheme.headlineMedium,
+                        textAlign: TextAlign.center,
                       ),
-                    ]),
-                    enabled: !_isSubmitting,
+                      const SizedBox(height: 8),
+                      Text(
+                        'Zakažite pregled u nekoliko koraka.',
+                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                          color: Theme.of(context).colorScheme.onSurfaceVariant,
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                      const SizedBox(height: 32),
+                      FormBuilderTextField(
+                        name: 'email',
+                        decoration: const InputDecoration(labelText: 'Email'),
+                        keyboardType: TextInputType.emailAddress,
+                        validator: FormBuilderValidators.compose([
+                          FormBuilderValidators.required(
+                            errorText: 'Email je obavezan.',
+                          ),
+                          FormBuilderValidators.email(
+                            errorText: 'Unesite ispravnu email adresu.',
+                          ),
+                        ]),
+                        enabled: !_isSubmitting,
+                      ),
+                      const SizedBox(height: 16),
+                      FormBuilderTextField(
+                        name: 'password',
+                        decoration: const InputDecoration(labelText: 'Lozinka'),
+                        obscureText: true,
+                        validator: FormBuilderValidators.required(
+                          errorText: 'Lozinka je obavezna.',
+                        ),
+                        enabled: !_isSubmitting,
+                        onSubmitted: (_) => _submit(),
+                      ),
+                      if (_errorMessage != null) ...[
+                        const SizedBox(height: 16),
+                        Text(
+                          _errorMessage!,
+                          style: TextStyle(
+                            color: Theme.of(context).colorScheme.error,
+                          ),
+                        ),
+                      ],
+                      const SizedBox(height: 24),
+                      FilledButton(
+                        onPressed: _isSubmitting ? null : _submit,
+                        child: _isSubmitting
+                            ? const SizedBox(
+                                height: 20,
+                                width: 20,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
+                              )
+                            : const Text('Prijava'),
+                      ),
+                      const SizedBox(height: 12),
+                      TextButton(
+                        onPressed: _isSubmitting
+                            ? null
+                            : () => Navigator.of(context).push(
+                                MaterialPageRoute(
+                                  builder: (_) => const RegisterScreen(),
+                                ),
+                              ),
+                        child: const Text('Nemate nalog? Registrujte se'),
+                      ),
+                    ],
                   ),
-                  const SizedBox(height: 16),
-                  FormBuilderTextField(
-                    name: 'password',
-                    decoration: const InputDecoration(labelText: 'Lozinka'),
-                    obscureText: true,
-                    validator: FormBuilderValidators.required(
-                      errorText: 'Lozinka je obavezna.',
-                    ),
-                    enabled: !_isSubmitting,
-                    onSubmitted: (_) => _submit(),
-                  ),
-                  if (_errorMessage != null) ...[
-                    const SizedBox(height: 16),
-                    Text(
-                      _errorMessage!,
-                      style:
-                          TextStyle(color: Theme.of(context).colorScheme.error),
-                    ),
-                  ],
-                  const SizedBox(height: 24),
-                  FilledButton(
-                    onPressed: _isSubmitting ? null : _submit,
-                    child: _isSubmitting
-                        ? const SizedBox(
-                            height: 20,
-                            width: 20,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
-                        : const Text('Prijava'),
-                  ),
-                  const SizedBox(height: 12),
-                  TextButton(
-                    onPressed: _isSubmitting
-                        ? null
-                        : () => Navigator.of(context).push(
-                              MaterialPageRoute(
-                                  builder: (_) => const RegisterScreen()),
-                            ),
-                    child: const Text('Nemate nalog? Registrujte se'),
-                  ),
-                ],
+                ),
               ),
             ),
           ),
