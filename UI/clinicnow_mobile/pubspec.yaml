@@ -29,6 +29,7 @@ dependencies:
   # flutter_localizations requires - anything else fails resolution since the
   # SDK pins this transitively.
   intl: 0.20.2
+  google_fonts: ^6.2.1
   file_picker: ^12.1.0
   webview_flutter: ^4.14.1
   # Fallback path for PayPal approval only. webview_flutter has platform
