@@ -12,6 +12,7 @@ import '../../models/patient.dart';
 import '../../providers/appointment_provider.dart';
 import '../../providers/doctor_provider.dart';
 import '../../providers/patient_provider.dart';
+import '../../providers/payment_provider.dart';
 import 'schedule_appointment_dialog.dart';
 
 /// Staff/doctor appointment management: list with ≥1 search param (patient AND
@@ -33,6 +34,7 @@ class _AppointmentScreenState extends State<AppointmentScreen> {
   late final AppointmentProvider _appointmentProvider;
   late final PatientProvider _patientProvider;
   late final DoctorProvider _doctorProvider;
+  late final PaymentProvider _paymentProvider;
 
   int _page = 1;
   bool _isLoading = true;
@@ -61,6 +63,7 @@ class _AppointmentScreenState extends State<AppointmentScreen> {
     _appointmentProvider = AppointmentProvider(authSession);
     _patientProvider = PatientProvider(authSession);
     _doctorProvider = DoctorProvider(authSession);
+    _paymentProvider = PaymentProvider(authSession);
     _loadFilterOptions();
     _load();
   }
@@ -201,6 +204,75 @@ class _AppointmentScreenState extends State<AppointmentScreen> {
     try {
       await _appointmentProvider.cancel(appointment.id, reason);
       await _load();
+    } on ApiException catch (e) {
+      _showError(e.message);
+    }
+  }
+
+  Future<void> _refund(Appointment appointment) async {
+    final amountController = TextEditingController(text: appointment.canRefund ? '' : '0');
+    final reasonController = TextEditingController();
+    String? amountError;
+    String? reasonError;
+
+    // The remaining refundable balance isn't on the Appointment model itself
+    // (only Payment carries AmountEur/refund totals) - the dialog's amount
+    // field is free-entry, validated server-side against the real remaining
+    // balance (design doc §7); the max shown here is informational only.
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (dialogContext, setDialogState) => AlertDialog(
+          title: const Text('Povrat sredstava'),
+          content: SizedBox(
+            width: 400,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Termin za ${appointment.patientName} kod ${appointment.doctorName}'),
+                const SizedBox(height: 16),
+                TextField(
+                  controller: amountController,
+                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                  decoration: InputDecoration(labelText: 'Iznos povrata (EUR)', errorText: amountError),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: reasonController,
+                  decoration: InputDecoration(labelText: 'Razlog povrata', errorText: reasonError),
+                  maxLines: 2,
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.of(dialogContext).pop(false), child: const Text('Odustani')),
+            FilledButton(
+              onPressed: () {
+                final amount = double.tryParse(amountController.text.replaceAll(',', '.'));
+                setDialogState(() {
+                  amountError = (amount == null || amount <= 0) ? 'Unesite ispravan iznos veći od 0.' : null;
+                  reasonError = reasonController.text.trim().isEmpty ? 'Razlog povrata je obavezan.' : null;
+                });
+                if (amountError == null && reasonError == null) {
+                  Navigator.of(dialogContext).pop(true);
+                }
+              },
+              child: const Text('Izvrši povrat'),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    if (confirmed != true || appointment.paymentId == null) return;
+
+    try {
+      final amount = double.parse(amountController.text.replaceAll(',', '.'));
+      await _paymentProvider.refund(appointment.paymentId!, amount, reasonController.text.trim());
+      await _load();
+      _showError('Povrat je uspješno izvršen.'); // reused SnackBar helper - message just happens to be a success, not an error
     } on ApiException catch (e) {
       _showError(e.message);
     }
@@ -403,6 +475,12 @@ class _AppointmentScreenState extends State<AppointmentScreen> {
                                         icon: const Icon(Icons.cancel_outlined),
                                         color: Theme.of(context).disabledColor,
                                         onPressed: null,
+                                      ),
+                                    if (appointment.canRefund)
+                                      IconButton(
+                                        tooltip: 'Povrat sredstava',
+                                        icon: const Icon(Icons.undo, color: Colors.orange),
+                                        onPressed: () => _refund(appointment),
                                       ),
                                   ],
                                 )),

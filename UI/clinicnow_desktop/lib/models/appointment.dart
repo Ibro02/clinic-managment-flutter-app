@@ -22,6 +22,11 @@ class Appointment {
   /// reimplement "what's legal from this status" itself (rulebook Part II §K).
   final List<String> allowedActions;
 
+  final bool isPaid;
+  final String? paymentStatus;
+  final int? paymentId;
+  final bool canRefund;
+
   Appointment({
     required this.id,
     required this.patientId,
@@ -39,6 +44,10 @@ class Appointment {
     this.cancellationReason,
     required this.createdAtUtc,
     required this.allowedActions,
+    required this.isPaid,
+    this.paymentStatus,
+    this.paymentId,
+    required this.canRefund,
   });
 
   bool get canConfirm => allowedActions.contains('Confirm');
@@ -62,5 +71,9 @@ class Appointment {
         cancellationReason: json['cancellationReason'] as String?,
         createdAtUtc: DateTime.parse(json['createdAtUtc'] as String).toLocal(),
         allowedActions: (json['allowedActions'] as List<dynamic>? ?? []).map((e) => '$e').toList(),
+        isPaid: json['isPaid'] as bool,
+        paymentStatus: json['paymentStatus'] as String?,
+        paymentId: json['paymentId'] as int?,
+        canRefund: json['canRefund'] as bool,
       );
 }
