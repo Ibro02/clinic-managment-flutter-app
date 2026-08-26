@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import 'core/app_theme.dart';
 import 'core/auth_session.dart';
 import 'layouts/app_shell.dart';
 import 'screens/login_screen.dart';
@@ -22,10 +23,9 @@ class ClinicNowDesktopApp extends StatelessWidget {
       child: MaterialApp(
         title: 'ClinicNow',
         debugShowCheckedModeBanner: false,
-        theme: ThemeData(
-          colorScheme: ColorScheme.fromSeed(seedColor: Colors.teal),
-          useMaterial3: true,
-        ),
+        theme: AppTheme.light(),
+        darkTheme: AppTheme.dark(),
+        themeMode: ThemeMode.system,
         // Reactive root: whichever screen is shown follows AuthSession
         // directly, so logging in, explicit logout, AND an HTTP 401 clearing
         // the session mid-use (BaseProvider) all redirect correctly without
