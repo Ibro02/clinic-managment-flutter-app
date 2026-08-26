@@ -31,6 +31,11 @@ dependencies:
   intl: 0.20.2
   file_picker: ^12.1.0
   webview_flutter: ^4.14.1
+  # Fallback path for PayPal approval only. webview_flutter has platform
+  # implementations for Android/iOS exclusively, so on any other host (Flutter
+  # web, desktop) the in-app WebView of the design doc's §5 flow cannot exist -
+  # there we hand the approval URL to the system browser instead.
+  url_launcher: ^6.3.1
 
 dev_dependencies:
   flutter_test:
