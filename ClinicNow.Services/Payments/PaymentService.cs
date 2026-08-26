@@ -64,8 +64,15 @@ public class PaymentService : IPaymentService
             throw new ValidationException("appointmentId", "Otkazan termin se ne može platiti.");
         }
 
+        // Deliberately Paid/PartiallyRefunded only - NOT Refunded. This guard
+        // has to agree exactly with AppointmentService.MapToDto's
+        // `IsPaid = currentPayment.Status != PaymentStatus.Refunded`: a fully
+        // refunded appointment is reported to the client as unpaid, so the
+        // patient is offered a "Plati" button for it. Blocking Refunded here
+        // too would make that button always fail with "već plaćen".
         var alreadyPaid = await _context.Payments
-            .AnyAsync(p => p.AppointmentId == appointment.Id && p.Status != PaymentStatus.Pending, cancellationToken);
+            .AnyAsync(p => p.AppointmentId == appointment.Id
+                && (p.Status == PaymentStatus.Paid || p.Status == PaymentStatus.PartiallyRefunded), cancellationToken);
         if (alreadyPaid)
         {
             throw new BusinessException("Ovaj termin je već plaćen.");
@@ -129,6 +136,17 @@ public class PaymentService : IPaymentService
             _logger.LogWarning("PayPal captured {CapturedAmountEur} EUR for payment {PaymentId} but expected {ExpectedAmountEur} EUR.",
                 capturedAmountEur, payment.Id, payment.AmountEur);
         }
+
+        // Real money has now moved, but the row recording it isn't persisted
+        // until the SaveChangesAsync below. If that save fails (concurrency,
+        // dropped connection, constraint violation) the capture goes
+        // unrecorded: PayPal charged the patient while the Payment row stays
+        // Pending, so the UI keeps offering "Plati". Logging the actual PayPal
+        // capture id here leaves a reconcilable trail (a real capture id with
+        // no matching DB row) instead of a silent gap - the same mitigation,
+        // and the same trade-off, as the refund path below.
+        _logger.LogInformation("PayPal capture {PayPalCaptureId} of {CapturedAmountEur} EUR succeeded for payment {PaymentId}; persisting the record next.",
+            captureId, capturedAmountEur, payment.Id);
 
         payment.PayPalCaptureId = captureId;
         payment.Status = PaymentStatus.Paid;
@@ -215,73 +233,110 @@ public class PaymentService : IPaymentService
         }
     }
 
+    /// <summary>
+    /// Serializes every refund attempt against the same payment. Two overlapping
+    /// refunds on one payment (staff clicking Refund while another staff member
+    /// cancels the same appointment, which auto-refunds the remaining balance)
+    /// would otherwise each read the same remaining balance before either
+    /// committed, and each issue a REAL PayPal refund - a genuine double refund
+    /// of real money.
+    ///
+    /// <c>static</c> for the same reason RecommenderService's own model-train
+    /// lock is: this service is <c>Scoped</c>, so an instance field would
+    /// give every concurrent request its own uncontended semaphore. In-process
+    /// (rather than a PayPal idempotency key or a DB lock) is sufficient here
+    /// because the API runs as a single container - see docker-compose.yml; it
+    /// is not horizontally scaled.
+    /// </summary>
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<int, SemaphoreSlim> _refundLocks = new();
+
     /// <summary>The one code path both the manual and automatic refund triggers share (design doc §4 item 4) - validates against the real remaining balance, calls PayPal, records the refund, and recomputes Status.</summary>
     private async Task RefundCoreAsync(Payment payment, decimal amount, string reason, int refundedByUserId, CancellationToken cancellationToken)
     {
-        if (payment.Status != PaymentStatus.Paid && payment.Status != PaymentStatus.PartiallyRefunded)
-        {
-            throw new ValidationException("paymentId", "Ova uplata se ne može vratiti u ovom statusu.");
-        }
-
-        var alreadyRefunded = payment.Refunds.Sum(r => r.AmountEur);
-        var remaining = payment.AmountEur - alreadyRefunded;
-
-        if (amount <= 0 || amount > remaining)
-        {
-            throw new ValidationException("amount", $"Iznos povrata mora biti između 0 i {remaining:F2} EUR.");
-        }
-
-        if (string.IsNullOrWhiteSpace(reason))
-        {
-            throw new ValidationException("reason", "Razlog povrata je obavezan.");
-        }
-
-        var payPalRefundId = await _payPalClient.RefundCaptureAsync(payment.PayPalCaptureId!, amount, reason, cancellationToken);
-
-        // Real money has now moved, but the row recording it isn't persisted
-        // until the SaveChangesAsync below. If that save fails (concurrency,
-        // dropped connection, constraint violation) the refund goes unrecorded
-        // - and since the remaining balance is always recomputed fresh from
-        // payment.Refunds, a later attempt would see the full balance still
-        // available and could refund it for real a second time. Logging the
-        // actual PayPal refund id here leaves a reconcilable trail (a real
-        // refund id with no matching DB row) instead of a silent gap.
-        // Deliberately narrower than the correct fix - a PayPal idempotency
-        // key on the refund call - because that requires changing the already
-        // reviewed and merged IPayPalClient/PayPalClient.
-        _logger.LogInformation("PayPal refund {PayPalRefundId} of {AmountEur} EUR succeeded for payment {PaymentId}; persisting the record next.",
-            payPalRefundId, amount, payment.Id);
-
-        payment.Refunds.Add(new PaymentRefund
-        {
-            AmountEur = amount,
-            PayPalRefundId = payPalRefundId,
-            Reason = reason.Trim(),
-            RefundedByUserId = refundedByUserId,
-            RefundedAtUtc = DateTime.UtcNow
-        });
-
-        var totalRefunded = alreadyRefunded + amount;
-        payment.Status = totalRefunded >= payment.AmountEur ? PaymentStatus.Refunded : PaymentStatus.PartiallyRefunded;
-
-        await _context.SaveChangesAsync(cancellationToken);
-
-        // The refund is committed at this point, so a failure to *notify* about
-        // it must never surface as a failed refund. Without this local catch,
-        // RefundForCancelledAppointmentAsync's blanket handler would log
-        // "staff must refund manually" for a refund that actually succeeded.
+        var paymentLock = _refundLocks.GetOrAdd(payment.Id, _ => new SemaphoreSlim(1, 1));
+        await paymentLock.WaitAsync(cancellationToken);
         try
         {
-            var appointment = await _context.Appointments.Include(a => a.Patient).SingleAsync(a => a.Id == payment.AppointmentId, cancellationToken);
-            if (appointment.Patient?.UserId is int patientUserId)
+            if (payment.Status != PaymentStatus.Paid && payment.Status != PaymentStatus.PartiallyRefunded)
             {
-                await _notificationService.CreateAsync(patientUserId, "Povrat sredstava",
-                    $"Izvršen je povrat od {amount:F2} EUR za vaš termin. Razlog: {reason}", cancellationToken);
+                throw new ValidationException("paymentId", "Ova uplata se ne može vratiti u ovom statusu.");
+            }
+
+            // Rounded before validation so the amount checked against the
+            // remaining balance is exactly the amount stored in the
+            // decimal(8,2) column and sent to PayPal - same convention as
+            // CurrencyConverter.ConvertKmToEur.
+            amount = Math.Round(amount, 2, MidpointRounding.AwayFromZero);
+
+            // Read the refund total FRESH from the database rather than from
+            // payment.Refunds: the caller loaded that navigation collection
+            // before this lock was acquired, so for a caller that queued behind
+            // a refund that has since committed it is a stale pre-lock snapshot
+            // and would report the full balance as still refundable.
+            var alreadyRefunded = await _context.PaymentRefunds
+                .Where(r => r.PaymentId == payment.Id)
+                .SumAsync(r => (decimal?)r.AmountEur, cancellationToken) ?? 0m;
+            var remaining = payment.AmountEur - alreadyRefunded;
+
+            if (amount <= 0 || amount > remaining)
+            {
+                throw new ValidationException("amount", $"Iznos povrata mora biti između 0 i {remaining:F2} EUR.");
+            }
+
+            if (string.IsNullOrWhiteSpace(reason))
+            {
+                throw new ValidationException("reason", "Razlog povrata je obavezan.");
+            }
+
+            var payPalRefundId = await _payPalClient.RefundCaptureAsync(payment.PayPalCaptureId!, amount, reason, cancellationToken);
+
+            // Real money has now moved, but the row recording it isn't
+            // persisted until the SaveChangesAsync below. If that save fails
+            // (concurrency, dropped connection, constraint violation) the refund
+            // goes unrecorded, and a later attempt would see the full balance
+            // still available. Logging the actual PayPal refund id here leaves a
+            // reconcilable trail (a real refund id with no matching DB row)
+            // instead of a silent gap. The concurrent case is handled
+            // structurally by _refundLocks above; this log covers the remaining
+            // crash/save-failure window, which no in-process lock can close.
+            _logger.LogInformation("PayPal refund {PayPalRefundId} of {AmountEur} EUR succeeded for payment {PaymentId}; persisting the record next.",
+                payPalRefundId, amount, payment.Id);
+
+            payment.Refunds.Add(new PaymentRefund
+            {
+                AmountEur = amount,
+                PayPalRefundId = payPalRefundId,
+                Reason = reason.Trim(),
+                RefundedByUserId = refundedByUserId,
+                RefundedAtUtc = DateTime.UtcNow
+            });
+
+            var totalRefunded = alreadyRefunded + amount;
+            payment.Status = totalRefunded >= payment.AmountEur ? PaymentStatus.Refunded : PaymentStatus.PartiallyRefunded;
+
+            await _context.SaveChangesAsync(cancellationToken);
+
+            // The refund is committed at this point, so a failure to *notify*
+            // about it must never surface as a failed refund. Without this local
+            // catch, RefundForCancelledAppointmentAsync's blanket handler would
+            // log "staff must refund manually" for a refund that succeeded.
+            try
+            {
+                var appointment = await _context.Appointments.Include(a => a.Patient).SingleAsync(a => a.Id == payment.AppointmentId, cancellationToken);
+                if (appointment.Patient?.UserId is int patientUserId)
+                {
+                    await _notificationService.CreateAsync(patientUserId, "Povrat sredstava",
+                        $"Izvršen je povrat od {amount:F2} EUR za vaš termin. Razlog: {reason}", cancellationToken);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Refund of {AmountEur} EUR for payment {PaymentId} succeeded, but notifying the patient failed.", amount, payment.Id);
             }
         }
-        catch (Exception ex)
+        finally
         {
-            _logger.LogWarning(ex, "Refund of {AmountEur} EUR for payment {PaymentId} succeeded, but notifying the patient failed.", amount, payment.Id);
+            paymentLock.Release();
         }
     }
 

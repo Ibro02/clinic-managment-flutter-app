@@ -65,7 +65,14 @@ class _PaymentWebViewScreenState extends State<PaymentWebViewScreen> {
         title: const Text('Plaćanje putem PayPal-a'),
         leading: IconButton(
           icon: const Icon(Icons.close),
-          onPressed: () => Navigator.of(context).pop(false),
+          // Same guard as the NavigationDelegate above, and for the same
+          // reason: a close tap racing an in-flight sentinel-URL pop would
+          // otherwise pop the underlying route a second time.
+          onPressed: () {
+            if (_resultHandled) return;
+            _resultHandled = true;
+            Navigator.of(context).pop(false);
+          },
         ),
       ),
       body: WebViewWidget(controller: _controller),

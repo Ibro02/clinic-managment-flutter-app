@@ -9,6 +9,7 @@ import '../../core/roles.dart';
 import '../../models/appointment.dart';
 import '../../models/doctor.dart';
 import '../../models/patient.dart';
+import '../../models/payment.dart';
 import '../../providers/appointment_provider.dart';
 import '../../providers/doctor_provider.dart';
 import '../../providers/patient_provider.dart';
@@ -210,15 +211,27 @@ class _AppointmentScreenState extends State<AppointmentScreen> {
   }
 
   Future<void> _refund(Appointment appointment) async {
-    final amountController = TextEditingController(text: appointment.canRefund ? '' : '0');
+    if (appointment.paymentId == null) return;
+
+    // The remaining refundable balance isn't on the Appointment model itself
+    // (only Payment carries AmountEur/refund totals), so it's fetched from the
+    // server before the dialog opens - the amount field is pre-filled with the
+    // real remaining balance and the maximum is shown, instead of leaving staff
+    // to guess and learn the real number from a 400 (design doc §7).
+    final Payment payment;
+    try {
+      payment = await _paymentProvider.getByAppointmentId(appointment.id);
+    } on ApiException catch (e) {
+      _showError(e.message);
+      return;
+    }
+    if (!mounted) return;
+
+    final amountController = TextEditingController(text: payment.remainingRefundableEur.toStringAsFixed(2));
     final reasonController = TextEditingController();
     String? amountError;
     String? reasonError;
 
-    // The remaining refundable balance isn't on the Appointment model itself
-    // (only Payment carries AmountEur/refund totals) - the dialog's amount
-    // field is free-entry, validated server-side against the real remaining
-    // balance (design doc §7); the max shown here is informational only.
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => StatefulBuilder(
@@ -231,6 +244,13 @@ class _AppointmentScreenState extends State<AppointmentScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text('Termin za ${appointment.patientName} kod ${appointment.doctorName}'),
+                const SizedBox(height: 8),
+                Text('Uplaćeno: ${payment.amountEur.toStringAsFixed(2)} EUR'),
+                Text('Već vraćeno: ${payment.refundedAmountEur.toStringAsFixed(2)} EUR'),
+                Text(
+                  'Preostalo za povrat: ${payment.remainingRefundableEur.toStringAsFixed(2)} EUR',
+                  style: const TextStyle(fontWeight: FontWeight.bold),
+                ),
                 const SizedBox(height: 16),
                 TextField(
                   controller: amountController,
@@ -252,7 +272,11 @@ class _AppointmentScreenState extends State<AppointmentScreen> {
               onPressed: () {
                 final amount = double.tryParse(amountController.text.replaceAll(',', '.'));
                 setDialogState(() {
-                  amountError = (amount == null || amount <= 0) ? 'Unesite ispravan iznos veći od 0.' : null;
+                  amountError = (amount == null || amount <= 0)
+                      ? 'Unesite ispravan iznos veći od 0.'
+                      : (amount > payment.remainingRefundableEur
+                          ? 'Iznos ne može biti veći od preostalih ${payment.remainingRefundableEur.toStringAsFixed(2)} EUR.'
+                          : null);
                   reasonError = reasonController.text.trim().isEmpty ? 'Razlog povrata je obavezan.' : null;
                 });
                 if (amountError == null && reasonError == null) {
@@ -266,11 +290,11 @@ class _AppointmentScreenState extends State<AppointmentScreen> {
       ),
     );
 
-    if (confirmed != true || appointment.paymentId == null) return;
+    if (confirmed != true) return;
 
     try {
       final amount = double.parse(amountController.text.replaceAll(',', '.'));
-      await _paymentProvider.refund(appointment.paymentId!, amount, reasonController.text.trim());
+      await _paymentProvider.refund(payment.id, amount, reasonController.text.trim());
       await _load();
       _showError('Povrat je uspješno izvršen.'); // reused SnackBar helper - message just happens to be a success, not an error
     } on ApiException catch (e) {
@@ -303,6 +327,21 @@ class _AppointmentScreenState extends State<AppointmentScreen> {
         3 => Colors.red,
         _ => Colors.grey,
       };
+
+  /// Backend `PaymentStatusExtensions.ToDisplayName(PartiallyRefunded)` - the
+  /// appointment DTO carries the payment status only as its display name, so
+  /// this is the one value the color mapping below has to recognise by text.
+  static const _partiallyRefundedLabel = 'Djelomično vraćeno';
+
+  /// Grey when the appointment has no payment at all, green while it is fully
+  /// paid, orange once part of it has been refunded, red when it has been
+  /// refunded in full - `isPaid` is false again in that last case, matching the
+  /// backend's own `AppointmentDto.IsPaid` definition.
+  Color _paymentStatusColor(Appointment appointment) {
+    if (appointment.paymentStatus == null) return Colors.grey;
+    if (!appointment.isPaid) return Colors.red;
+    return appointment.paymentStatus == _partiallyRefundedLabel ? Colors.orange : Colors.green;
+  }
 
   int get _totalPages => _count == 0 ? 1 : ((_count - 1) ~/ _pageSize) + 1;
 
@@ -419,6 +458,7 @@ class _AppointmentScreenState extends State<AppointmentScreen> {
                               DataColumn(label: Text('Usluga')),
                               DataColumn(label: Text('Lokacija')),
                               DataColumn(label: Text('Status')),
+                              DataColumn(label: Text('Plaćanje')),
                               DataColumn(label: Text('Akcije')),
                             ],
                             rows: _appointments.map((appointment) {
@@ -431,6 +471,15 @@ class _AppointmentScreenState extends State<AppointmentScreen> {
                                 DataCell(Chip(
                                   label: Text(appointment.statusName, style: const TextStyle(color: Colors.white, fontSize: 12)),
                                   backgroundColor: _statusColor(appointment.status),
+                                  visualDensity: VisualDensity.compact,
+                                  padding: EdgeInsets.zero,
+                                )),
+                                DataCell(Chip(
+                                  label: Text(
+                                    appointment.paymentStatus ?? 'Nije plaćeno',
+                                    style: const TextStyle(color: Colors.white, fontSize: 12),
+                                  ),
+                                  backgroundColor: _paymentStatusColor(appointment),
                                   visualDensity: VisualDensity.compact,
                                   padding: EdgeInsets.zero,
                                 )),

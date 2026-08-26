@@ -50,10 +50,13 @@ No new screen. `AppointmentScreen`'s existing row-action pattern (Confirm/Comple
 
 ## 7. Error handling & idempotency
 
-- PayPal API failures (order create/capture/refund) → `BusinessException`, logged via `ILogger<T>` with the raw PayPal error, never leaked to the client.
+- PayPal API failures (order create/capture/refund) → `BusinessException`, logged via `ILogger<T>` with the PayPal error's diagnostic fields (see below), never leaked to the client.
 - Capture is idempotent by checking `Payment.Status` first — no double PayPal call, no double notification on a client retry.
 - Refund validates against the *actual* remaining balance (`AmountEur - sum(refunds)`), never a client-supplied "how much is left" claim.
 - `userId`/`patientId` for ownership checks always resolved from the JWT, same pattern as every existing bespoke service (`AppointmentService`, `RecommenderService`).
+- Concurrent refunds against the same `Payment` are serialized by a static per-payment `SemaphoreSlim` in `PaymentService`, and the remaining balance is re-read from the DB *inside* that lock — so two overlapping refunds (a manual one racing the automatic refund a cancellation triggers) can never both see the full balance and both issue a real PayPal refund. In-process is sufficient because the API runs as a single container (see `docker-compose.yml`); it is not horizontally scaled.
+- PayPal error bodies are condensed to their diagnostic fields (`name`, `debug_id`, `details[].issue`) before logging — capture/refund response bodies carry the payer's real email address and PayPal account id, which must not land in application logs.
+- **Accepted limitation — no capture reconciliation.** A capture only ever happens because the client called `POST api/Payment/{id}/capture`; there is no PayPal webhook and no periodic sweep that reconciles an order PayPal reports as `APPROVED` but that was never captured. If the mobile app crashes, loses connectivity, or is killed between the patient approving at PayPal and the capture call, the `Payment` row simply stays `Pending`, the money is never taken, and the appointment keeps offering "Plati" for a fresh attempt. Adding a webhook receiver is deliberately out of scope for this project.
 
 ## 8. Seed data
 

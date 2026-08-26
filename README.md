@@ -230,6 +230,28 @@ New patient accounts can also self-register from the mobile app's "Registruj se"
 (`POST api/auth/register`) - registration always creates a Patient-role account; the server never
 accepts a client-supplied role (rulebook §5).
 
+## Demo payment data (read before trying a refund)
+
+The seeded payments exist to demonstrate the **UI states** - the "Plaćeno" / "Djelomično vraćeno" /
+"Vraćeno" badges in the desktop appointment list, and the refund dialog opening with a real
+remaining balance. They are **not** backed by real PayPal transactions: their capture ids are
+synthetic placeholders (`SEED-CAPTURE-000x`).
+
+That means the seeded refundable rows - the partially-refunded **Appointment Id = 3** and the fully
+paid **Appointment Id = 1** - show an enabled orange Refund action, and the dialog opens and
+prefills its remaining balance correctly, but actually submitting the refund fails with a PayPal
+error: PayPal has no record of a capture by those ids. This is expected on a clean database, not a
+bug in the refund flow.
+
+To demo a **real** refund end to end:
+
+1. Log into the mobile app as `patient@clinicnow.test`, book an appointment, and choose
+   "Plati sada".
+2. Complete the checkout in the in-app PayPal **sandbox** window with a sandbox buyer account.
+3. Log into the desktop app as `staff@clinicnow.test` (or `administrator@clinicnow.test`), find that
+   appointment in "Termini", and use the orange Refund action on it. That payment has a real PayPal
+   capture id behind it, so a full or partial refund goes through against the sandbox for real.
+
 ## Testing
 
 ```bash

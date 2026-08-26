@@ -26,6 +26,24 @@ import '../payments/payment_webview_screen.dart';
 /// clinic (`Doctor.locationId`, 1:1), so picking a doctor and a clinic
 /// independently could describe a combination that doesn't exist in reality.
 /// The clinic is shown - never chosen - right under the doctor field.
+/// How the optional pay-now step ended. The booking itself is already committed
+/// server-side by the time any of these is produced - this only describes the
+/// payment, which gets its own message rather than hiding behind the generic
+/// booking-success snackbar.
+enum _PaymentOutcome {
+  /// The patient chose "Kasnije" - no payment was started.
+  notAttempted,
+
+  /// The patient opened PayPal and backed out without approving.
+  cancelled,
+
+  /// Approved at PayPal and captured successfully.
+  paid,
+
+  /// Something went wrong creating the order, or after approval while capturing.
+  failed,
+}
+
 class BookAppointmentScreen extends StatefulWidget {
   final int? initialDoctorId;
   final int? initialMedicalServiceId;
@@ -193,42 +211,58 @@ class _BookAppointmentScreenState extends State<BookAppointmentScreen> {
         ),
       );
 
+      var outcome = _PaymentOutcome.notAttempted;
       if (wantsToPay == true) {
-        await _attemptPayment(appointment.id);
+        outcome = await _attemptPayment(appointment.id);
       }
 
       if (!mounted) return;
       Navigator.of(context).pop(true);
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Termin je uspješno zakazan.')),
+        SnackBar(content: Text(switch (outcome) {
+          // The booking always succeeded by this point, so it is always
+          // reported as such - but a patient who just authorized a real payment
+          // at PayPal is told, separately and honestly, whether it went through.
+          _PaymentOutcome.paid => 'Termin zakazan i plaćanje uspješno izvršeno.',
+          _PaymentOutcome.failed => 'Termin je zakazan, ali plaćanje nije uspjelo. Možete platiti kasnije sa ekrana termina.',
+          _ => 'Termin je uspješno zakazan.',
+        })),
       );
     } on ApiException catch (e) {
-      setState(() {
-        _error = e.message;
-        _isSubmitting = false;
-      });
+      if (!mounted) return;
+      setState(() => _error = e.message);
+    } finally {
+      // The payment step can fail in ways neither catch clause here handles
+      // (a dropped connection surfaces as ClientException, not ApiException).
+      // Without this the button would stay stuck in its spinner forever on a
+      // booking that actually succeeded.
+      if (mounted) setState(() => _isSubmitting = false);
     }
   }
 
-  Future<void> _attemptPayment(int appointmentId) async {
+  Future<_PaymentOutcome> _attemptPayment(int appointmentId) async {
     try {
       final payment = await _paymentProvider.create(appointmentId);
-      if (!mounted || payment.approveUrl == null) return;
+      if (!mounted || payment.approveUrl == null) return _PaymentOutcome.failed;
 
       final approved = await Navigator.of(context).push<bool>(
         MaterialPageRoute(builder: (_) => PaymentWebViewScreen(approveUrl: payment.approveUrl!)),
       );
 
-      if (approved == true) {
-        await _paymentProvider.capture(payment.id);
-      }
-      // A `false`/null result (cancelled) or a failed capture is silently
-      // fine here - the appointment stays booked and unpaid either way
-      // (design doc §2), and a "Plati" button remains available on the
-      // appointment detail screen for a retry.
-    } on ApiException {
-      // Payment failures must never block the booking flow that already
-      // succeeded - the appointment exists regardless.
+      // Cancelling at PayPal isn't a failure - the patient chose not to pay, the
+      // appointment stays booked and unpaid (design doc §2), and a "Plati"
+      // button remains on the appointment detail screen for a retry.
+      if (approved != true) return _PaymentOutcome.cancelled;
+
+      await _paymentProvider.capture(payment.id);
+      return _PaymentOutcome.paid;
+    } catch (_) {
+      // Deliberately broad: this is a best-effort step after a booking that
+      // already succeeded, and it must never block or crash that flow - not for
+      // an ApiException, and not for a ClientException/TimeoutException/
+      // FormatException from a dropped mobile connection mid-payment either.
+      // The outcome is reported to the user by the caller rather than swallowed.
+      return _PaymentOutcome.failed;
     }
   }
 

@@ -13,6 +13,14 @@ public class PayPalClient : IPayPalClient
 {
     private const string TokenCacheKey = "paypal:access_token";
 
+    /// <summary>
+    /// Well under <see cref="HttpClient"/>'s ~100s default: a PayPal call also
+    /// happens inside AppointmentService.CancelAsync's automatic-refund path, so
+    /// a hung PayPal endpoint must not be able to stall a cancellation request
+    /// for a minute and a half.
+    /// </summary>
+    private static readonly TimeSpan RequestTimeout = TimeSpan.FromSeconds(20);
+
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly IMemoryCache _cache;
     private readonly PayPalOptions _options;
@@ -45,7 +53,7 @@ public class PayPalClient : IPayPalClient
 
         if (!response.IsSuccessStatusCode)
         {
-            _logger.LogWarning("PayPal CreateOrder failed ({Status}): {Body}", response.StatusCode, body);
+            _logger.LogWarning("PayPal CreateOrder failed ({Status}): {Error}", response.StatusCode, DescribeError(body));
             throw new BusinessException("Plaćanje trenutno nije moguće. Pokušajte ponovo kasnije.");
         }
 
@@ -73,7 +81,7 @@ public class PayPalClient : IPayPalClient
             // - log it, but return Success=false rather than throwing, so
             // PaymentService can leave the Payment row Pending for a retry
             // instead of surfacing a scary 500.
-            _logger.LogWarning("PayPal CaptureOrder failed for order {OrderId} ({Status}): {Body}", orderId, response.StatusCode, body);
+            _logger.LogWarning("PayPal CaptureOrder failed for order {OrderId} ({Status}): {Error}", orderId, response.StatusCode, DescribeError(body));
             return (null, 0m, false);
         }
 
@@ -82,7 +90,10 @@ public class PayPalClient : IPayPalClient
 
         if (captured is null || !string.Equals(captured.Status, "COMPLETED", StringComparison.OrdinalIgnoreCase))
         {
-            _logger.LogWarning("PayPal CaptureOrder for order {OrderId} did not complete: {Body}", orderId, body);
+            // A 2xx body here is a *successful* PayPal response, so it carries
+            // the payer's email/account id - log only the capture status.
+            _logger.LogWarning("PayPal CaptureOrder for order {OrderId} did not complete (capture status: {CaptureStatus}).",
+                orderId, captured?.Status ?? "(no capture returned)");
             return (null, 0m, false);
         }
 
@@ -105,7 +116,7 @@ public class PayPalClient : IPayPalClient
 
         if (!response.IsSuccessStatusCode)
         {
-            _logger.LogWarning("PayPal RefundCapture failed for capture {CaptureId} ({Status}): {Body}", captureId, response.StatusCode, body);
+            _logger.LogWarning("PayPal RefundCapture failed for capture {CaptureId} ({Status}): {Error}", captureId, response.StatusCode, DescribeError(body));
             throw new BusinessException("Povrat sredstava trenutno nije moguć. Pokušajte ponovo kasnije.");
         }
 
@@ -115,12 +126,65 @@ public class PayPalClient : IPayPalClient
         return refund.Id;
     }
 
+    // --- diagnostics -----------------------------------------------------------
+
+    /// <summary>
+    /// Condenses a PayPal error/response body into just its diagnostic fields
+    /// (<c>name</c>, <c>debug_id</c>, <c>details[].issue</c>, or the OAuth
+    /// <c>error</c>/<c>error_description</c> pair) for logging.
+    ///
+    /// Deliberately never logs the raw body: capture and refund payloads carry
+    /// the payer's real email address and PayPal account id, and application
+    /// logs are not the place for third-party PII. The fields extracted here are
+    /// the ones actually needed to diagnose a failure, and none of them identify
+    /// the payer. If the body isn't parseable JSON, only its length is reported
+    /// - a truncated prefix could still contain PII.
+    /// </summary>
+    private static string DescribeError(string body)
+    {
+        if (string.IsNullOrWhiteSpace(body)) return "(empty body)";
+
+        try
+        {
+            using var document = JsonDocument.Parse(body);
+            var root = document.RootElement;
+            if (root.ValueKind != JsonValueKind.Object) return $"(non-object body, {body.Length} chars)";
+
+            var parts = new List<string>();
+
+            foreach (var field in new[] { "name", "error", "error_description", "debug_id" })
+            {
+                if (root.TryGetProperty(field, out var value) && value.ValueKind == JsonValueKind.String)
+                {
+                    parts.Add($"{field}={value.GetString()}");
+                }
+            }
+
+            if (root.TryGetProperty("details", out var details) && details.ValueKind == JsonValueKind.Array)
+            {
+                var issues = details.EnumerateArray()
+                    .Where(d => d.ValueKind == JsonValueKind.Object && d.TryGetProperty("issue", out _))
+                    .Select(d => d.GetProperty("issue").GetString())
+                    .Where(i => !string.IsNullOrEmpty(i));
+                var joined = string.Join(",", issues);
+                if (joined.Length > 0) parts.Add($"issues={joined}");
+            }
+
+            return parts.Count > 0 ? string.Join("; ", parts) : $"(no diagnostic fields, {body.Length} chars)";
+        }
+        catch (JsonException)
+        {
+            return $"(unparseable body, {body.Length} chars)";
+        }
+    }
+
     // --- auth -----------------------------------------------------------------
 
     private async Task<HttpClient> CreateAuthorizedClientAsync(CancellationToken cancellationToken)
     {
         var client = _httpClientFactory.CreateClient();
         client.BaseAddress = new Uri(_options.BaseUrl);
+        client.Timeout = RequestTimeout;
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", await GetAccessTokenAsync(cancellationToken));
         return client;
     }
@@ -139,6 +203,7 @@ public class PayPalClient : IPayPalClient
 
         var client = _httpClientFactory.CreateClient();
         client.BaseAddress = new Uri(_options.BaseUrl);
+        client.Timeout = RequestTimeout;
 
         var basicAuth = Convert.ToBase64String(Encoding.ASCII.GetBytes($"{_options.ClientId}:{_options.ClientSecret}"));
         var request = new HttpRequestMessage(HttpMethod.Post, "/v1/oauth2/token")
@@ -152,7 +217,7 @@ public class PayPalClient : IPayPalClient
 
         if (!response.IsSuccessStatusCode)
         {
-            _logger.LogWarning("PayPal OAuth token request failed ({Status}): {Body}", response.StatusCode, body);
+            _logger.LogWarning("PayPal OAuth token request failed ({Status}): {Error}", response.StatusCode, DescribeError(body));
             throw new BusinessException("PayPal integracija trenutno nije dostupna.");
         }
 

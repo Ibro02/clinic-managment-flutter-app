@@ -78,18 +78,23 @@ public class AppointmentService : IAppointmentService
                 "desc" or "descending" => "descending",
                 _ => "ascending"
             };
+            // `, Id` is a tiebreaker, not decoration: IncludeAll is a split
+            // query, and a split query pages each of its SQL statements
+            // independently - so a non-unique ORDER BY (several appointments
+            // share a StartUtc) could hand the collection queries a different
+            // slice than the principal query got.
             try
             {
-                query = query.OrderBy($"{search.OrderBy} {direction}");
+                query = query.OrderBy($"{search.OrderBy} {direction}, Id");
             }
             catch (Exception)
             {
-                query = query.OrderByDescending(a => a.StartUtc);
+                query = query.OrderByDescending(a => a.StartUtc).ThenBy(a => a.Id);
             }
         }
         else
         {
-            query = query.OrderByDescending(a => a.StartUtc);
+            query = query.OrderByDescending(a => a.StartUtc).ThenBy(a => a.Id);
         }
 
         var entities = await query.Skip((search.Page - 1) * search.PageSize).Take(search.PageSize).ToListAsync(cancellationToken);
@@ -356,7 +361,12 @@ public class AppointmentService : IAppointmentService
         .Include(a => a.Doctor).ThenInclude(d => d.User)
         .Include(a => a.MedicalService)
         .Include(a => a.Location)
-        .Include(a => a.Payments).ThenInclude(p => p.Refunds);
+        .Include(a => a.Payments).ThenInclude(p => p.Refunds)
+        // Two nested collection includes (Payments -> Refunds) alongside the
+        // reference includes above would otherwise be one JOIN, multiplying
+        // every appointment row by (payments x refunds) - a cartesian explosion
+        // paid for on every page of the list endpoint.
+        .AsSplitQuery();
 
     private static IQueryable<Appointment> ApplySearchFilters(AppointmentSearchObject search, IQueryable<Appointment> query)
     {
