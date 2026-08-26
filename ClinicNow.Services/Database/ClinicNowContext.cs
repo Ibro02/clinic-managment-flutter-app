@@ -58,6 +58,10 @@ public class ClinicNowContext : DbContext
 
     public DbSet<RecommenderInteraction> RecommenderInteractions => Set<RecommenderInteraction>();
 
+    public DbSet<Payment> Payments => Set<Payment>();
+    public DbSet<PaymentItem> PaymentItems => Set<PaymentItem>();
+    public DbSet<PaymentRefund> PaymentRefunds => Set<PaymentRefund>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);

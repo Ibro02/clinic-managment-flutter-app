@@ -52,4 +52,11 @@ public class Appointment
     public DateTime? ReminderSentAtUtc { get; set; }
 
     public ICollection<AppointmentAuditLog> AuditLogs { get; set; } = [];
+
+    /// <summary>
+    /// Every payment attempt against this appointment (Phase 8) - loaded via
+    /// `AppointmentService.IncludeAll` so `AppointmentDto.IsPaid`/`PaymentStatus`
+    /// never cost an extra per-row query (no N+1, rulebook Part II §D).
+    /// </summary>
+    public ICollection<Payment> Payments { get; set; } = [];
 }
