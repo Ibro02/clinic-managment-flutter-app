@@ -13,6 +13,49 @@ clinics. It has three parts sharing one backend and one database:
 Seminar work for **Razvoj softvera II**, Fakultet informacijskih tehnologija (Ibrahim Hodžić,
 IB210082). See `recommender-dokumentacija.md` for the recommender system design.
 
+## Quick start (read this first)
+
+Everything needed to run and review this project starts **locally** with the commands below — no
+external/cloud service has to be created, opened, or configured. `docker-compose up --build`
+brings up SQL Server, RabbitMQ, the API, and the Worker on one Docker network; the API applies EF
+Core migrations and seeds demo data automatically on startup. The only two outbound network calls
+the app can make (SMTP email, PayPal sandbox checkout) are optional demo paths — the app boots and
+every core CRUD/booking flow works without them.
+
+```bash
+git clone <this-repo-url>
+cd ClinicNow
+cp .env.example .env
+docker-compose up --build
+```
+
+- API: `http://localhost:5203` — Scalar interactive docs at `/scalar/v1`, health check at `/health`.
+- RabbitMQ management UI: `http://localhost:15672` (guest/guest).
+
+To also run the two Flutter clients (each in its own terminal, from the repo root):
+
+```bash
+# Windows desktop app — staff/administrator
+cd UI/clinicnow_desktop
+flutter pub get
+flutter run -d windows --dart-define=API_BASE_URL=http://localhost:5203/
+
+# Android emulator — patient
+cd UI/clinicnow_mobile
+flutter pub get
+flutter run -d emulator-5554 --dart-define=API_BASE_URL=http://10.0.2.2:5203/
+```
+
+### Test accounts (for review)
+
+Two accounts cover the two clients end to end — the full list (Staff, Doctor, second Doctor) is
+under [Test accounts](#test-accounts) further down.
+
+| App | Role | Email | Password |
+|---|---|---|---|
+| Desktop (Windows) | Administrator | `administrator@clinicnow.test` | `test` |
+| Mobile (Android) | Patient | `patient@clinicnow.test` | `test` |
+
 ## Project status
 
 This repository is at **Phase 6 (Medical Documentation)** of the plan. JWT auth (Phase 1), the
