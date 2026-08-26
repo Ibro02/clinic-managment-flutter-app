@@ -12,6 +12,7 @@ using ClinicNow.Services.Database;
 using ClinicNow.Services.Database.Entities;
 using ClinicNow.Services.Messaging;
 using ClinicNow.Services.Notifications;
+using ClinicNow.Services.Payments;
 using MapsterMapper;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
@@ -43,6 +44,7 @@ public class AppointmentService : IAppointmentService
     private readonly IHttpContextAccessor _httpContextAccessor;
     private readonly INotificationService _notificationService;
     private readonly IEmailPublisher _emailPublisher;
+    private readonly IPaymentService _paymentService;
 
     public AppointmentService(
         ClinicNowContext context,
@@ -50,7 +52,8 @@ public class AppointmentService : IAppointmentService
         IServiceProvider serviceProvider,
         IHttpContextAccessor httpContextAccessor,
         INotificationService notificationService,
-        IEmailPublisher emailPublisher)
+        IEmailPublisher emailPublisher,
+        IPaymentService paymentService)
     {
         _context = context;
         _mapper = mapper;
@@ -58,6 +61,7 @@ public class AppointmentService : IAppointmentService
         _httpContextAccessor = httpContextAccessor;
         _notificationService = notificationService;
         _emailPublisher = emailPublisher;
+        _paymentService = paymentService;
     }
 
     public async Task<ClinicNow.Model.Common.PagedResult<AppointmentDto>> GetPagedAsync(AppointmentSearchObject search, CancellationToken cancellationToken = default)
@@ -254,6 +258,11 @@ public class AppointmentService : IAppointmentService
 
         var reloaded = await ReloadAsync(appointment.Id, cancellationToken);
 
+        // Auto-refund the remaining balance on any cancellation of a paid
+        // appointment (design doc §2/§4 item 4) - never throws, so a PayPal
+        // failure here can't undo the cancellation that already succeeded.
+        await _paymentService.RefundForCancelledAppointmentAsync(appointment.Id, actingUserId, cancellationToken);
+
         // Cancellation notifies both sides (rulebook Part II §G: rejection/
         // cancellation must trigger a notification with the reason).
         if (reloaded.Patient.UserId is int patientUserId)
@@ -346,7 +355,8 @@ public class AppointmentService : IAppointmentService
         .Include(a => a.Patient).ThenInclude(p => p!.User)
         .Include(a => a.Doctor).ThenInclude(d => d.User)
         .Include(a => a.MedicalService)
-        .Include(a => a.Location);
+        .Include(a => a.Location)
+        .Include(a => a.Payments).ThenInclude(p => p.Refunds);
 
     private static IQueryable<Appointment> ApplySearchFilters(AppointmentSearchObject search, IQueryable<Appointment> query)
     {
@@ -447,6 +457,21 @@ public class AppointmentService : IAppointmentService
             .AllowedActions()
             .Select(a => a.ToString())
             .ToList();
+
+        var currentPayment = appointment.Payments
+            .Where(p => p.Status != Model.Common.PaymentStatus.Pending)
+            .OrderByDescending(p => p.CreatedAtUtc)
+            .FirstOrDefault();
+
+        if (currentPayment is not null)
+        {
+            dto.PaymentId = currentPayment.Id;
+            dto.PaymentStatus = currentPayment.Status.ToDisplayName();
+            dto.IsPaid = currentPayment.Status != Model.Common.PaymentStatus.Refunded;
+            var remaining = currentPayment.AmountEur - currentPayment.Refunds.Sum(r => r.AmountEur);
+            dto.CanRefund = (currentPayment.Status == Model.Common.PaymentStatus.Paid || currentPayment.Status == Model.Common.PaymentStatus.PartiallyRefunded) && remaining > 0;
+        }
+
         return dto;
     }
 

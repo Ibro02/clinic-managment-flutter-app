@@ -16,6 +16,7 @@ using ClinicNow.Services.Documents;
 using ClinicNow.Services.Messaging;
 using ClinicNow.Services.News;
 using ClinicNow.Services.Notifications;
+using ClinicNow.Services.Payments;
 using ClinicNow.Services.People;
 using ClinicNow.Services.Records;
 using ClinicNow.Services.Recommender;
@@ -119,6 +120,10 @@ builder.Services.AddScoped<IMedicalRecordService, MedicalRecordService>();
 
 // --- Recommender (Phase 7) --------------------------------------------------------
 builder.Services.AddScoped<IRecommenderService, RecommenderService>();
+
+// --- Payments (Phase 8) -----------------------------------------------------------
+builder.Services.AddScoped<IPayPalClient, PayPalClient>();
+builder.Services.AddScoped<IPaymentService, PaymentService>();
 
 // SignalR for real-time notification auto-refresh (rulebook Part II §G) - the JWT
 // is delivered via the `access_token` query string since browsers/WebSockets can't

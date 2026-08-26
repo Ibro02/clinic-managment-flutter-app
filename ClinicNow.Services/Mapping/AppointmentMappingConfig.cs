@@ -22,6 +22,13 @@ public class AppointmentMappingConfig : IRegister
             .Map(dest => dest.MedicalServiceName, src => src.MedicalService.Name)
             .Map(dest => dest.LocationName, src => src.Location.Name)
             .Map(dest => dest.StatusName, src => src.Status.ToDisplayName())
-            .Ignore(dest => dest.AllowedActions);
+            .Ignore(dest => dest.AllowedActions)
+            .Ignore(dest => dest.IsPaid)
+            // PaymentStatus/PaymentId are nullable (string?/int?) - the null-forgiving
+            // operator avoids CS8603 when Mapster boxes them to object internally, same
+            // pattern as PaymentMappingConfig's ApproveUrl.
+            .Ignore(dest => dest.PaymentStatus!)
+            .Ignore(dest => dest.PaymentId!)
+            .Ignore(dest => dest.CanRefund);
     }
 }

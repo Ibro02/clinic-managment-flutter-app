@@ -38,4 +38,16 @@ public class AppointmentDto
     /// server-side anyway, with a reason (rulebook Part II §K).
     /// </summary>
     public List<string> AllowedActions { get; set; } = [];
+
+    /// <summary>True once a Payment on this appointment reached Paid or PartiallyRefunded - hides the "Pay" button, shows a "Plaćeno" badge (rulebook Part II §J).</summary>
+    public bool IsPaid { get; set; }
+
+    /// <summary>Display name of the current payment's status, or null if nothing beyond a Pending attempt exists yet.</summary>
+    public string? PaymentStatus { get; set; }
+
+    /// <summary>The current (non-Pending) payment's id, if any - lets the UI call the refund endpoint directly without a lookup.</summary>
+    public int? PaymentId { get; set; }
+
+    /// <summary>True when there is a Paid/PartiallyRefunded payment with a remaining refundable balance &gt; 0.</summary>
+    public bool CanRefund { get; set; }
 }
