@@ -72,9 +72,9 @@ class _MyAppointmentsScreenState extends State<MyAppointmentsScreen> {
     _load(); // refresh in case it was cancelled in the detail screen
   }
 
-  Color _statusColor(int status) => switch (status) {
+  Color _statusColor(BuildContext context, int status) => switch (status) {
         0 => Colors.orange,
-        1 => Colors.blue,
+        1 => Theme.of(context).colorScheme.tertiary,
         2 => Colors.green,
         3 => Colors.red,
         _ => Colors.grey,
@@ -105,7 +105,7 @@ class _MyAppointmentsScreenState extends State<MyAppointmentsScreen> {
                           final appointment = _appointments[index];
                           return ListTile(
                             leading: CircleAvatar(
-                              backgroundColor: _statusColor(appointment.status),
+                              backgroundColor: _statusColor(context, appointment.status),
                               child: const Icon(Icons.event, color: Colors.white),
                             ),
                             title: Text('${appointment.doctorName} — ${appointment.medicalServiceName}'),

@@ -39,9 +39,9 @@ class _AppointmentDetailScreenState extends State<AppointmentDetailScreen> {
     _paymentProvider = PaymentProvider(context.read<AuthSession>());
   }
 
-  Color _statusColor(int status) => switch (status) {
+  Color _statusColor(BuildContext context, int status) => switch (status) {
         0 => Colors.orange,
-        1 => Colors.blue,
+        1 => Theme.of(context).colorScheme.tertiary,
         2 => Colors.green,
         3 => Colors.red,
         _ => Colors.grey,
@@ -142,7 +142,7 @@ class _AppointmentDetailScreenState extends State<AppointmentDetailScreen> {
           children: [
             Chip(
               label: Text(_appointment.statusName, style: const TextStyle(color: Colors.white)),
-              backgroundColor: _statusColor(_appointment.status),
+              backgroundColor: _statusColor(context, _appointment.status),
             ),
             const SizedBox(height: 16),
             _DetailRow(label: 'Datum i vrijeme', value: _dateTimeFormat.format(_appointment.startUtc)),
