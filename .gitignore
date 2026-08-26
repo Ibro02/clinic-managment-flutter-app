@@ -5,6 +5,12 @@
 *.env
 !.env.example
 
+# The password-protected .env archive the rulebook (§9.2) requires to be
+# committed *at submission* - ignored until then so an accidental `git add -A`
+# can't publish the secrets early. On submission day, force-add it:
+#     git add -f .env-tajne.zip
+.env-tajne.zip
+
 # =============================================================================
 # .NET
 # =============================================================================
