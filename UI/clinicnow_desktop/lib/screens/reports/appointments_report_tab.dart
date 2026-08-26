@@ -172,16 +172,37 @@ class _AppointmentsReportTabState extends State<AppointmentsReportTab> {
             ],
           ),
           const SizedBox(height: 12),
-          if (_pdfBytes != null)
+          if (_pdfBytes != null) ...[
+            Row(
+              children: [
+                OutlinedButton.icon(
+                  icon: const Icon(Icons.print_outlined),
+                  label: const Text('Ispis'),
+                  onPressed: () => Printing.layoutPdf(
+                    onLayout: (format) async => _pdfBytes!,
+                    name: 'izvjestaj-termini.pdf',
+                  ),
+                ),
+                const SizedBox(width: 8),
+                OutlinedButton.icon(
+                  icon: const Icon(Icons.download_outlined),
+                  label: const Text('Preuzmi'),
+                  onPressed: () => Printing.sharePdf(
+                    bytes: _pdfBytes!,
+                    filename: 'izvjestaj-termini.pdf',
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
             Expanded(
               child: PdfPreview(
                 build: (format) async => _pdfBytes!,
-                canChangeOrientation: false,
-                canChangePageFormat: false,
-                canDebug: false,
+                useActions: false,
                 pdfFileName: 'izvjestaj-termini.pdf',
               ),
             ),
+          ],
         ],
       ),
     );

@@ -108,16 +108,37 @@ class _RevenueReportTabState extends State<RevenueReportTab> {
             Text(_error!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
           ],
           const SizedBox(height: 12),
-          if (_pdfBytes != null)
+          if (_pdfBytes != null) ...[
+            Row(
+              children: [
+                OutlinedButton.icon(
+                  icon: const Icon(Icons.print_outlined),
+                  label: const Text('Ispis'),
+                  onPressed: () => Printing.layoutPdf(
+                    onLayout: (format) async => _pdfBytes!,
+                    name: 'izvjestaj-prihodi.pdf',
+                  ),
+                ),
+                const SizedBox(width: 8),
+                OutlinedButton.icon(
+                  icon: const Icon(Icons.download_outlined),
+                  label: const Text('Preuzmi'),
+                  onPressed: () => Printing.sharePdf(
+                    bytes: _pdfBytes!,
+                    filename: 'izvjestaj-prihodi.pdf',
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
             Expanded(
               child: PdfPreview(
                 build: (format) async => _pdfBytes!,
-                canChangeOrientation: false,
-                canChangePageFormat: false,
-                canDebug: false,
+                useActions: false,
                 pdfFileName: 'izvjestaj-prihodi.pdf',
               ),
             ),
+          ],
         ],
       ),
     );

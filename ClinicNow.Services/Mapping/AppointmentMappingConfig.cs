@@ -17,7 +17,13 @@ public class AppointmentMappingConfig : IRegister
     public void Register(TypeAdapterConfig config)
     {
         config.NewConfig<Appointment, AppointmentDto>()
-            .Map(dest => dest.PatientName, src => src.Patient.FirstName + " " + src.Patient.LastName)
+            // Patient is an optional navigation (IsRequired(false) in
+            // PatientConfiguration) specifically so a soft-deleted patient's
+            // appointments still show up instead of disappearing from every
+            // list - Patient comes back null for them, so this must not
+            // assume it's always present (root cause of a real 500 hit live
+            // on this exact endpoint).
+            .Map(dest => dest.PatientName, src => src.Patient == null ? "Obrisani pacijent" : src.Patient.FirstName + " " + src.Patient.LastName)
             .Map(dest => dest.DoctorName, src => src.Doctor.User.FirstName + " " + src.Doctor.User.LastName)
             .Map(dest => dest.MedicalServiceName, src => src.MedicalService.Name)
             .Map(dest => dest.LocationName, src => src.Location.Name)

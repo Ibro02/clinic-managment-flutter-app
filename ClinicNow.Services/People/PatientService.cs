@@ -109,6 +109,16 @@ public class PatientService : BaseCRUDService<PatientDto, PatientSearchObject, P
         }
     }
 
+    protected override async Task BeforeDeleteAsync(Patient entity, CancellationToken cancellationToken)
+    {
+        var hasAppointments = await Context.Appointments.AnyAsync(a => a.PatientId == entity.Id, cancellationToken);
+        if (hasAppointments)
+        {
+            throw new BusinessException(
+                $"Pacijent '{entity.FirstName} {entity.LastName}' se ne može obrisati jer ima zakazane termine.");
+        }
+    }
+
     private async Task EnsurePersonalIdIsUniqueAsync(string? personalIdNumber, int? excludeId, CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(personalIdNumber))
