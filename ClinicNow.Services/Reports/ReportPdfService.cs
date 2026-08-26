@@ -99,7 +99,15 @@ public class ReportPdfService : IReportPdfService
                             {
                                 var localStart = ClinicTimeZone.ToLocal(appointment.StartUtc);
                                 table.Cell().Element(RowCellStyle).Text(localStart.ToString("dd.MM.yyyy HH:mm"));
-                                table.Cell().Element(RowCellStyle).Text($"{appointment.Patient.FirstName} {appointment.Patient.LastName}");
+                                // Appointment.Patient can come back null at runtime for a
+                                // soft-deleted patient: EF applies the global !IsDeleted query
+                                // filter to Included navigations too, despite the `= null!`
+                                // declaration on the entity. Render a fallback label instead of
+                                // throwing (root-cause fix tracked separately).
+                                var patientName = appointment.Patient is null
+                                    ? "Obrisani pacijent"
+                                    : $"{appointment.Patient.FirstName} {appointment.Patient.LastName}";
+                                table.Cell().Element(RowCellStyle).Text(patientName);
                                 table.Cell().Element(RowCellStyle).Text(appointment.MedicalService.Name);
                                 table.Cell().Element(RowCellStyle).Text(appointment.Status.ToDisplayName());
                             }

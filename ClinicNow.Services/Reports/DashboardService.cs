@@ -58,15 +58,22 @@ public class DashboardService : IDashboardService
 
     /// <summary>
     /// "On duty right now" (design doc §2/§5): active doctors whose recurring
-    /// WorkingHours cover this exact clinic-local moment today, minus any
-    /// doctor currently inside a ScheduleBlock - two bounded queries, never a
-    /// per-doctor loop.
+    /// WorkingHours cover this exact moment today, minus any doctor currently
+    /// inside a ScheduleBlock - two bounded queries, never a per-doctor loop.
     /// </summary>
     private async Task<int> CountAvailableDoctorsNowAsync(CancellationToken cancellationToken)
     {
-        var nowLocal = ClinicTimeZone.NowLocal;
-        var todayDayOfWeek = nowLocal.DayOfWeek;
-        var timeNow = TimeOnly.FromDateTime(nowLocal);
+        var nowUtc = DateTime.UtcNow;
+
+        // WorkingHours.StartTime/EndTime are read here as UTC wall-clock
+        // values, not clinic-local - intentionally matching how the existing
+        // booking engine (AppointmentService.GetAvailableSlotsAsync) already
+        // interprets the exact same columns. WorkingHours-as-local-vs-UTC is a
+        // known, separately-tracked ambiguity; don't "fix" this back to
+        // ClinicTimeZone.NowLocal without also revisiting the booking engine,
+        // or the two would silently drift apart again.
+        var todayDayOfWeek = nowUtc.DayOfWeek;
+        var timeNow = TimeOnly.FromDateTime(nowUtc);
 
         var onDutyDoctorIds = await _context.Doctors
             .Where(d => d.User.IsActive)
@@ -80,7 +87,6 @@ public class DashboardService : IDashboardService
             return 0;
         }
 
-        var nowUtc = DateTime.UtcNow;
         var blockedDoctorIds = await _context.ScheduleBlocks
             .Where(b => onDutyDoctorIds.Contains(b.DoctorId) && b.StartUtc <= nowUtc && nowUtc <= b.EndUtc)
             .Select(b => b.DoctorId)

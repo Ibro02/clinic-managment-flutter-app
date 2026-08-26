@@ -1,6 +1,5 @@
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
-import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 
 import '../../core/api_exception.dart';
@@ -22,7 +21,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
   static const _weekdayAbbrev = ['Pon', 'Uto', 'Sri', 'Čet', 'Pet', 'Sub', 'Ned'];
 
   late final ReportsApi _api;
-  final _eurFormat = NumberFormat.currency(locale: 'en_US', symbol: 'EUR ', decimalDigits: 2);
 
   DashboardSummary? _summary;
   String? _error;
@@ -92,7 +90,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
               _KpiCard(label: 'Termini danas', value: '${summary.todayAppointmentsCount}', icon: Icons.event_outlined),
               _KpiCard(label: 'Aktivni pacijenti', value: '${summary.activePatientsCount}', icon: Icons.people_outline),
               _KpiCard(label: 'Dostupni doktori sada', value: '${summary.availableDoctorsCount}', icon: Icons.medical_services_outlined),
-              _KpiCard(label: 'Prihod ovog mjeseca', value: _eurFormat.format(summary.monthlyRevenueEur), icon: Icons.payments_outlined),
+              _KpiCard(label: 'Prihod ovog mjeseca', value: '${summary.monthlyRevenueEur.toStringAsFixed(2)} EUR', icon: Icons.payments_outlined),
             ],
           ),
           const SizedBox(height: 24),
