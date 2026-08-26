@@ -18,6 +18,7 @@ using ClinicNow.Services.News;
 using ClinicNow.Services.Notifications;
 using ClinicNow.Services.People;
 using ClinicNow.Services.Records;
+using ClinicNow.Services.Recommender;
 using ClinicNow.Services.Security;
 using ClinicNow.Services.Users;
 using Mapster;
@@ -49,6 +50,7 @@ var rabbitMqOptions = new RabbitMqOptions();
 var smtpOptions = new SmtpOptions();
 var payPalOptions = new PayPalOptions();
 var corsOptions = new CorsOptions();
+var recommenderOptions = new RecommenderOptions();
 
 builder.Services.AddSingleton(databaseOptions);
 builder.Services.AddSingleton(jwtOptions);
@@ -56,6 +58,7 @@ builder.Services.AddSingleton(rabbitMqOptions);
 builder.Services.AddSingleton(smtpOptions);
 builder.Services.AddSingleton(payPalOptions);
 builder.Services.AddSingleton(corsOptions);
+builder.Services.AddSingleton(recommenderOptions);
 
 // --- Database -----------------------------------------------------------------
 // ClinicNowContext (and every service built on top of it) is Scoped by default via
@@ -113,6 +116,9 @@ builder.Services.AddScoped<IMedicalDocumentService, MedicalDocumentService>();
 
 // --- Medical record ("medicinski karton") ---------------------------------------
 builder.Services.AddScoped<IMedicalRecordService, MedicalRecordService>();
+
+// --- Recommender (Phase 7) --------------------------------------------------------
+builder.Services.AddScoped<IRecommenderService, RecommenderService>();
 
 // SignalR for real-time notification auto-refresh (rulebook Part II §G) - the JWT
 // is delivered via the `access_token` query string since browsers/WebSockets can't
@@ -246,6 +252,7 @@ builder.Services.AddRateLimiter(options =>
 // --- Cross-cutting infrastructure ------------------------------------------------
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddHttpClient();
+builder.Services.AddMemoryCache();
 
 var app = builder.Build();
 
