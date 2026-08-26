@@ -1,9 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:provider/provider.dart';
 
 import '../../core/api_exception.dart';
+import '../../core/auth_session.dart';
 import '../../models/appointment.dart';
 import '../../providers/appointment_provider.dart';
+import '../../providers/payment_provider.dart';
+import '../payments/payment_webview_screen.dart';
 
 /// Detail view of a single appointment, with the Cancel action - only shown
 /// (rulebook Part II §K: "disabled-with-reason for unavailable actions") when
@@ -25,10 +29,14 @@ class _AppointmentDetailScreenState extends State<AppointmentDetailScreen> {
   late Appointment _appointment;
   bool _isCancelling = false;
 
+  late final PaymentProvider _paymentProvider;
+  bool _isPaying = false;
+
   @override
   void initState() {
     super.initState();
     _appointment = widget.appointment;
+    _paymentProvider = PaymentProvider(context.read<AuthSession>());
   }
 
   Color _statusColor(int status) => switch (status) {
@@ -98,6 +106,31 @@ class _AppointmentDetailScreenState extends State<AppointmentDetailScreen> {
     }
   }
 
+  Future<void> _pay() async {
+    setState(() => _isPaying = true);
+    try {
+      final payment = await _paymentProvider.create(_appointment.id);
+      if (!mounted || payment.approveUrl == null) return;
+
+      final approved = await Navigator.of(context).push<bool>(
+        MaterialPageRoute(builder: (_) => PaymentWebViewScreen(approveUrl: payment.approveUrl!)),
+      );
+
+      if (approved == true) {
+        await _paymentProvider.capture(payment.id);
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Plaćanje uspješno.')));
+        // Re-fetch to pick up the server's fresh isPaid/paymentStatus.
+        final refreshed = await widget.provider.getById(_appointment.id);
+        if (mounted) setState(() => _appointment = refreshed);
+      }
+    } on ApiException catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+    } finally {
+      if (mounted) setState(() => _isPaying = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -118,6 +151,21 @@ class _AppointmentDetailScreenState extends State<AppointmentDetailScreen> {
             _DetailRow(label: 'Lokacija', value: _appointment.locationName),
             if (_appointment.cancellationReason != null)
               _DetailRow(label: 'Razlog otkazivanja', value: _appointment.cancellationReason!),
+            const SizedBox(height: 8),
+            if (_appointment.isPaid)
+              Chip(
+                avatar: const Icon(Icons.check_circle, color: Colors.white, size: 18),
+                label: Text(_appointment.paymentStatus ?? 'Plaćeno', style: const TextStyle(color: Colors.white)),
+                backgroundColor: Colors.green,
+              )
+            else if (_appointment.status != 3) // never offer to pay a Cancelled appointment
+              FilledButton.icon(
+                onPressed: _isPaying ? null : _pay,
+                icon: _isPaying
+                    ? const SizedBox(height: 16, width: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                    : const Icon(Icons.payment),
+                label: const Text('Plati'),
+              ),
             const SizedBox(height: 24),
             if (_appointment.canCancel)
               FilledButton.icon(

@@ -30,6 +30,7 @@ dependencies:
   # SDK pins this transitively.
   intl: 0.20.2
   file_picker: ^12.1.0
+  webview_flutter: ^4.14.1
 
 dev_dependencies:
   flutter_test:

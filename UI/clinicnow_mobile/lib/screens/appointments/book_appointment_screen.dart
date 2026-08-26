@@ -11,7 +11,9 @@ import '../../models/recommendation.dart';
 import '../../providers/appointment_provider.dart';
 import '../../providers/doctor_provider.dart';
 import '../../providers/medical_service_provider.dart';
+import '../../providers/payment_provider.dart';
 import '../../providers/recommendation_provider.dart';
+import '../payments/payment_webview_screen.dart';
 
 /// Multi-step patient booking flow (PLAN.md Phase 4 item 6): doctor → service
 /// → date → time slot, every option a real DB-backed dropdown (no free text -
@@ -40,6 +42,7 @@ class _BookAppointmentScreenState extends State<BookAppointmentScreen> {
   late final DoctorProvider _doctorProvider;
   late final MedicalServiceProvider _serviceProvider;
   late final RecommendationProvider _recommendationProvider;
+  late final PaymentProvider _paymentProvider;
 
   static final _dateFormat = DateFormat('dd.MM.yyyy');
   static final _timeFormat = DateFormat('HH:mm');
@@ -69,6 +72,7 @@ class _BookAppointmentScreenState extends State<BookAppointmentScreen> {
     _doctorProvider = DoctorProvider(authSession);
     _serviceProvider = MedicalServiceProvider(authSession);
     _recommendationProvider = RecommendationProvider(authSession);
+    _paymentProvider = PaymentProvider(authSession);
     _loadOptions();
     // The "Preporučeno" banner exists to surface a recommendation to someone
     // who arrived here without one. When the screen was pre-filled from a
@@ -170,11 +174,29 @@ class _BookAppointmentScreenState extends State<BookAppointmentScreen> {
     });
 
     try {
-      await _appointmentProvider.insert({
+      final appointment = await _appointmentProvider.insert({
         'doctorId': _doctor!.id,
         'medicalServiceId': _service!.id,
         'startUtc': _selectedSlot!.toUtc().toIso8601String(),
       });
+      if (!mounted) return;
+
+      final wantsToPay = await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: const Text('Plaćanje'),
+          content: Text('Termin je zakazan. Željeli biste li odmah platiti (${_service!.price.toStringAsFixed(2)} KM)?'),
+          actions: [
+            TextButton(onPressed: () => Navigator.of(dialogContext).pop(false), child: const Text('Kasnije')),
+            FilledButton(onPressed: () => Navigator.of(dialogContext).pop(true), child: const Text('Plati sada')),
+          ],
+        ),
+      );
+
+      if (wantsToPay == true) {
+        await _attemptPayment(appointment.id);
+      }
+
       if (!mounted) return;
       Navigator.of(context).pop(true);
       ScaffoldMessenger.of(context).showSnackBar(
@@ -185,6 +207,28 @@ class _BookAppointmentScreenState extends State<BookAppointmentScreen> {
         _error = e.message;
         _isSubmitting = false;
       });
+    }
+  }
+
+  Future<void> _attemptPayment(int appointmentId) async {
+    try {
+      final payment = await _paymentProvider.create(appointmentId);
+      if (!mounted || payment.approveUrl == null) return;
+
+      final approved = await Navigator.of(context).push<bool>(
+        MaterialPageRoute(builder: (_) => PaymentWebViewScreen(approveUrl: payment.approveUrl!)),
+      );
+
+      if (approved == true) {
+        await _paymentProvider.capture(payment.id);
+      }
+      // A `false`/null result (cancelled) or a failed capture is silently
+      // fine here - the appointment stays booked and unpaid either way
+      // (design doc §2), and a "Plati" button remains available on the
+      // appointment detail screen for a retry.
+    } on ApiException {
+      // Payment failures must never block the booking flow that already
+      // succeeded - the appointment exists regardless.
     }
   }
 
