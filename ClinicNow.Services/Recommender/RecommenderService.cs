@@ -151,6 +151,22 @@ public class RecommenderService : IRecommenderService
     private static int _coldStartLoadAttempted;
 
     /// <summary>
+    /// Serializes the train-or-load section of <see cref="GetOrTrainModelAsync"/>.
+    /// <c>IMemoryCache</c>'s <c>TryGetValue</c>/<c>Set</c> pair is not atomic,
+    /// so at a <see cref="RecommenderOptions.RetrainIntervalMinutes"/> boundary
+    /// several concurrent requests can all observe the same cache miss (a
+    /// classic cache stampede). Without this gate they would all reach
+    /// <see cref="TrainAndSaveAsync"/> and call <c>Model.Save</c> on the same
+    /// <see cref="RecommenderOptions.ModelPath"/> simultaneously, which throws
+    /// <c>IOException</c> ("file in use") and surfaces as a 500 - and would
+    /// recur at every TTL boundary under concurrent load. <c>static</c> for
+    /// the same reason <see cref="_coldStartLoadAttempted"/> is: it has to
+    /// serialize across the concurrent <c>Scoped</c> instances inside one
+    /// process, not per request. Never disposed - it lives for the process.
+    /// </summary>
+    private static readonly SemaphoreSlim _modelTrainLock = new(1, 1);
+
+    /// <summary>
     /// Returns the trained transformer, cached process-wide for
     /// <see cref="RecommenderOptions.RetrainIntervalMinutes"/> (doc §7:
     /// "teški resursi ... dijele se na nivou aplikacije uz odgovarajuće
@@ -164,6 +180,11 @@ public class RecommenderService : IRecommenderService
     /// serialized bytes would freeze the TF-IDF vocabulary at whatever the
     /// catalog looked like on the very first train, so a doctor or service
     /// added later would stay permanently out-of-vocabulary.
+    ///
+    /// Train-or-load is guarded by <see cref="_modelTrainLock"/> with
+    /// double-checked locking, so a cache-miss stampede produces exactly one
+    /// train-or-load and every other racer reuses its result rather than
+    /// racing it to write the model file.
     /// </summary>
     private async Task<(MLContext MlContext, ITransformer Model)> GetOrTrainModelAsync(CancellationToken cancellationToken)
     {
@@ -172,32 +193,52 @@ public class RecommenderService : IRecommenderService
             return cached;
         }
 
-        var mlContext = new MLContext(seed: 0);
-        ITransformer model;
-
-        var isColdStart = Interlocked.Exchange(ref _coldStartLoadAttempted, 1) == 0;
-
-        if (isColdStart && File.Exists(_options.ModelPath))
+        await _modelTrainLock.WaitAsync(cancellationToken);
+        try
         {
-            _logger.LogInformation("Cold start - loading recommender model from {Path}.", _options.ModelPath);
-            model = mlContext.Model.Load(_options.ModelPath, out _);
-        }
-        else
-        {
-            if (isColdStart)
+            // Second check, now under the lock: whoever held it may have just
+            // trained/loaded and repopulated the cache while this caller was
+            // waiting. Reuse that instead of doing the work (and the file
+            // write) all over again.
+            if (_cache.TryGetValue(ModelCacheKey, out (MLContext MlContext, ITransformer Model) cachedAfterWait))
             {
-                _logger.LogInformation("No recommender model found at {Path} - training a new one.", _options.ModelPath);
+                return cachedAfterWait;
+            }
+
+            var mlContext = new MLContext(seed: 0);
+            ITransformer model;
+
+            // Atomic test-and-set. Redundant under the lock, but it keeps the
+            // "first attempt in this process wins" intent explicit and correct
+            // independently of the surrounding synchronization.
+            var isColdStart = Interlocked.Exchange(ref _coldStartLoadAttempted, 1) == 0;
+
+            if (isColdStart && File.Exists(_options.ModelPath))
+            {
+                _logger.LogInformation("Cold start - loading recommender model from {Path}.", _options.ModelPath);
+                model = mlContext.Model.Load(_options.ModelPath, out _);
             }
             else
             {
-                _logger.LogInformation("Recommender model cache expired - retraining and overwriting {Path}.", _options.ModelPath);
+                if (isColdStart)
+                {
+                    _logger.LogInformation("No recommender model found at {Path} - training a new one.", _options.ModelPath);
+                }
+                else
+                {
+                    _logger.LogInformation("Recommender model cache expired - retraining and overwriting {Path}.", _options.ModelPath);
+                }
+
+                model = await TrainAndSaveAsync(mlContext, cancellationToken);
             }
 
-            model = await TrainAndSaveAsync(mlContext, cancellationToken);
+            _cache.Set(ModelCacheKey, (mlContext, model), TimeSpan.FromMinutes(_options.RetrainIntervalMinutes));
+            return (mlContext, model);
         }
-
-        _cache.Set(ModelCacheKey, (mlContext, model), TimeSpan.FromMinutes(_options.RetrainIntervalMinutes));
-        return (mlContext, model);
+        finally
+        {
+            _modelTrainLock.Release();
+        }
     }
 
     private async Task<ITransformer> TrainAndSaveAsync(MLContext mlContext, CancellationToken cancellationToken)
