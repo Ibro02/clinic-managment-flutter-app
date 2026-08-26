@@ -47,6 +47,12 @@ class _MyAppointmentsScreenState extends State<MyAppointmentsScreen> {
     } on ApiException catch (e) {
       if (!mounted) return;
       setState(() => _error = e.message);
+    } catch (e) {
+      // A non-ApiException failure (e.g. the server unreachable - wrong host/port,
+      // no network) must never be silently swallowed into an empty list with no
+      // explanation (rulebook Part II: unhappy paths must be surfaced, not hidden).
+      if (!mounted) return;
+      setState(() => _error = 'Greška prilikom učitavanja termina: $e');
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }

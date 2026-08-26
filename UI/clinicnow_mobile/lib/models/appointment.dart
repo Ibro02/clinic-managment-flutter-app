@@ -71,9 +71,14 @@ class Appointment {
         cancellationReason: json['cancellationReason'] as String?,
         createdAtUtc: DateTime.parse(json['createdAtUtc'] as String).toLocal(),
         allowedActions: (json['allowedActions'] as List<dynamic>? ?? []).map((e) => '$e').toList(),
-        isPaid: json['isPaid'] as bool,
+        // Payment state is read defensively: an API build predating the
+        // payments phase omits these keys entirely, and a hard `as bool` on an
+        // absent key throws a TypeError that takes down the parse of the whole
+        // page - one missing optional field would otherwise blank the entire
+        // appointments list. Absent payment state means "not paid yet".
+        isPaid: json['isPaid'] as bool? ?? false,
         paymentStatus: json['paymentStatus'] as String?,
         paymentId: json['paymentId'] as int?,
-        canRefund: json['canRefund'] as bool,
+        canRefund: json['canRefund'] as bool? ?? false,
       );
 }
