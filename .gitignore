@@ -20,7 +20,7 @@ publish/
 # EF Core / ML.NET artifacts that must be regenerated, not committed
 *.mdf
 *.ldf
-model.zip
+*model.zip
 
 # =============================================================================
 # Flutter / Dart
