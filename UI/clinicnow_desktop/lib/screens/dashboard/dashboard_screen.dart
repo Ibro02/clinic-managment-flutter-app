@@ -206,8 +206,8 @@ class _NewVsExistingChart extends StatelessWidget {
         sectionsSpace: 2,
         centerSpaceRadius: 36,
         sections: [
-          PieChartSectionData(value: newCount.toDouble(), title: 'Novi\n$newCount', color: Colors.teal, radius: 60),
-          PieChartSectionData(value: existingCount.toDouble(), title: 'Postojeći\n$existingCount', color: Colors.blueGrey, radius: 60),
+          PieChartSectionData(value: newCount.toDouble(), title: 'Novi\n$newCount', color: Theme.of(context).colorScheme.primary, radius: 60),
+          PieChartSectionData(value: existingCount.toDouble(), title: 'Postojeći\n$existingCount', color: Theme.of(context).colorScheme.tertiary, radius: 60),
         ],
       ),
     );

@@ -320,9 +320,9 @@ class _AppointmentScreenState extends State<AppointmentScreen> {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
   }
 
-  Color _statusColor(int status) => switch (status) {
+  Color _statusColor(BuildContext context, int status) => switch (status) {
         0 => Colors.orange,
-        1 => Colors.blue,
+        1 => Theme.of(context).colorScheme.tertiary,
         2 => Colors.green,
         3 => Colors.red,
         _ => Colors.grey,
@@ -470,7 +470,7 @@ class _AppointmentScreenState extends State<AppointmentScreen> {
                                 DataCell(Text(appointment.locationName)),
                                 DataCell(Chip(
                                   label: Text(appointment.statusName, style: const TextStyle(color: Colors.white, fontSize: 12)),
-                                  backgroundColor: _statusColor(appointment.status),
+                                  backgroundColor: _statusColor(context, appointment.status),
                                   visualDensity: VisualDensity.compact,
                                   padding: EdgeInsets.zero,
                                 )),
