@@ -19,7 +19,7 @@ public class RecommenderOptions : EnvOptionsBase
     /// <summary>Filesystem path the trained ML.NET model is serialized to/loaded from (doc §7).</summary>
     public string ModelPath { get; }
 
-    /// <summary>How long a cached trained model is reused before a background retrain is triggered on next use (doc §7: "model se osvježava periodično").</summary>
+    /// <summary>How long a trained model stays cached before the next request that needs it retrains in-line, picking up catalog changes (doc §7: "model se osvježava periodično"). There is no background retrain - the refresh happens on the first use after this interval elapses.</summary>
     public int RetrainIntervalMinutes { get; }
 
     public RecommenderOptions()

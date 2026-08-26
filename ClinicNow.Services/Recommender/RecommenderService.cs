@@ -141,10 +141,29 @@ public class RecommenderService : IRecommenderService
             .Append(mlContext.Transforms.Concatenate("Features", "MedicalServiceFeat", "SpecializationFeat", "DoctorFeat", "DayOfWeekFeat", "TimeOfDayFeat"));
 
     /// <summary>
-    /// Builds/loads the trained transformer, cached at the application level
-    /// (doc §7: "teški resursi ... dijele se na nivou aplikacije uz
-    /// odgovarajuće keširanje") for <see cref="RecommenderOptions.RetrainIntervalMinutes"/>
-    /// before the next call retrains (doc §7: "model se osvježava periodično").
+    /// 0 until this process has made its one cold-start attempt to reuse the
+    /// model already serialized on disk. Deliberately <c>static</c>: the
+    /// service is <c>Scoped</c>, so an instance field would reset every
+    /// request and make every cache miss look like a cold start. "Have we
+    /// looked at the model file yet since startup" is a property of the
+    /// process, not of a request.
+    /// </summary>
+    private static int _coldStartLoadAttempted;
+
+    /// <summary>
+    /// Returns the trained transformer, cached process-wide for
+    /// <see cref="RecommenderOptions.RetrainIntervalMinutes"/> (doc §7:
+    /// "teški resursi ... dijele se na nivou aplikacije uz odgovarajuće
+    /// keširanje").
+    ///
+    /// Only the first cache miss after process start may reuse a model
+    /// already on disk. Every later miss is a TTL expiry, and genuinely
+    /// retrains - overwriting the file - which is what doc §7's "model se
+    /// osvježava periodično / pri značajnijoj promjeni kataloga usluga i
+    /// doktora (nova usluga, novi doktor)" requires: reloading the identical
+    /// serialized bytes would freeze the TF-IDF vocabulary at whatever the
+    /// catalog looked like on the very first train, so a doctor or service
+    /// added later would stay permanently out-of-vocabulary.
     /// </summary>
     private async Task<(MLContext MlContext, ITransformer Model)> GetOrTrainModelAsync(CancellationToken cancellationToken)
     {
@@ -156,14 +175,24 @@ public class RecommenderService : IRecommenderService
         var mlContext = new MLContext(seed: 0);
         ITransformer model;
 
-        if (File.Exists(_options.ModelPath))
+        var isColdStart = Interlocked.Exchange(ref _coldStartLoadAttempted, 1) == 0;
+
+        if (isColdStart && File.Exists(_options.ModelPath))
         {
-            _logger.LogInformation("Loading recommender model from {Path}.", _options.ModelPath);
+            _logger.LogInformation("Cold start - loading recommender model from {Path}.", _options.ModelPath);
             model = mlContext.Model.Load(_options.ModelPath, out _);
         }
         else
         {
-            _logger.LogInformation("No recommender model found at {Path} - training a new one.", _options.ModelPath);
+            if (isColdStart)
+            {
+                _logger.LogInformation("No recommender model found at {Path} - training a new one.", _options.ModelPath);
+            }
+            else
+            {
+                _logger.LogInformation("Recommender model cache expired - retraining and overwriting {Path}.", _options.ModelPath);
+            }
+
             model = await TrainAndSaveAsync(mlContext, cancellationToken);
         }
 
@@ -240,8 +269,23 @@ public class RecommenderService : IRecommenderService
     /// <summary>One weighted item in the patient's "taste profile" (doc §5.2's `H`) - either a past completed/confirmed appointment or a logged interaction.</summary>
     private record HistoryItem(RecommenderFeatureRow Features, double Weight, int? DoctorId, int? MedicalServiceId, bool FromAppointment, string? DoctorLastName, string? MedicalServiceName, DateTime DateTimeUtc);
 
+    /// <summary>
+    /// doc §5.2's `recencyFactor(h) = 1 / (1 + daysSince(h) / 30)`, decaying
+    /// from 1.0 (today) toward 0 as a history item ages.
+    ///
+    /// The age is clamped to non-negative because `H` legitimately contains
+    /// future-dated items: `BuildAppointmentHistoryAsync` includes `Confirmed`
+    /// appointments (doc §3 row 1), whose `StartUtc` has not happened yet.
+    /// Without the clamp a future item's "days since" goes negative, which
+    /// inflates the weight (25 days out would score ~6x a visit that happened
+    /// today), divides by zero at exactly +30 days (PositiveInfinity -> NaN
+    /// score -> a 500 when System.Text.Json serializes the DTO), and flips
+    /// negative past +30 days, silently dropping the item at the
+    /// `Where(h => h.Weight > 0)` filter. An upcoming appointment is treated
+    /// as maximally recent (factor 1.0) instead.
+    /// </summary>
     private static double RecencyFactor(DateTime pointInTimeUtc, DateTime nowUtc) =>
-        1.0 / (1.0 + (nowUtc - pointInTimeUtc).TotalDays / 30.0);
+        1.0 / (1.0 + Math.Max(0.0, (nowUtc - pointInTimeUtc).TotalDays) / 30.0);
 
     /// <summary>Builds `H` from real `Appointment` rows (doc §3 row 1: status Completed/Confirmed) - `frequencyFactor(h)` is the count of history items sharing the same (Doctor, MedicalService) pair (repeat visits weigh more).</summary>
     private async Task<List<HistoryItem>> BuildAppointmentHistoryAsync(int patientId, DateTime nowUtc, CancellationToken cancellationToken)
