@@ -56,6 +56,8 @@ public class ClinicNowContext : DbContext
     public DbSet<MedicalRecord> MedicalRecords => Set<MedicalRecord>();
     public DbSet<MedicalRecordEntry> MedicalRecordEntries => Set<MedicalRecordEntry>();
 
+    public DbSet<RecommenderInteraction> RecommenderInteractions => Set<RecommenderInteraction>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
