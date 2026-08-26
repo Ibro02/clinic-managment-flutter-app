@@ -27,8 +27,9 @@ import '../../providers/recommendation_provider.dart';
 class BookAppointmentScreen extends StatefulWidget {
   final int? initialDoctorId;
   final int? initialMedicalServiceId;
+  final DateTime? initialDate;
 
-  const BookAppointmentScreen({super.key, this.initialDoctorId, this.initialMedicalServiceId});
+  const BookAppointmentScreen({super.key, this.initialDoctorId, this.initialMedicalServiceId, this.initialDate});
 
   @override
   State<BookAppointmentScreen> createState() => _BookAppointmentScreenState();
@@ -90,8 +91,11 @@ class _BookAppointmentScreenState extends State<BookAppointmentScreen> {
         if (widget.initialMedicalServiceId != null) {
           _service = _services.cast<MedicalService?>().firstWhere((s) => s?.id == widget.initialMedicalServiceId, orElse: () => null);
         }
+        if (widget.initialDate != null) {
+          _date = widget.initialDate;
+        }
       });
-      if (_doctor != null && _service != null) {
+      if (_doctor != null && _service != null && _date != null) {
         await _loadSlots();
       }
     }

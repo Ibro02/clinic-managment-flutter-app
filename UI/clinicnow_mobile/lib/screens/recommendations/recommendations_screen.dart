@@ -183,7 +183,11 @@ class _RecommendationsScreenState extends State<RecommendationsScreen> {
                     isThreeLine: true,
                     trailing: const Icon(Icons.chevron_right),
                     onTap: () => Navigator.of(context).push<bool>(MaterialPageRoute(
-                      builder: (_) => BookAppointmentScreen(initialDoctorId: r.doctorId, initialMedicalServiceId: r.medicalServiceId),
+                      builder: (_) => BookAppointmentScreen(
+                        initialDoctorId: r.doctorId,
+                        initialMedicalServiceId: r.medicalServiceId,
+                        initialDate: r.suggestedStartUtc.toLocal(),
+                      ),
                     )).then((booked) { if (booked == true) _load(); }),
                   ),
                 )),
