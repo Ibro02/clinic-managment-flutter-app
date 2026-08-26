@@ -147,6 +147,15 @@ public class PaymentService : IPaymentService
 
     public async Task<PaymentDto?> GetByAppointmentIdAsync(int appointmentId, CancellationToken cancellationToken = default)
     {
+        // Ownership first, *then* the payment lookup: this endpoint is open to
+        // every authenticated role (a Patient checking their own appointment,
+        // Staff/Admin checking any), so without this a Patient could pass
+        // someone else's appointmentId and read their amount, status and
+        // refund history. Checking before the query also keeps "not your
+        // appointment" and "no payment yet" from being distinguishable by
+        // their different response shapes.
+        await EnsureAppointmentAccessAsync(appointmentId, cancellationToken);
+
         var payment = await _context.Payments
             .Include(p => p.Refunds)
             .Where(p => p.AppointmentId == appointmentId && p.Status != PaymentStatus.Pending)
@@ -168,25 +177,33 @@ public class PaymentService : IPaymentService
 
     public async Task RefundForCancelledAppointmentAsync(int appointmentId, int actingUserId, CancellationToken cancellationToken = default)
     {
-        var payment = await _context.Payments
-            .Include(p => p.Refunds)
-            .Where(p => p.AppointmentId == appointmentId && (p.Status == PaymentStatus.Paid || p.Status == PaymentStatus.PartiallyRefunded))
-            .OrderByDescending(p => p.CreatedAtUtc)
-            .FirstOrDefaultAsync(cancellationToken);
-
-        if (payment is null)
-        {
-            return; // nothing paid on this appointment - nothing to refund
-        }
-
-        var remaining = payment.AmountEur - payment.Refunds.Sum(r => r.AmountEur);
-        if (remaining <= 0)
-        {
-            return;
-        }
-
+        // The *entire* body sits inside the try, not just the RefundCoreAsync
+        // call: IPaymentService documents this method as never throwing, so a
+        // DB failure during the lookup below must not propagate into
+        // AppointmentService.CancelAsync and fail a cancellation that already
+        // succeeded (design doc §4 item 4).
+        int? paymentId = null;
         try
         {
+            var payment = await _context.Payments
+                .Include(p => p.Refunds)
+                .Where(p => p.AppointmentId == appointmentId && (p.Status == PaymentStatus.Paid || p.Status == PaymentStatus.PartiallyRefunded))
+                .OrderByDescending(p => p.CreatedAtUtc)
+                .FirstOrDefaultAsync(cancellationToken);
+
+            if (payment is null)
+            {
+                return; // nothing paid on this appointment - nothing to refund
+            }
+
+            paymentId = payment.Id;
+
+            var remaining = payment.AmountEur - payment.Refunds.Sum(r => r.AmountEur);
+            if (remaining <= 0)
+            {
+                return;
+            }
+
             await RefundCoreAsync(payment, remaining, "Termin otkazan.", actingUserId, cancellationToken);
         }
         catch (Exception ex)
@@ -194,7 +211,7 @@ public class PaymentService : IPaymentService
             // The cancellation itself must not fail because a refund attempt
             // did - log it clearly so staff can retry the refund manually
             // (design doc §4 item 4).
-            _logger.LogWarning(ex, "Automatic refund failed for cancelled appointment {AppointmentId}, payment {PaymentId} - staff must refund manually.", appointmentId, payment.Id);
+            _logger.LogWarning(ex, "Automatic refund failed for cancelled appointment {AppointmentId}, payment {PaymentId} - staff must refund manually.", appointmentId, paymentId);
         }
     }
 
@@ -221,6 +238,20 @@ public class PaymentService : IPaymentService
 
         var payPalRefundId = await _payPalClient.RefundCaptureAsync(payment.PayPalCaptureId!, amount, reason, cancellationToken);
 
+        // Real money has now moved, but the row recording it isn't persisted
+        // until the SaveChangesAsync below. If that save fails (concurrency,
+        // dropped connection, constraint violation) the refund goes unrecorded
+        // - and since the remaining balance is always recomputed fresh from
+        // payment.Refunds, a later attempt would see the full balance still
+        // available and could refund it for real a second time. Logging the
+        // actual PayPal refund id here leaves a reconcilable trail (a real
+        // refund id with no matching DB row) instead of a silent gap.
+        // Deliberately narrower than the correct fix - a PayPal idempotency
+        // key on the refund call - because that requires changing the already
+        // reviewed and merged IPayPalClient/PayPalClient.
+        _logger.LogInformation("PayPal refund {PayPalRefundId} of {AmountEur} EUR succeeded for payment {PaymentId}; persisting the record next.",
+            payPalRefundId, amount, payment.Id);
+
         payment.Refunds.Add(new PaymentRefund
         {
             AmountEur = amount,
@@ -235,24 +266,48 @@ public class PaymentService : IPaymentService
 
         await _context.SaveChangesAsync(cancellationToken);
 
-        var appointment = await _context.Appointments.Include(a => a.Patient).SingleAsync(a => a.Id == payment.AppointmentId, cancellationToken);
-        if (appointment.Patient?.UserId is int patientUserId)
+        // The refund is committed at this point, so a failure to *notify* about
+        // it must never surface as a failed refund. Without this local catch,
+        // RefundForCancelledAppointmentAsync's blanket handler would log
+        // "staff must refund manually" for a refund that actually succeeded.
+        try
         {
-            await _notificationService.CreateAsync(patientUserId, "Povrat sredstava",
-                $"Izvršen je povrat od {amount:F2} EUR za vaš termin. Razlog: {reason}", cancellationToken);
+            var appointment = await _context.Appointments.Include(a => a.Patient).SingleAsync(a => a.Id == payment.AppointmentId, cancellationToken);
+            if (appointment.Patient?.UserId is int patientUserId)
+            {
+                await _notificationService.CreateAsync(patientUserId, "Povrat sredstava",
+                    $"Izvršen je povrat od {amount:F2} EUR za vaš termin. Razlog: {reason}", cancellationToken);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Refund of {AmountEur} EUR for payment {PaymentId} succeeded, but notifying the patient failed.", amount, payment.Id);
         }
     }
 
-    private async Task EnsureOwnershipAsync(Payment payment, CancellationToken cancellationToken)
+    private Task EnsureOwnershipAsync(Payment payment, CancellationToken cancellationToken) =>
+        EnsureAppointmentAccessAsync(payment.AppointmentId, "Nemate pristup ovoj uplati.", cancellationToken);
+
+    private Task EnsureAppointmentAccessAsync(int appointmentId, CancellationToken cancellationToken) =>
+        EnsureAppointmentAccessAsync(appointmentId, "Nemate pristup ovom terminu.", cancellationToken);
+
+    /// <summary>
+    /// Admin/Staff may look at any appointment's payments; anyone else must own
+    /// the appointment. A Doctor falls through to the patient branch and is
+    /// rejected by <see cref="GetOwnPatientIdAsync"/> - payments are not part
+    /// of the doctor-facing surface.
+    /// </summary>
+    private async Task EnsureAppointmentAccessAsync(int appointmentId, string forbiddenMessage, CancellationToken cancellationToken)
     {
         var principal = CurrentUser();
         if (principal.IsInRole(Roles.Administrator) || principal.IsInRole(Roles.Staff)) return;
 
         var ownPatientId = await GetOwnPatientIdAsync(CurrentUserId(principal), cancellationToken);
-        var appointment = await _context.Appointments.SingleAsync(a => a.Id == payment.AppointmentId, cancellationToken);
+        var appointment = await _context.Appointments.SingleOrDefaultAsync(a => a.Id == appointmentId, cancellationToken)
+            ?? throw new NotFoundException(nameof(Database.Entities.Appointment), appointmentId);
         if (appointment.PatientId != ownPatientId)
         {
-            throw new ForbiddenException("Nemate pristup ovoj uplati.");
+            throw new ForbiddenException(forbiddenMessage);
         }
     }
 
