@@ -10,6 +10,7 @@ import '../screens/appointments/my_appointments_screen.dart';
 import '../screens/documents/my_documents_screen.dart';
 import '../screens/news/news_list_screen.dart';
 import '../screens/notifications/notifications_screen.dart';
+import '../screens/recommendations/recommendations_screen.dart';
 
 /// Post-login shell for the mobile (patient) app - a bottom navigation bar
 /// plus a content area. Real destinations (browse & book, "My appointments",
@@ -113,15 +114,7 @@ class _AppShellState extends State<AppShell> {
       body: switch (_selectedIndex) {
         1 => const MyAppointmentsScreen(),
         2 => const MyDocumentsScreen(),
-        3 => const Center(
-            child: Padding(
-              padding: EdgeInsets.all(24),
-              child: Text(
-                'ClinicNow — preporuke i profil dolaze u narednim fazama.',
-                textAlign: TextAlign.center,
-              ),
-            ),
-          ),
+        3 => const RecommendationsScreen(),
         _ => const NewsListScreen(),
       },
       bottomNavigationBar: NavigationBar(
@@ -145,9 +138,9 @@ class _AppShellState extends State<AppShell> {
             label: 'Dokumenti',
           ),
           NavigationDestination(
-            icon: Icon(Icons.person_outline),
-            selectedIcon: Icon(Icons.person),
-            label: 'Profil',
+            icon: Icon(Icons.recommend_outlined),
+            selectedIcon: Icon(Icons.recommend),
+            label: 'Preporuke',
           ),
         ],
       ),

@@ -7,9 +7,11 @@ import '../../core/auth_session.dart';
 import '../../core/clinic_colors.dart';
 import '../../models/doctor.dart';
 import '../../models/medical_service.dart';
+import '../../models/recommendation.dart';
 import '../../providers/appointment_provider.dart';
 import '../../providers/doctor_provider.dart';
 import '../../providers/medical_service_provider.dart';
+import '../../providers/recommendation_provider.dart';
 
 /// Multi-step patient booking flow (PLAN.md Phase 4 item 6): doctor → service
 /// → date → time slot, every option a real DB-backed dropdown (no free text -
@@ -23,7 +25,10 @@ import '../../providers/medical_service_provider.dart';
 /// independently could describe a combination that doesn't exist in reality.
 /// The clinic is shown - never chosen - right under the doctor field.
 class BookAppointmentScreen extends StatefulWidget {
-  const BookAppointmentScreen({super.key});
+  final int? initialDoctorId;
+  final int? initialMedicalServiceId;
+
+  const BookAppointmentScreen({super.key, this.initialDoctorId, this.initialMedicalServiceId});
 
   @override
   State<BookAppointmentScreen> createState() => _BookAppointmentScreenState();
@@ -33,6 +38,7 @@ class _BookAppointmentScreenState extends State<BookAppointmentScreen> {
   late final AppointmentProvider _appointmentProvider;
   late final DoctorProvider _doctorProvider;
   late final MedicalServiceProvider _serviceProvider;
+  late final RecommendationProvider _recommendationProvider;
 
   static final _dateFormat = DateFormat('dd.MM.yyyy');
   static final _timeFormat = DateFormat('HH:mm');
@@ -52,6 +58,8 @@ class _BookAppointmentScreenState extends State<BookAppointmentScreen> {
   bool _isSubmitting = false;
   String? _error;
 
+  AppointmentRecommendation? _topRecommendation;
+
   @override
   void initState() {
     super.initState();
@@ -59,7 +67,9 @@ class _BookAppointmentScreenState extends State<BookAppointmentScreen> {
     _appointmentProvider = AppointmentProvider(authSession);
     _doctorProvider = DoctorProvider(authSession);
     _serviceProvider = MedicalServiceProvider(authSession);
+    _recommendationProvider = RecommendationProvider(authSession);
     _loadOptions();
+    _loadTopRecommendation();
   }
 
   Future<void> _loadOptions() async {
@@ -71,6 +81,31 @@ class _BookAppointmentScreenState extends State<BookAppointmentScreen> {
       _services = services.resultList;
       _isLoadingOptions = false;
     });
+
+    if (widget.initialDoctorId != null || widget.initialMedicalServiceId != null) {
+      setState(() {
+        if (widget.initialDoctorId != null) {
+          _doctor = _doctors.cast<Doctor?>().firstWhere((d) => d?.id == widget.initialDoctorId, orElse: () => null);
+        }
+        if (widget.initialMedicalServiceId != null) {
+          _service = _services.cast<MedicalService?>().firstWhere((s) => s?.id == widget.initialMedicalServiceId, orElse: () => null);
+        }
+      });
+      if (_doctor != null && _service != null) {
+        await _loadSlots();
+      }
+    }
+  }
+
+  Future<void> _loadTopRecommendation() async {
+    try {
+      final recommendations = await _recommendationProvider.getRecommendations();
+      if (mounted && recommendations.isNotEmpty) {
+        setState(() => _topRecommendation = recommendations.first);
+      }
+    } catch (_) {
+      // Best-effort - a failed recommendation fetch must never block booking.
+    }
   }
 
   Future<void> _pickDate() async {
@@ -162,6 +197,29 @@ class _BookAppointmentScreenState extends State<BookAppointmentScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
+                  if (_topRecommendation != null) ...[
+                    Card(
+                      color: Theme.of(context).colorScheme.secondaryContainer,
+                      child: ListTile(
+                        leading: const Icon(Icons.recommend_outlined),
+                        title: Text('Preporučeno: ${_topRecommendation!.doctorName} — ${_topRecommendation!.medicalServiceName}'),
+                        subtitle: Text(_topRecommendation!.reason),
+                        trailing: TextButton(
+                          child: const Text('Odaberi'),
+                          onPressed: () {
+                            final recommendation = _topRecommendation!;
+                            setState(() {
+                              _doctor = _doctors.cast<Doctor?>().firstWhere((d) => d?.id == recommendation.doctorId, orElse: () => null);
+                              _service = _services.cast<MedicalService?>().firstWhere((s) => s?.id == recommendation.medicalServiceId, orElse: () => null);
+                              _date = recommendation.suggestedStartUtc.toLocal();
+                            });
+                            _loadSlots();
+                          },
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                  ],
                   Text('1. Odaberite doktora', style: Theme.of(context).textTheme.titleMedium),
                   const SizedBox(height: 8),
                   DropdownButtonFormField<Doctor>(
@@ -179,6 +237,9 @@ class _BookAppointmentScreenState extends State<BookAppointmentScreen> {
                         _selectedSlot = null;
                         _slots = [];
                       });
+                      if (value != null) {
+                        _recommendationProvider.logInteraction(type: InteractionType.doctorView, doctorId: value.id).catchError((_) {});
+                      }
                     },
                   ),
                   const SizedBox(height: 20),
@@ -197,6 +258,9 @@ class _BookAppointmentScreenState extends State<BookAppointmentScreen> {
                         _slots = [];
                       });
                       _loadSlots();
+                      if (value != null) {
+                        _recommendationProvider.logInteraction(type: InteractionType.medicalServiceView, medicalServiceId: value.id).catchError((_) {});
+                      }
                     },
                   ),
                   const SizedBox(height: 20),
