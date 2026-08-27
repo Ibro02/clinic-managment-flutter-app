@@ -22,6 +22,8 @@ Core migrations and seeds demo data automatically on startup. The only two outbo
 the app can make (SMTP email, PayPal sandbox checkout) are optional demo paths — the app boots and
 every core CRUD/booking flow works without them.
 
+### Step 1 — start the backend
+
 ```bash
 git clone <this-repo-url>
 cd ClinicNow
@@ -29,32 +31,64 @@ cp .env.example .env
 docker-compose up --build
 ```
 
+Leave this terminal running. Before starting either client, confirm the API answers:
+
 - API: `http://localhost:5203` — Scalar interactive docs at `/scalar/v1`, health check at `/health`.
 - RabbitMQ management UI: `http://localhost:15672` (guest/guest).
 
-To also run the two Flutter clients (each in its own terminal, from the repo root):
+**Neither client works until the API responds at `http://localhost:5203/health`.** A client
+started against a dead API shows a login screen that rejects every attempt — that is a missing
+backend, not a broken client.
+
+### Step 2 — start a client
+
+Each client runs in **its own terminal, opened at the repository root**. Do not chain the two
+blocks below in one terminal; each begins with a `cd` relative to the repo root.
+
+**Windows desktop app (staff/administrator)** — requires Visual Studio with the "Desktop
+development with C++" workload and Windows Developer Mode enabled (see
+[Prerequisites](#prerequisites)):
 
 ```bash
-# Windows desktop app — staff/administrator
 cd UI/clinicnow_desktop
 flutter pub get
 flutter run -d windows --dart-define=API_BASE_URL=http://localhost:5203/
+```
 
-# Android emulator — patient
+**Android app (patient)** — requires a running emulator. List the available emulators, launch one
+by id, and wait until it reaches its home screen:
+
+```bash
+flutter emulators
+flutter emulators --launch <emulator_id>
+flutter devices                      # confirm an Android device is listed
+```
+
+Then, in the same terminal:
+
+```bash
 cd UI/clinicnow_mobile
 flutter pub get
-flutter run -d emulator-5554 --dart-define=API_BASE_URL=http://10.0.2.2:5203/
+flutter run -d android --dart-define=API_BASE_URL=http://10.0.2.2:5203/
 ```
+
+`-d android` targets whichever Android device is connected, so no hardcoded emulator id is needed.
+`10.0.2.2` is the Android emulator's alias for the host machine's `localhost`; on a **physical
+device**, use the host's LAN address instead (`ipconfig` → IPv4 Address, e.g.
+`http://192.168.1.20:5203/`) and make sure the API listens on `0.0.0.0` rather than `localhost`.
+
+If neither native toolchain is available, both clients also run in a browser — see
+[Running in a browser](#running-in-a-browser-no-native-toolchain-required).
 
 ### Test accounts (for review)
 
 Two accounts cover the two clients end to end — the full list (Staff, Doctor, second Doctor) is
 under [Test accounts](#test-accounts) further down.
 
-| App | Role | Email | Password |
-|---|---|---|---|
-| Desktop (Windows) | Administrator | `administrator@clinicnow.test` | `test` |
-| Mobile (Android) | Patient | `patient@clinicnow.test` | `test` |
+| App               | Role          | Email                          | Password |
+| ----------------- | ------------- | ------------------------------ | -------- |
+| Desktop (Windows) | Administrator | `administrator@clinicnow.test` | `test`   |
+| Mobile (Android)  | Patient       | `patient@clinicnow.test`       | `test`   |
 
 ## Project status
 
@@ -119,8 +153,13 @@ this project, not committed here) for the full engineering rules this codebase f
 | [.NET SDK](https://dotnet.microsoft.com/download) | 10.0+ | building/running the API and Worker |
 | [Docker Desktop](https://www.docker.com/products/docker-desktop/) | with Compose v2 | running the full stack (SQL Server, RabbitMQ, API, Worker) |
 | [Flutter SDK](https://docs.flutter.dev/get-started/install) | latest stable (3.44+) | building/running either client |
-| Android Studio + Android SDK | latest | building/running `clinicnow_mobile` |
+| Android Studio + Android SDK + at least one AVD | latest | building/running `clinicnow_mobile` |
 | Visual Studio 2022/2026 with the **"Desktop development with C++"** workload | latest | building `clinicnow_desktop` for Windows |
+| Windows **Developer Mode** enabled | — | building `clinicnow_desktop` (plugins need symlink support) |
+
+Run `flutter doctor` before starting. Every row must be `[√]` for the platform you intend to
+launch — a `[!]` on *Visual Studio* blocks the Windows build, and a `[!]` on *Android toolchain*
+blocks the APK. Neither blocks the browser fallback below.
 
 ## 1. Configuration
 
@@ -178,81 +217,146 @@ API.
 ## 3. Running the Flutter clients (development)
 
 The API base URL is never hardcoded — it's passed at build/run time via `--dart-define`, per
-rulebook Part II §C, and read with `String.fromEnvironment('API_BASE_URL')`.
+rulebook Part II §C, and read with `String.fromEnvironment('API_BASE_URL')`. **Always pass the
+flag**; omitting it leaves the client with no API address.
+
+Each block below assumes a **fresh terminal opened at the repository root**. Both clients can run
+at the same time, but each needs its own terminal.
+
+### Windows desktop (staff)
 
 ```bash
-# Windows desktop (staff) - API assumed to be on the same machine
 cd UI/clinicnow_desktop
 flutter pub get
 flutter run -d windows --dart-define=API_BASE_URL=http://localhost:5203/
-
-# Android emulator (patient) - 10.0.2.2 is the emulator's alias for the host machine
-cd UI/clinicnow_mobile
-flutter pub get
-flutter run -d emulator-5554 --dart-define=API_BASE_URL=http://10.0.2.2:5203/
 ```
 
-### Debugging `clinicnow_mobile` in a browser (no Android SDK required)
+### Android emulator (patient)
 
-Useful while Android Studio/SDK isn't installed yet. `clinicnow_mobile` also has the Flutter web
-platform enabled purely for this - the graded deliverable is still the Android APK (rulebook
-§9.2.1); this is a faster inner dev loop, not a replacement for real Android testing before
-submission (anything touching native APIs - camera, push notifications, the PayPal SDK - won't
-behave identically in a browser).
+From the repository root, start an emulator first — `flutter run` cannot start one for you:
+
+```bash
+flutter emulators                       # lists available AVDs by id
+flutter emulators --launch <emulator_id>
+```
+
+Wait for the emulator to finish booting to its home screen, then verify Flutter can see it:
+
+```bash
+flutter devices                         # an Android device must appear in this list
+```
+
+Then run the app:
 
 ```bash
 cd UI/clinicnow_mobile
-# -d chrome / -d edge opens a real browser window with Flutter DevTools wired in.
-# -d web-server just serves over HTTP without launching a browser itself (handy
-# for CI or a headless shell) - open the printed http://localhost:5000 manually.
-flutter run -d chrome --web-port=5000 --dart-define=API_BASE_URL=http://localhost:5203/
+flutter pub get
+flutter run -d android --dart-define=API_BASE_URL=http://10.0.2.2:5203/
 ```
 
-Two things differ from the emulator, both already wired up:
+If `flutter emulators` prints nothing, no AVD exists yet: Android Studio → **More Actions** →
+**Virtual Device Manager** → **Create Device**.
 
-- Use `http://localhost:5203/` for `API_BASE_URL`, **not** `10.0.2.2` - that alias is
-  Android-emulator-specific and doesn't resolve in a browser.
-- Browsers enforce CORS (native Android/Windows apps don't). The dev server's origin
-  (`http://localhost:5000` by default) must be in `.env`'s `CORS_ALLOWED_ORIGINS` or the API will
-  reject the browser's requests - already set in `.env.example`. If you pick a different
-  `--web-port`, update `CORS_ALLOWED_ORIGINS` to match.
+## Running in a browser (no native toolchain required)
 
-### Debugging `clinicnow_desktop` in a browser (no Visual Studio C++ workload required)
+Both clients also have the Flutter web platform enabled, purely as a fallback for reviewing the
+app without Visual Studio's C++ workload or the Android SDK. The graded deliverables are still the
+native Windows build and the Android APK (rulebook §9.2.1); this is a faster inner dev loop, not a
+replacement for testing the real artifacts (anything touching native APIs — file pickers, printing,
+push notifications, the PayPal SDK — does not behave identically in a browser).
 
-Same idea as above, for staff-side screens, useful while the "Desktop development with C++"
-Visual Studio workload isn't installed yet. `clinicnow_desktop` also has the Flutter web platform
-enabled purely for this - the graded deliverable is still the native Windows build (rulebook
-§9.2.1).
+Each of the two commands below needs its own terminal, opened at the repository root:
+
+```bash
+cd UI/clinicnow_mobile
+flutter run -d chrome --web-port=5000 --dart-define=API_BASE_URL=http://localhost:5203/
+```
 
 ```bash
 cd UI/clinicnow_desktop
 flutter run -d chrome --web-port=5001 --dart-define=API_BASE_URL=http://localhost:5203/
 ```
 
-Uses port `5001` (not `5000`) so both apps' web dev servers can run side by side without a port
-clash - both origins are already present in `.env.example`'s `CORS_ALLOWED_ORIGINS`.
+Two things differ from the native builds, both already wired up:
+
+- Use `http://localhost:5203/` for `API_BASE_URL` in **both** cases, **not** `10.0.2.2` — that
+  alias is Android-emulator-specific and does not resolve in a browser.
+- Browsers enforce CORS (native Android/Windows apps don't). Each dev server's origin
+  (`http://localhost:5000` and `http://localhost:5001`) must be in `.env`'s
+  `CORS_ALLOWED_ORIGINS` or the API rejects the browser's requests — both are already set in
+  `.env.example`. **If you change `--web-port`, add the new origin to `CORS_ALLOWED_ORIGINS` and
+  restart the API**, or every request fails with a CORS error.
+
+The two ports differ on purpose so both clients can run side by side without a clash.
 
 ## 4. Building release artifacts
 
-Per the rulebook's submission requirements (§9.2):
+Per the rulebook's submission requirements (§9.2). Run from the repository root; each block
+returns to the root with `cd ../..` so the two can be run back to back in one terminal:
 
 ```bash
 # Android APK - targets 10.0.2.2 (standard Android emulator host alias)
 cd UI/clinicnow_mobile
 flutter clean
+flutter pub get
 flutter build apk --release --dart-define=API_BASE_URL=http://10.0.2.2:5203/
+cd ../..
 # -> UI/clinicnow_mobile/build/app/outputs/flutter-apk/app-release.apk
+```
 
+```bash
 # Windows desktop - targets localhost
 cd UI/clinicnow_desktop
 flutter clean
+flutter pub get
 flutter build windows --release --dart-define=API_BASE_URL=http://localhost:5203/
+cd ../..
 # -> UI/clinicnow_desktop/build/windows/x64/runner/Release/
 ```
+
+The Windows artifact is the **entire `Release` folder**, not just the `.exe`. The executable needs
+`flutter_windows.dll`, the other DLLs, and the `data/` folder beside it; the `.exe` alone does not
+start on another machine.
 
 For submission, both artifacts are zipped together as `fit-build-YYYY-MM-DD.zip` and attached to
 a GitHub **Immutable Release** (never committed to git history) — see `.env.example` and the
 rulebook for the full delivery procedure.
+
+## Troubleshooting
+
+**`Unable to find suitable Visual Studio toolchain`**
+Visual Studio is installed without the C++ workload. Open Visual Studio Installer → **Modify** →
+check **Desktop development with C++** (MSVC build tools, C++ CMake tools for Windows, Windows
+SDK). Verify with:
+
+```bash
+flutter doctor -v
+```
+
+The *Visual Studio* section must point at a Visual Studio install path, not at SQL Server
+Management Studio.
+
+**`Building with plugins requires symlink support`**
+Enable Developer Mode (`start ms-settings:developers`), then restart the terminal.
+
+**`No supported devices connected` when running the mobile app**
+No emulator is running. Launch one with `flutter emulators --launch <emulator_id>` and confirm
+with `flutter devices` before running `flutter run`.
+
+**Client starts, but login fails or every screen is empty**
+The API is not running or is on a different port. Confirm `http://localhost:5203/health` responds
+in a browser, and that `--dart-define=API_BASE_URL=...` was passed.
+
+**Browser client fails every request with a CORS error**
+The dev server's origin is missing from `CORS_ALLOWED_ORIGINS` in `.env`. Add it and restart the
+API.
+
+**Stale build after pulling changes**
+
+```bash
+flutter clean
+flutter pub get
+```
 
 ## Test accounts
 
@@ -299,8 +403,18 @@ To demo a **real** refund end to end:
 
 ```bash
 dotnet test ClinicNow.sln          # backend (once test projects exist)
-cd UI/clinicnow_desktop && flutter test
-cd UI/clinicnow_mobile && flutter test
+```
+
+```bash
+cd UI/clinicnow_desktop
+flutter test
+cd ../..
+```
+
+```bash
+cd UI/clinicnow_mobile
+flutter test
+cd ../..
 ```
 
 ## Tech stack

@@ -14,19 +14,19 @@ import '../screens/people/doctor_screen.dart';
 import '../screens/people/patient_screen.dart';
 import '../screens/reports/reports_screen.dart';
 import '../widgets/notifications_bell.dart';
-import '../widgets/ui/app_badge.dart';
 
-/// Post-login shell: a persistent dark navigation sidebar, a page header, and
-/// the content area.
+/// Post-login shell for the desktop (staff) app: a persistent dark navigation
+/// sidebar, a page header, and the content area.
 ///
 /// The sidebar is deliberately dark against a light workspace. It is the one
-/// surface a user looks at for an entire shift, so it carries the product's
+/// surface a user looks at for their entire shift, so it carries the product's
 /// identity; a stock light `NavigationRail` reads as an unstyled admin panel.
-/// Everything else stays quiet so this one contrast can do the work.
+/// Everything else in the app stays quiet so this one contrast can do the work.
 ///
 /// Shown/hidden by `main.dart` reacting to `AuthSession.isLoggedIn` - this
-/// widget never navigates to `LoginScreen` directly; clearing the session
-/// (here, or automatically on an HTTP 401 anywhere in the app) is enough.
+/// widget itself never navigates to `LoginScreen` directly; clearing the
+/// session (here, or automatically on an HTTP 401 anywhere in the app) is
+/// enough to redirect back.
 class AppShell extends StatefulWidget {
   const AppShell({super.key});
 
@@ -36,7 +36,7 @@ class AppShell extends StatefulWidget {
 
 /// One destination: what the sidebar shows, what the header says, and what the
 /// content area builds. Header copy lives here so every screen gets a title and
-/// one line of context without rendering its own.
+/// a one-line description without each screen having to render its own.
 class _NavEntry {
   final IconData icon;
   final IconData selectedIcon;
@@ -76,13 +76,14 @@ class _AppShellState extends State<AppShell> {
 
   List<_NavEntry> _entries(AuthSession session) {
     // Codebook/patient/doctor management is an Administrator/Staff concern;
-    // Doctor accounts can log in and browse patients/doctors (read-only there)
-    // but don't manage codebooks. The backend independently enforces the same
-    // boundaries on every write endpoint regardless of what the sidebar shows.
+    // Doctor accounts can log in to the desktop app and browse patients/
+    // doctors (read-only there) but don't manage codebooks. The backend
+    // independently enforces the same boundaries on every write endpoint
+    // regardless of what the sidebar shows.
     final canManageCodebooks = session.hasRole(Roles.administrator) || session.hasRole(Roles.staff);
-    // Same condition today, named separately because the two visibility rules
-    // (dashboard/reports vs. codebook CRUD) are independent business decisions
-    // that happen to currently coincide.
+    // Same condition as canManageCodebooks today, named separately because the
+    // two visibility rules (dashboard/reports vs. codebook CRUD) are
+    // independent business decisions that happen to currently coincide.
     final canViewReports = session.hasRole(Roles.administrator) || session.hasRole(Roles.staff);
 
     return <_NavEntry>[
@@ -193,6 +194,9 @@ class _AppShellState extends State<AppShell> {
                 ),
                 Expanded(
                   child: ClipRect(
+                    // Keyed so switching destinations rebuilds the subtree
+                    // cleanly instead of reusing scroll positions across
+                    // unrelated screens.
                     child: KeyedSubtree(
                       key: ValueKey(current.label),
                       child: current.builder(context),
@@ -209,7 +213,8 @@ class _AppShellState extends State<AppShell> {
 }
 
 /// ---------------------------------------------------------------------------
-
+/// Sidebar
+/// ---------------------------------------------------------------------------
 class _Sidebar extends StatelessWidget {
   final List<_NavEntry> entries;
   final int selectedIndex;
@@ -233,7 +238,8 @@ class _Sidebar extends StatelessWidget {
   Widget build(BuildContext context) {
     final c = context.colors;
 
-    // Map preserves insertion order, so sections appear in declaration order.
+    // Map preserves insertion order, so sections appear in the order the
+    // entries declare them.
     final sections = <String, List<int>>{};
     for (var i = 0; i < entries.length; i++) {
       sections.putIfAbsent(entries[i].section, () => []).add(i);
@@ -299,7 +305,9 @@ class _Sidebar extends StatelessWidget {
     return Container(
       height: AppSizes.topBarHeight,
       padding: EdgeInsets.symmetric(horizontal: collapsed ? AppSpacing.lg - 3 : AppSpacing.md + 2),
-      decoration: BoxDecoration(border: Border(bottom: BorderSide(color: c.navBorder))),
+      decoration: BoxDecoration(
+        border: Border(bottom: BorderSide(color: c.navBorder)),
+      ),
       child: Row(
         mainAxisAlignment: collapsed ? MainAxisAlignment.center : MainAxisAlignment.start,
         children: [
@@ -365,7 +373,7 @@ class _Sidebar extends StatelessWidget {
         border: Border.all(color: c.navBorder),
       ),
       child: Text(
-        AppAvatar.initials(session.fullName),
+        _initials(session.fullName),
         style: context.text.labelMedium?.copyWith(color: Colors.white, fontSize: 12.5),
       ),
     );
@@ -392,9 +400,17 @@ class _Sidebar extends StatelessWidget {
 
     return Container(
       padding: const EdgeInsets.all(AppSpacing.sm),
-      decoration: BoxDecoration(border: Border(top: BorderSide(color: c.navBorder))),
+      decoration: BoxDecoration(
+        border: Border(top: BorderSide(color: c.navBorder)),
+      ),
       child: collapsed
-          ? Column(children: [avatar, const SizedBox(height: AppSpacing.xs), logoutButton])
+          ? Column(
+              children: [
+                avatar,
+                const SizedBox(height: AppSpacing.xs),
+                logoutButton,
+              ],
+            )
           : Row(
               children: [
                 avatar,
@@ -427,11 +443,18 @@ class _Sidebar extends StatelessWidget {
             ),
     );
   }
+
+  static String _initials(String fullName) {
+    final parts = fullName.trim().split(RegExp(r'\s+')).where((p) => p.isNotEmpty).toList();
+    if (parts.isEmpty) return '?';
+    if (parts.length == 1) return parts.first.characters.first.toUpperCase();
+    return (parts.first.characters.first + parts.last.characters.first).toUpperCase();
+  }
 }
 
-/// A sidebar destination. Stateful only to track hover, which matters far more
-/// on desktop than on mobile - a rail with no hover feedback is the clearest
-/// sign that a desktop app was built as a phone app.
+/// A single sidebar destination. Stateful only to track hover, which matters
+/// far more on desktop than on mobile - a rail with no hover feedback is the
+/// clearest sign that a desktop app was built as a phone app.
 class _NavItem extends StatefulWidget {
   final _NavEntry entry;
   final bool selected;
@@ -463,7 +486,11 @@ class _NavItemState extends State<_NavItem> {
             ? c.navItemHover
             : Colors.transparent;
 
-    final foreground = selected || _hovered ? c.navItemSelectedText : c.navText;
+    final foreground = selected
+        ? c.navItemSelectedText
+        : _hovered
+            ? c.navItemSelectedText
+            : c.navText;
 
     final content = Row(
       mainAxisAlignment: widget.collapsed ? MainAxisAlignment.center : MainAxisAlignment.start,
@@ -506,8 +533,9 @@ class _NavItemState extends State<_NavItem> {
           ),
           child: Stack(
             children: [
-              // Structural, not decorative: marks the active destination even
-              // when the sidebar is collapsed and the label is gone.
+              // Left indicator bar. Structural, not decorative: it marks the
+              // active destination even when the sidebar is collapsed and the
+              // label is gone.
               Positioned(
                 left: widget.collapsed ? 2 : -AppSpacing.xs,
                 top: 0,
@@ -537,7 +565,8 @@ class _NavItemState extends State<_NavItem> {
 }
 
 /// ---------------------------------------------------------------------------
-
+/// Top bar
+/// ---------------------------------------------------------------------------
 class _TopBar extends StatelessWidget {
   final String title;
   final String subtitle;
@@ -596,8 +625,8 @@ class _TopBar extends StatelessWidget {
     );
   }
 
-  /// Today's date, in tabular figures. Staff write dates onto referrals all
-  /// day; having it in the chrome saves a glance at the taskbar.
+  /// Today's date, in tabular figures. Staff write dates onto paper referrals
+  /// all day; having it in the chrome saves a glance at the taskbar.
   Widget _dateChip(BuildContext context) {
     final c = context.colors;
 
