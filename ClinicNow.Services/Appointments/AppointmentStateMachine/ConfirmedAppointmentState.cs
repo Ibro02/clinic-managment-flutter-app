@@ -1,4 +1,5 @@
 using ClinicNow.Model.Common;
+using ClinicNow.Model.Exceptions;
 using ClinicNow.Services.Database;
 using ClinicNow.Services.Database.Entities;
 
@@ -15,6 +16,14 @@ public class ConfirmedAppointmentState : BaseAppointmentState
 
     public override async Task<Appointment> CompleteAsync(Appointment appointment, int actingUserId, CancellationToken cancellationToken)
     {
+        // A future termin hasn't happened yet, so it can't be "done" (review item
+        // C9) - checked here, server-side, so a direct API call can't complete
+        // what the UI already hides via AllowedActions.
+        if (!HasStarted(appointment))
+        {
+            throw new BusinessException("Termin se ne može označiti kao završen prije nego što počne.");
+        }
+
         AddAuditLog(appointment, AppointmentStatus.Completed, actingUserId, "Termin završen.");
         await Context.SaveChangesAsync(cancellationToken);
         return appointment;

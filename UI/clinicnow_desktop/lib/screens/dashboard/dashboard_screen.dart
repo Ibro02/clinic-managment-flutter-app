@@ -1,11 +1,19 @@
-import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../core/api_exception.dart';
 import '../../core/auth_session.dart';
+import '../../core/design_tokens.dart';
 import '../../core/reports_api.dart';
 import '../../models/dashboard_summary.dart';
+import '../../widgets/charts/app_bar_chart.dart';
+import '../../widgets/charts/app_donut_chart.dart';
+import '../../widgets/charts/chart_card.dart';
+import '../../widgets/charts/chart_series.dart';
+import '../../widgets/ui/app_badge.dart';
+import '../../widgets/ui/app_fields.dart';
+import '../../widgets/ui/app_states.dart';
+import '../../widgets/ui/stat_card.dart';
 
 /// Landing screen for Administrator/Staff (Phase 9) - at-a-glance clinic KPIs
 /// + two charts, replacing the "Početna" placeholder that has been in
@@ -51,15 +59,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
   @override
   Widget build(BuildContext context) {
     if (_error != null) {
-      return Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(_error!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
-            const SizedBox(height: 12),
-            FilledButton(onPressed: _load, child: const Text('Pokušaj ponovo')),
-          ],
-        ),
+      return Padding(
+        padding: AppSpacing.page,
+        child: AppErrorState(message: _error!, onRetry: _load),
       );
     }
 
@@ -68,160 +70,118 @@ class _DashboardScreenState extends State<DashboardScreen> {
       return const Center(child: CircularProgressIndicator());
     }
 
+    final trend = summary.weeklyTrend;
+
     return RefreshIndicator(
       onRefresh: _load,
       child: ListView(
-        padding: const EdgeInsets.all(16),
+        padding: AppSpacing.page,
         children: [
-          Align(
-            alignment: Alignment.centerRight,
-            child: IconButton(
-              tooltip: 'Osvježi',
-              icon: _isLoading
-                  ? const SizedBox(height: 16, width: 16, child: CircularProgressIndicator(strokeWidth: 2))
-                  : const Icon(Icons.refresh),
-              onPressed: _isLoading ? null : _load,
-            ),
-          ),
-          Wrap(
-            spacing: 16,
-            runSpacing: 16,
-            children: [
-              _KpiCard(label: 'Termini danas', value: '${summary.todayAppointmentsCount}', icon: Icons.event_outlined),
-              _KpiCard(label: 'Aktivni pacijenti', value: '${summary.activePatientsCount}', icon: Icons.people_outline),
-              _KpiCard(label: 'Dostupni doktori sada', value: '${summary.availableDoctorsCount}', icon: Icons.medical_services_outlined),
-              _KpiCard(label: 'Prihod ovog mjeseca', value: '${summary.monthlyRevenueEur.toStringAsFixed(2)} EUR', icon: Icons.payments_outlined),
+          AppToolbar(
+            title: 'Pregled',
+            subtitle: 'Stanje klinike danas.',
+            actions: [
+              OutlinedButton.icon(
+                onPressed: _isLoading ? null : _load,
+                icon: _isLoading
+                    ? const SizedBox(height: 14, width: 14, child: CircularProgressIndicator(strokeWidth: 2))
+                    : const Icon(Icons.refresh_rounded, size: 16),
+                label: const Text('Osvježi'),
+              ),
             ],
           ),
-          const SizedBox(height: 24),
-          Text('Termini u posljednjih 7 dana', style: Theme.of(context).textTheme.titleMedium),
-          const SizedBox(height: 8),
-          SizedBox(height: 220, child: _WeeklyTrendChart(trend: summary.weeklyTrend, weekdayLabel: _weekdayLabel)),
-          const SizedBox(height: 24),
-          Text('Novi vs. postojeći pacijenti (30 dana)', style: Theme.of(context).textTheme.titleMedium),
-          const SizedBox(height: 8),
-          SizedBox(
-            height: 220,
-            child: _NewVsExistingChart(newCount: summary.newPatientsCount30d, existingCount: summary.existingPatientsCount30d),
+          _kpiRow(summary),
+          const SizedBox(height: AppSpacing.lg),
+          ChartCard(
+            title: 'Termini u posljednjih 7 dana',
+            value: '${trend.fold<int>(0, (sum, t) => sum + t.appointmentCount)}',
+            subtitle: 'Ukupno zakazanih termina u sedmici.',
+            child: trend.isEmpty
+                ? const AppEmptyState(
+                    icon: Icons.bar_chart_rounded,
+                    title: 'Nema podataka',
+                    message: 'Za ovaj period nema zabilježenih termina.',
+                  )
+                : AppBarChart(
+                    height: 240,
+                    labels: [for (final point in trend) _weekdayLabel(point.date)],
+                    series: [
+                      AppChartSeries(
+                        name: 'Termini',
+                        values: [for (final point in trend) point.appointmentCount.toDouble()],
+                      ),
+                    ],
+                  ),
+          ),
+          const SizedBox(height: AppSpacing.lg),
+          ChartCard(
+            title: 'Novi vs. postojeći pacijenti',
+            subtitle: 'Posljednjih 30 dana.',
+            child: (summary.newPatientsCount30d == 0 && summary.existingPatientsCount30d == 0)
+                ? const AppEmptyState(
+                    icon: Icons.donut_large_rounded,
+                    title: 'Nema podataka',
+                    message: 'U posljednjih 30 dana nije bilo pacijenata.',
+                  )
+                : Center(
+                    child: AppDonutChart(
+                      centerLabel: 'Pacijenti',
+                      slices: [
+                        AppChartSlice(name: 'Novi', value: summary.newPatientsCount30d.toDouble()),
+                        AppChartSlice(name: 'Postojeći', value: summary.existingPatientsCount30d.toDouble()),
+                      ],
+                    ),
+                  ),
           ),
         ],
       ),
+    );
+  }
+
+  /// The CRM KPI row. Cards size themselves to the window rather than sitting
+  /// at a fixed 220px, so a wide monitor gets four even columns instead of four
+  /// narrow tiles and a gap.
+  Widget _kpiRow(DashboardSummary summary) {
+    final cards = <Widget>[
+      StatCard(
+        label: 'Termini danas',
+        value: '${summary.todayAppointmentsCount}',
+        icon: Icons.event_outlined,
+      ),
+      StatCard(
+        label: 'Aktivni pacijenti',
+        value: '${summary.activePatientsCount}',
+        icon: Icons.people_outline,
+        tone: AppTone.info,
+      ),
+      StatCard(
+        label: 'Dostupni doktori sada',
+        value: '${summary.availableDoctorsCount}',
+        icon: Icons.medical_services_outlined,
+        tone: AppTone.success,
+      ),
+      StatCard(
+        label: 'Prihod ovog mjeseca',
+        value: '${summary.monthlyRevenueEur.toStringAsFixed(2)} EUR',
+        icon: Icons.payments_outlined,
+        tone: AppTone.warning,
+      ),
+    ];
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        const minCardWidth = 240.0;
+        final perRow = (constraints.maxWidth / minCardWidth).floor().clamp(1, cards.length);
+        final width = (constraints.maxWidth - (perRow - 1) * AppSpacing.md) / perRow;
+
+        return Wrap(
+          spacing: AppSpacing.md,
+          runSpacing: AppSpacing.md,
+          children: [for (final card in cards) SizedBox(width: width, child: card)],
+        );
+      },
     );
   }
 
   static String _weekdayLabel(DateTime date) => _weekdayAbbrev[date.weekday - 1];
-}
-
-class _KpiCard extends StatelessWidget {
-  final String label;
-  final String value;
-  final IconData icon;
-
-  const _KpiCard({required this.label, required this.value, required this.icon});
-
-  @override
-  Widget build(BuildContext context) {
-    return SizedBox(
-      width: 220,
-      child: Card(
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Row(
-            children: [
-              Icon(icon, size: 32, color: Theme.of(context).colorScheme.primary),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(value, style: Theme.of(context).textTheme.headlineSmall),
-                    Text(label, style: Theme.of(context).textTheme.bodySmall),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _WeeklyTrendChart extends StatelessWidget {
-  final List<WeeklyTrendPoint> trend;
-  final String Function(DateTime) weekdayLabel;
-
-  const _WeeklyTrendChart({required this.trend, required this.weekdayLabel});
-
-  @override
-  Widget build(BuildContext context) {
-    if (trend.isEmpty) return const Center(child: Text('Nema podataka.'));
-    final maxCount = trend.map((t) => t.appointmentCount).fold<int>(0, (a, b) => a > b ? a : b);
-
-    return BarChart(
-      BarChartData(
-        alignment: BarChartAlignment.spaceAround,
-        maxY: (maxCount + 1).toDouble(),
-        titlesData: FlTitlesData(
-          leftTitles: const AxisTitles(sideTitles: SideTitles(showTitles: true, reservedSize: 28)),
-          topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-          rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-          bottomTitles: AxisTitles(
-            sideTitles: SideTitles(
-              showTitles: true,
-              getTitlesWidget: (value, meta) {
-                final index = value.toInt();
-                if (index < 0 || index >= trend.length) return const SizedBox.shrink();
-                return Padding(padding: const EdgeInsets.only(top: 4), child: Text(weekdayLabel(trend[index].date)));
-              },
-            ),
-          ),
-        ),
-        borderData: FlBorderData(show: false),
-        gridData: const FlGridData(show: true, drawVerticalLine: false),
-        barGroups: [
-          for (var i = 0; i < trend.length; i++)
-            BarChartGroupData(x: i, barRods: [
-              BarChartRodData(toY: trend[i].appointmentCount.toDouble(), width: 18, color: Theme.of(context).colorScheme.primary),
-            ]),
-        ],
-      ),
-    );
-  }
-}
-
-class _NewVsExistingChart extends StatelessWidget {
-  final int newCount;
-  final int existingCount;
-
-  const _NewVsExistingChart({required this.newCount, required this.existingCount});
-
-  @override
-  Widget build(BuildContext context) {
-    if (newCount == 0 && existingCount == 0) {
-      return const Center(child: Text('Nema podataka.'));
-    }
-    return PieChart(
-      PieChartData(
-        sectionsSpace: 2,
-        centerSpaceRadius: 36,
-        sections: [
-          PieChartSectionData(
-            value: newCount.toDouble(),
-            title: 'Novi\n$newCount',
-            color: Theme.of(context).colorScheme.primary,
-            titleStyle: TextStyle(color: Theme.of(context).colorScheme.onPrimary, fontWeight: FontWeight.bold),
-            radius: 60,
-          ),
-          PieChartSectionData(
-            value: existingCount.toDouble(),
-            title: 'Postojeći\n$existingCount',
-            color: Theme.of(context).colorScheme.tertiary,
-            titleStyle: TextStyle(color: Theme.of(context).colorScheme.onTertiary, fontWeight: FontWeight.bold),
-            radius: 60,
-          ),
-        ],
-      ),
-    );
-  }
 }

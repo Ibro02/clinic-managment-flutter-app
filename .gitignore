@@ -12,6 +12,15 @@
 .env-tajne.zip
 
 # =============================================================================
+# Local agent/working documents - never pushed. These describe how the work is
+# done (rules, status, plan), not the deliverable itself. README.md already
+# states they are kept alongside the project rather than committed.
+# =============================================================================
+CLAUDE.md
+GOALS.md
+PLAN.md
+
+# =============================================================================
 # .NET
 # =============================================================================
 bin/

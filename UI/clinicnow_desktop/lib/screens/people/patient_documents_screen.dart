@@ -6,7 +6,13 @@ import 'package:provider/provider.dart';
 
 import '../../core/api_exception.dart';
 import '../../core/auth_session.dart';
+import '../../core/design_tokens.dart';
 import '../../core/roles.dart';
+import '../../widgets/ui/app_badge.dart';
+import '../../widgets/ui/app_card.dart';
+import '../../widgets/ui/app_data_table.dart';
+import '../../widgets/ui/app_dialog.dart';
+import '../../widgets/ui/app_states.dart';
 import '../../models/medical_document.dart';
 import '../../models/patient.dart';
 import '../../providers/medical_document_provider.dart';
@@ -59,10 +65,7 @@ class _PatientDocumentsScreenState extends State<PatientDocumentsScreen> {
   }
 
   Future<void> _pickAndUpload() async {
-    final result = await FilePicker.pickFiles(
-      type: FileType.custom,
-      allowedExtensions: _allowedExtensions,
-    );
+    final result = await FilePicker.pickFiles(type: FileType.custom, allowedExtensions: _allowedExtensions);
     final file = result.isEmpty ? null : result.single;
     if (file == null) return;
 
@@ -72,9 +75,9 @@ class _PatientDocumentsScreenState extends State<PatientDocumentsScreen> {
     final contentType = _contentTypeByExtension[extension];
     if (contentType == null) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Dozvoljeni su samo PDF, PNG i JPEG fajlovi.')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('Dozvoljeni su samo PDF, PNG i JPEG fajlovi.')));
       }
       return;
     }
@@ -104,36 +107,25 @@ class _PatientDocumentsScreenState extends State<PatientDocumentsScreen> {
       if (response.statusCode != 200) {
         throw Exception('HTTP ${response.statusCode}');
       }
-      await FilePicker.saveFile(
-        fileName: document.fileName,
-        bytes: response.bodyBytes,
-      );
+      await FilePicker.saveFile(fileName: document.fileName, bytes: response.bodyBytes);
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Preuzimanje nije uspjelo: $e')),
-        );
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Preuzimanje nije uspjelo: $e')));
       }
     }
   }
 
   Future<void> _confirmDelete(MedicalDocument document) async {
-    final confirmed = await showDialog<bool>(
+    final confirmed = await showConfirmDialog(
       context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Potvrda brisanja'),
-        content: Text('Da li ste sigurni da želite obrisati "${document.fileName}"?'),
-        actions: [
-          TextButton(onPressed: () => Navigator.of(dialogContext).pop(false), child: const Text('Odustani')),
-          FilledButton(
-            onPressed: () => Navigator.of(dialogContext).pop(true),
-            style: FilledButton.styleFrom(backgroundColor: Theme.of(context).colorScheme.error),
-            child: const Text('Obriši'),
-          ),
-        ],
-      ),
+      title: 'Potvrda brisanja',
+      message:
+          'Da li ste sigurni da želite obrisati "${document.fileName}"? '
+          'Ova radnja se ne može poništiti.',
+      confirmLabel: 'Obriši',
+      destructive: true,
     );
-    if (confirmed != true) return;
+    if (!confirmed) return;
 
     try {
       await _provider.delete(document.id);
@@ -146,7 +138,8 @@ class _PatientDocumentsScreenState extends State<PatientDocumentsScreen> {
   @override
   Widget build(BuildContext context) {
     final authSession = context.watch<AuthSession>();
-    final canWrite = authSession.hasRole(Roles.administrator) ||
+    final canWrite =
+        authSession.hasRole(Roles.administrator) ||
         authSession.hasRole(Roles.staff) ||
         authSession.hasRole(Roles.doctor);
 
@@ -165,46 +158,91 @@ class _PatientDocumentsScreenState extends State<PatientDocumentsScreen> {
             )
           : null,
       body: _error != null
-          ? Center(child: Text(_error!, style: TextStyle(color: Theme.of(context).colorScheme.error)))
+          ? Padding(
+              padding: AppSpacing.page,
+              child: AppErrorState(message: _error!, onRetry: _load),
+            )
           : _documents == null
-              ? const Center(child: CircularProgressIndicator())
-              : _documents!.isEmpty
-                  ? const Center(child: Text('Nema priloženih dokumenata za ovog pacijenta.'))
-                  : ListView.separated(
-                      padding: const EdgeInsets.all(16),
-                      itemCount: _documents!.length,
-                      separatorBuilder: (context, index) => const Divider(),
-                      itemBuilder: (context, index) {
-                        final document = _documents![index];
-                        return ListTile(
-                          leading: Icon(document.contentType == 'application/pdf'
-                              ? Icons.picture_as_pdf_outlined
-                              : Icons.image_outlined),
-                          title: Text(document.fileName),
-                          subtitle: Text(
-                            '${document.description ?? 'Bez opisa'}\n'
-                            'Postavio/la: ${document.uploadedByName} · ${_dateFormat.format(document.createdAtUtc.toLocal())}',
-                          ),
-                          isThreeLine: true,
-                          trailing: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              IconButton(
-                                tooltip: 'Preuzmi',
-                                icon: const Icon(Icons.download_outlined),
-                                onPressed: () => _download(document),
-                              ),
-                              if (canWrite)
-                                IconButton(
-                                  tooltip: 'Obriši',
-                                  icon: const Icon(Icons.delete_outline),
-                                  onPressed: () => _confirmDelete(document),
-                                ),
-                            ],
-                          ),
-                        );
-                      },
-                    ),
+          ? const Center(child: CircularProgressIndicator())
+          : _documents!.isEmpty
+          ? Padding(
+              padding: AppSpacing.page,
+              child: AppEmptyState(
+                icon: Icons.folder_open_outlined,
+                title: 'Nema dokumenata',
+                message: 'Za ovog pacijenta još nije priložen nijedan nalaz ili dokument.',
+                action: canWrite
+                    ? FilledButton.icon(
+                        onPressed: _isUploading ? null : _pickAndUpload,
+                        icon: const Icon(Icons.upload_file, size: 18),
+                        label: const Text('Priloži dokument'),
+                      )
+                    : null,
+              ),
+            )
+          : ListView.separated(
+              padding: AppSpacing.page,
+              itemCount: _documents!.length,
+              separatorBuilder: (context, index) => const SizedBox(height: AppSpacing.xs),
+              itemBuilder: (context, index) {
+                final document = _documents![index];
+                final isPdf = document.contentType == 'application/pdf';
+
+                return AppCard(
+                  padding: const EdgeInsets.all(AppSpacing.sm),
+                  child: Row(
+                    children: [
+                      Container(
+                        width: 38,
+                        height: 38,
+                        alignment: Alignment.center,
+                        decoration: BoxDecoration(
+                          color: (isPdf ? AppTone.danger : AppTone.info).background(context),
+                          borderRadius: AppRadius.all(AppRadius.sm),
+                        ),
+                        child: Icon(
+                          isPdf ? Icons.picture_as_pdf_outlined : Icons.image_outlined,
+                          size: 19,
+                          color: (isPdf ? AppTone.danger : AppTone.info).foreground(context),
+                        ),
+                      ),
+                      const SizedBox(width: AppSpacing.sm),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(document.fileName, style: context.text.titleSmall),
+                            const SizedBox(height: 2),
+                            Text(
+                              '${document.description ?? 'Bez opisa'} · '
+                              '${document.uploadedByName} · '
+                              '${_dateFormat.format(document.createdAtUtc.toLocal())}',
+                              style: context.text.bodySmall?.copyWith(color: context.colors.textMuted),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: AppSpacing.xs),
+                      AppRowAction(
+                        icon: Icons.download_outlined,
+                        tooltip: 'Preuzmi',
+                        onPressed: () => _download(document),
+                      ),
+                      if (canWrite)
+                        AppRowAction(
+                          icon: Icons.delete_outline_rounded,
+                          tooltip: 'Obriši',
+                          destructive: true,
+                          onPressed: () => _confirmDelete(document),
+                        ),
+                    ],
+                  ),
+                );
+              },
+            ),
     );
   }
 }

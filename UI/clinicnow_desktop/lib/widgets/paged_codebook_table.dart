@@ -4,7 +4,11 @@ import 'package:flutter/material.dart';
 
 import '../core/api_exception.dart';
 import '../core/base_provider.dart';
+import '../core/design_tokens.dart';
 import '../models/paged_result.dart';
+import 'ui/app_data_table.dart';
+import 'ui/app_dialog.dart';
+import 'ui/app_fields.dart';
 
 /// Reusable "list + search + paging + row actions" shell shared by every
 /// codebook screen (City/Specialization/Location/MedicalService) - the table
@@ -16,16 +20,41 @@ import '../models/paged_result.dart';
 /// filtering/sorting all go through the real `GET api/<Entity>` endpoint
 /// (rulebook Part II §D: pagination and filtering happen at the database,
 /// never in-memory).
+///
+/// The chrome is assembled entirely from the shared component library, which is
+/// what makes nine screens share one page shape by construction rather than by
+/// discipline:
+///   [AppToolbar]      - page title, search, primary action
+///   [AppDataTable]    - header, rows, loading skeleton, error, empty, paging
+///   [showConfirmDialog] - the one destructive-confirmation popup
 class PagedCodebookTable<T> extends StatefulWidget {
   final String title;
+
+  /// One line of context under the title. Optional - a codebook whose name
+  /// already says everything does not need a sentence explaining it.
+  final String? subtitle;
+
   final String searchHint;
   final BaseProvider<T> provider;
-  final List<DataColumn> Function() buildColumns;
-  final List<DataCell> Function(T item) buildCells;
+
+  /// Column set for [AppDataTable]. Each column carries its own cell builder,
+  /// so unlike Material's `DataTable` there is no second parallel list of cells
+  /// to keep in the same order.
+  final List<AppColumn<T>> Function() buildColumns;
+
   final VoidCallback onAdd;
   final void Function(T item) onEdit;
   final Future<void> Function(T item) onDelete;
   final String Function(T item) itemLabel;
+
+  /// Label for the primary action. Defaults to the generic "Dodaj"; screens
+  /// that can name the thing being added ("Dodaj pacijenta") should.
+  final String addLabel;
+
+  /// Optional summary cards rendered between the toolbar and the grid - the
+  /// KPI row of the dashboard-CRM page shape. Empty on codebooks, where a
+  /// count of cities is not worth a card.
+  final List<Widget> stats;
 
   /// Server-side `orderBy` column name. Defaults to `Name`; entities without
   /// that property (e.g. Patient/Doctor, which sort by `LastName`) override it.
@@ -51,22 +80,29 @@ class PagedCodebookTable<T> extends StatefulWidget {
   /// instead via [extraSearchParams]).
   final bool showSearch;
 
+  /// False when the table sits inside an already-scrolling column (the two
+  /// stacked tables on the doctor-schedule screen) rather than filling a page.
+  final bool expand;
+
   const PagedCodebookTable({
     super.key,
     required this.title,
     required this.searchHint,
     required this.provider,
     required this.buildColumns,
-    required this.buildCells,
     required this.onAdd,
     required this.onEdit,
     required this.onDelete,
     required this.itemLabel,
+    this.subtitle,
+    this.addLabel = 'Dodaj',
+    this.stats = const [],
     this.orderBy = 'Name',
     this.extraSearchParams = const {},
     this.canWrite = true,
     this.extraRowActions,
     this.showSearch = true,
+    this.expand = true,
   });
 
   @override
@@ -79,6 +115,9 @@ class PagedCodebookTableState<T> extends State<PagedCodebookTable<T>> {
   final _searchController = TextEditingController();
   Timer? _debounce;
 
+  /// One-based, matching the API's `page` parameter. [AppTablePaging] is
+  /// zero-based, so the two are converted at the boundary in [build] rather
+  /// than leaking an off-by-one into the request.
   int _page = 1;
   bool _isLoading = true;
   String? _error;
@@ -131,26 +170,17 @@ class PagedCodebookTableState<T> extends State<PagedCodebookTable<T>> {
   }
 
   Future<void> _confirmDelete(T item) async {
-    final confirmed = await showDialog<bool>(
+    final confirmed = await showConfirmDialog(
       context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Potvrda brisanja'),
-        content: Text('Da li ste sigurni da želite obrisati "${widget.itemLabel(item)}"?'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(false),
-            child: const Text('Odustani'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(dialogContext).pop(true),
-            style: FilledButton.styleFrom(backgroundColor: Theme.of(context).colorScheme.error),
-            child: const Text('Obriši'),
-          ),
-        ],
-      ),
+      title: 'Potvrda brisanja',
+      message:
+          'Da li ste sigurni da želite obrisati "${widget.itemLabel(item)}"? '
+          'Ova radnja se ne može poništiti.',
+      confirmLabel: 'Obriši',
+      destructive: true,
     );
 
-    if (confirmed != true) return;
+    if (!confirmed) return;
 
     try {
       await widget.onDelete(item);
@@ -161,107 +191,96 @@ class PagedCodebookTableState<T> extends State<PagedCodebookTable<T>> {
     }
   }
 
-  int get _totalPages {
-    final count = _result?.count ?? 0;
-    return count == 0 ? 1 : ((count - 1) ~/ _pageSize) + 1;
+  void _goToPage(int zeroBasedPage) {
+    setState(() => _page = zeroBasedPage + 1);
+    load();
   }
 
   @override
   Widget build(BuildContext context) {
+    final rows = _result?.resultList ?? const [];
+
+    final table = AppDataTable<T>(
+      columns: widget.buildColumns(),
+      rows: rows,
+      isLoading: _isLoading,
+      error: _error,
+      onRetry: load,
+      expand: widget.expand,
+      emptyTitle: 'Nema zapisa',
+      emptyMessage: _searchController.text.trim().isEmpty
+          ? 'Kada dodate prvi zapis, pojavit će se ovdje.'
+          : 'Nijedan zapis ne odgovara pretrazi "${_searchController.text.trim()}".',
+      emptyAction: widget.canWrite && _searchController.text.trim().isEmpty
+          ? FilledButton.icon(
+              onPressed: widget.onAdd,
+              icon: const Icon(Icons.add_rounded, size: 18),
+              label: Text(widget.addLabel),
+            )
+          : null,
+      paging: AppTablePaging(page: _page - 1, pageSize: _pageSize, totalCount: _result?.count ?? 0),
+      onPageChanged: _goToPage,
+      rowActions: (context, item) => [
+        ...?widget.extraRowActions?.call(item),
+        if (widget.canWrite) ...[
+          AppRowAction(icon: Icons.edit_outlined, tooltip: 'Uredi', onPressed: () => widget.onEdit(item)),
+          AppRowAction(
+            icon: Icons.delete_outline_rounded,
+            tooltip: 'Obriši',
+            destructive: true,
+            onPressed: () => _confirmDelete(item),
+          ),
+        ],
+      ],
+    );
+
     return Padding(
-      padding: const EdgeInsets.all(16),
+      padding: AppSpacing.page,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Row(
-            children: [
-              Expanded(
-                child: Text(widget.title, style: Theme.of(context).textTheme.titleLarge),
-              ),
+          AppToolbar(
+            title: widget.title,
+            subtitle: widget.subtitle,
+            filters: [
+              if (widget.showSearch)
+                AppSearchField(
+                  controller: _searchController,
+                  hint: widget.searchHint,
+                  onChanged: _onSearchChanged,
+                ),
+            ],
+            actions: [
               if (widget.canWrite)
                 FilledButton.icon(
                   onPressed: widget.onAdd,
-                  icon: const Icon(Icons.add),
-                  label: const Text('Dodaj'),
+                  icon: const Icon(Icons.add_rounded, size: 18),
+                  label: Text(widget.addLabel),
                 ),
             ],
           ),
-          if (widget.showSearch) ...[
-            const SizedBox(height: 12),
-            TextField(
-              controller: _searchController,
-              decoration: InputDecoration(
-                labelText: widget.searchHint,
-                prefixIcon: const Icon(Icons.search),
-                isDense: true,
-                border: const OutlineInputBorder(),
-              ),
-              onChanged: _onSearchChanged,
-            ),
-          ],
-          const SizedBox(height: 12),
-          if (_error != null)
-            Padding(
-              padding: const EdgeInsets.only(bottom: 12),
-              child: Text(_error!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
-            ),
-          Expanded(
-            child: _isLoading
-                ? const Center(child: CircularProgressIndicator())
-                : (_result == null || _result!.resultList.isEmpty)
-                    ? const Center(child: Text('Nema podataka za prikaz.'))
-                    : SingleChildScrollView(
-                        child: SingleChildScrollView(
-                          scrollDirection: Axis.horizontal,
-                          child: DataTable(
-                            columns: [
-                              ...widget.buildColumns(),
-                              const DataColumn(label: Text('Akcije')),
-                            ],
-                            rows: _result!.resultList
-                                .map((item) => DataRow(cells: [
-                                      ...widget.buildCells(item),
-                                      DataCell(Row(
-                                        mainAxisSize: MainAxisSize.min,
-                                        children: [
-                                          ...?widget.extraRowActions?.call(item),
-                                          if (widget.canWrite) ...[
-                                            IconButton(
-                                              tooltip: 'Uredi',
-                                              icon: const Icon(Icons.edit_outlined),
-                                              onPressed: () => widget.onEdit(item),
-                                            ),
-                                            IconButton(
-                                              tooltip: 'Obriši',
-                                              icon: const Icon(Icons.delete_outline),
-                                              onPressed: () => _confirmDelete(item),
-                                            ),
-                                          ],
-                                        ],
-                                      )),
-                                    ]))
-                                .toList(),
-                          ),
-                        ),
-                      ),
-          ),
-          const SizedBox(height: 8),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              IconButton(
-                icon: const Icon(Icons.chevron_left),
-                onPressed: _page > 1 ? () { setState(() => _page--); load(); } : null,
-              ),
-              Text('Strana $_page od $_totalPages'),
-              IconButton(
-                icon: const Icon(Icons.chevron_right),
-                onPressed: _page < _totalPages ? () { setState(() => _page++); load(); } : null,
-              ),
-            ],
-          ),
+          if (widget.stats.isNotEmpty) ...[_statsRow(widget.stats), const SizedBox(height: AppSpacing.md)],
+          if (widget.expand) Expanded(child: table) else table,
         ],
       ),
+    );
+  }
+
+  /// Equal-width KPI cards. Wraps rather than overflowing so a narrow window
+  /// stacks them instead of clipping the last one.
+  Widget _statsRow(List<Widget> stats) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        const minCardWidth = 220.0;
+        final perRow = (constraints.maxWidth / minCardWidth).floor().clamp(1, stats.length);
+        final width = (constraints.maxWidth - (perRow - 1) * AppSpacing.md) / perRow;
+
+        return Wrap(
+          spacing: AppSpacing.md,
+          runSpacing: AppSpacing.md,
+          children: [for (final stat in stats) SizedBox(width: width, child: stat)],
+        );
+      },
     );
   }
 }

@@ -135,8 +135,11 @@ public class RecommenderService : IRecommenderService
             MedicalServiceText = medicalServiceText,
             SpecializationText = specializationText,
             DoctorText = doctorText,
-            DayOfWeek = pointInTimeUtc.DayOfWeek.ToString(),
-            TimeOfDay = pointInTimeUtc.ToTimeOfDayBucket().ToString()
+            // Clinic-local, not UTC: "ponedjeljkom ujutro" is a statement about the
+            // clinic's clock, and near midnight the UTC weekday is a different day
+            // altogether (review item C1).
+            DayOfWeek = ClinicTimeZone.LocalDayOfWeekOf(pointInTimeUtc).ToString(),
+            TimeOfDay = pointInTimeUtc.ToClinicTimeOfDayBucket().ToString()
         };
     }
 
@@ -418,8 +421,8 @@ public class RecommenderService : IRecommenderService
                 : new RecommenderFeatureRow
                 {
                     MedicalServiceText = $"{interaction.MedicalService!.Name} {interaction.MedicalService.Description}".Trim(),
-                    DayOfWeek = interaction.DateTimeUtc.DayOfWeek.ToString(),
-                    TimeOfDay = interaction.DateTimeUtc.ToTimeOfDayBucket().ToString()
+                    DayOfWeek = ClinicTimeZone.LocalDayOfWeekOf(interaction.DateTimeUtc).ToString(),
+                    TimeOfDay = interaction.DateTimeUtc.ToClinicTimeOfDayBucket().ToString()
                 };
 
             result.Add(new HistoryItem(
@@ -456,9 +459,18 @@ public class RecommenderService : IRecommenderService
             {
                 if (alreadyBooked.Any(b => b.DoctorId == doctor.Id && b.MedicalServiceId == service.Id)) continue;
 
+                // Never pair a doctor with a service they aren't qualified for
+                // (review item C2) - this loop used to emit every doctor x every
+                // service. Checked in memory: DoctorSpecializations is already
+                // included for the feature row, so this costs no extra query.
+                if (!Appointments.DoctorCompatibility.CanPerform(doctor, service)) continue;
+
                 for (var offset = 0; offset < _options.CandidateLookaheadDays; offset++)
                 {
-                    var date = DateOnly.FromDateTime(nowUtc.AddDays(offset));
+                    // Clinic-local calendar day - GetAvailableSlotsAsync takes a
+                    // local date, and a UTC-derived one is off by a day near
+                    // midnight (review item C1).
+                    var date = ClinicTimeZone.LocalDateOf(nowUtc).AddDays(offset);
                     var slots = await _appointmentService.GetAvailableSlotsAsync(doctor.Id, service.Id, date, cancellationToken);
                     if (slots.Count > 0)
                     {
@@ -518,11 +530,15 @@ public class RecommenderService : IRecommenderService
         {
             if (alreadyBooked.Any(b => b.DoctorId == row.DoctorId && b.MedicalServiceId == row.MedicalServiceId)) continue;
             if (!doctors.TryGetValue(row.DoctorId, out var doctor) || !services.TryGetValue(row.MedicalServiceId, out var service)) continue;
+            // Popular historically, but the pairing must still be one the booking
+            // endpoint would accept today (review item C2).
+            if (!Appointments.DoctorCompatibility.CanPerform(doctor, service)) continue;
 
             DateTime? suggestedStart = null;
+            var firstLocalDate = ClinicTimeZone.LocalDateOf(nowUtc);
             for (var offset = 0; offset < _options.CandidateLookaheadDays; offset++)
             {
-                var slots = await _appointmentService.GetAvailableSlotsAsync(doctor.Id, service.Id, DateOnly.FromDateTime(nowUtc.AddDays(offset)), cancellationToken);
+                var slots = await _appointmentService.GetAvailableSlotsAsync(doctor.Id, service.Id, firstLocalDate.AddDays(offset), cancellationToken);
                 // GetAvailableSlotsAsync appends per working-hours window and
                 // does not promise an ordered list, so take the minimum rather
                 // than the first element - the DTO promises the earliest slot.
@@ -641,13 +657,16 @@ public class RecommenderService : IRecommenderService
     /// <summary>Builds the Bosnian explanation from the single history item that contributed most to a candidate's score (doc §6 - grounded in the real dominant signal, never generic).</summary>
     private static string BuildReason(HistoryItem dominant, Doctor candidateDoctor, ClinicNow.Services.Database.Entities.MedicalService candidateService)
     {
-        var dayBosnian = dominant.DateTimeUtc.DayOfWeek switch
+        // The explanation is shown to the patient, so it must describe the clinic's
+        // clock - telling someone they book "ponedjeljkom ujutro" off a UTC instant
+        // names the wrong day for anything after 22:00 local (review item C1).
+        var dayBosnian = ClinicTimeZone.LocalDayOfWeekOf(dominant.DateTimeUtc) switch
         {
             DayOfWeek.Monday => "ponedjeljkom", DayOfWeek.Tuesday => "utorkom", DayOfWeek.Wednesday => "srijedom",
             DayOfWeek.Thursday => "četvrtkom", DayOfWeek.Friday => "petkom", DayOfWeek.Saturday => "subotom",
             _ => "nedjeljom"
         };
-        var timeOfDayBosnian = dominant.DateTimeUtc.ToTimeOfDayBucket().ToDisplayName();
+        var timeOfDayBosnian = dominant.DateTimeUtc.ToClinicTimeOfDayBucket().ToDisplayName();
 
         if (dominant.DoctorId == candidateDoctor.Id && dominant.DoctorLastName is not null)
         {

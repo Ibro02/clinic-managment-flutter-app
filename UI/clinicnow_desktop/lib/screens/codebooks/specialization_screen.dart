@@ -8,6 +8,8 @@ import '../../core/auth_session.dart';
 import '../../models/specialization.dart';
 import '../../providers/specialization_provider.dart';
 import '../../widgets/paged_codebook_table.dart';
+import '../../widgets/ui/app_data_table.dart';
+import '../../widgets/ui/app_dialog.dart';
 
 class SpecializationScreen extends StatefulWidget {
   const SpecializationScreen({super.key});
@@ -31,42 +33,16 @@ class _SpecializationScreenState extends State<SpecializationScreen> {
     var isSubmitting = false;
     Map<String, List<String>> fieldErrors = {};
 
-    await showDialog<void>(
+    await showAppDialog<void>(
       context: context,
       builder: (dialogContext) => StatefulBuilder(
-        builder: (dialogContext, setDialogState) => AlertDialog(
-          title: Text(initial == null ? 'Nova specijalizacija' : 'Uredi specijalizaciju'),
-          content: SizedBox(
-            width: 420,
-            child: FormBuilder(
-              key: formKey,
-              initialValue: {
-                'name': initial?.name ?? '',
-                'description': initial?.description ?? '',
-              },
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  FormBuilderTextField(
-                    name: 'name',
-                    decoration: InputDecoration(
-                      labelText: 'Naziv',
-                      errorText: fieldErrors['name']?.first,
-                    ),
-                    validator: FormBuilderValidators.required(errorText: 'Naziv je obavezan.'),
-                  ),
-                  const SizedBox(height: 12),
-                  FormBuilderTextField(
-                    name: 'description',
-                    decoration: const InputDecoration(labelText: 'Opis (opcionalno)'),
-                    maxLines: 3,
-                  ),
-                ],
-              ),
-            ),
-          ),
+        builder: (dialogContext, setDialogState) => AppDialog(
+          title: initial == null ? 'Nova specijalizacija' : 'Uredi specijalizaciju',
+          subtitle: 'Specijalizacije se dodjeljuju doktorima.',
+          icon: Icons.medical_services_outlined,
+          width: 480,
           actions: [
-            TextButton(
+            OutlinedButton(
               onPressed: isSubmitting ? null : () => Navigator.of(dialogContext).pop(),
               child: const Text('Odustani'),
             ),
@@ -104,6 +80,35 @@ class _SpecializationScreenState extends State<SpecializationScreen> {
                   : const Text('Sačuvaj'),
             ),
           ],
+          child: FormBuilder(
+            key: formKey,
+            initialValue: {'name': initial?.name ?? '', 'description': initial?.description ?? ''},
+            child: AppFormSection(
+              children: [
+                AppField(
+                  label: 'Naziv',
+                  required: true,
+                  child: FormBuilderTextField(
+                    name: 'name',
+                    decoration: InputDecoration(
+                      hintText: 'npr. Dermatologija',
+                      errorText: fieldErrors['name']?.first,
+                    ),
+                    validator: FormBuilderValidators.required(errorText: 'Naziv je obavezan.'),
+                  ),
+                ),
+                AppField(
+                  label: 'Opis',
+                  help: 'Opcionalno. Kratko objašnjenje za osoblje.',
+                  child: FormBuilderTextField(
+                    name: 'description',
+                    decoration: const InputDecoration(hintText: 'Kratak opis specijalizacije'),
+                    maxLines: 3,
+                  ),
+                ),
+              ],
+            ),
+          ),
         ),
       ),
     );
@@ -118,13 +123,19 @@ class _SpecializationScreenState extends State<SpecializationScreen> {
       title: 'Specijalizacije',
       searchHint: 'Pretraga po nazivu',
       provider: _provider,
-      buildColumns: () => const [
-        DataColumn(label: Text('Naziv')),
-        DataColumn(label: Text('Opis')),
-      ],
-      buildCells: (specialization) => [
-        DataCell(Text(specialization.name)),
-        DataCell(Text(specialization.description ?? '')),
+      buildColumns: () => [
+        AppColumn(
+          label: 'Naziv',
+          sortKey: 'Name',
+          flex: 2,
+          cell: (context, specialization) => Text(specialization.name),
+        ),
+        AppColumn(
+          label: 'Opis',
+          flex: 3,
+          cell: (context, specialization) =>
+              Text(specialization.description?.isNotEmpty == true ? specialization.description! : '—'),
+        ),
       ],
       onAdd: () => _openForm(),
       onEdit: (specialization) => _openForm(initial: specialization),

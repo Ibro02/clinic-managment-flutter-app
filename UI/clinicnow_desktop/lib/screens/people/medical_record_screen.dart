@@ -10,6 +10,10 @@ import '../../core/roles.dart';
 import '../../models/medical_record.dart';
 import '../../models/patient.dart';
 import '../../providers/medical_record_provider.dart';
+import '../../core/design_tokens.dart';
+import '../../widgets/ui/app_badge.dart';
+import '../../widgets/ui/app_dialog.dart';
+import '../../widgets/ui/app_states.dart';
 
 /// The medical file ("medicinski karton") editor/viewer: clinic header, basic
 /// patient info, allergies/notes, and the treatment-history table. A Doctor
@@ -56,31 +60,13 @@ class _MedicalRecordScreenState extends State<MedicalRecordScreen> {
     await showDialog<void>(
       context: context,
       builder: (dialogContext) => StatefulBuilder(
-        builder: (dialogContext, setDialogState) => AlertDialog(
-          title: const Text('Dodaj u alergije / napomene'),
-          content: SizedBox(
-            width: 460,
-            child: FormBuilder(
-              key: formKey,
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  FormBuilderTextField(
-                    name: 'allergiesToAppend',
-                    decoration: const InputDecoration(labelText: 'Dodaj alergiju (opcionalno)'),
-                  ),
-                  const SizedBox(height: 12),
-                  FormBuilderTextField(
-                    name: 'medicalNotesToAppend',
-                    maxLines: 3,
-                    decoration: const InputDecoration(labelText: 'Dodaj napomenu (opcionalno)'),
-                  ),
-                ],
-              ),
-            ),
-          ),
+        builder: (dialogContext, setDialogState) => AppDialog(
+          title: 'Dodaj u alergije / napomene',
+          subtitle: 'Novi tekst se dopisuje uz postojeći, ništa se ne briše.',
+          icon: Icons.note_add_outlined,
+          width: 520,
           actions: [
-            TextButton(
+            OutlinedButton(
               onPressed: isSubmitting ? null : () => Navigator.of(dialogContext).pop(),
               child: const Text('Odustani'),
             ),
@@ -102,7 +88,9 @@ class _MedicalRecordScreenState extends State<MedicalRecordScreen> {
                       } on ApiException catch (e) {
                         setDialogState(() => isSubmitting = false);
                         if (dialogContext.mounted) {
-                          ScaffoldMessenger.of(dialogContext).showSnackBar(SnackBar(content: Text(e.message)));
+                          ScaffoldMessenger.of(
+                            dialogContext,
+                          ).showSnackBar(SnackBar(content: Text(e.message)));
                         }
                       }
                     },
@@ -111,6 +99,30 @@ class _MedicalRecordScreenState extends State<MedicalRecordScreen> {
                   : const Text('Dodaj'),
             ),
           ],
+          child: FormBuilder(
+            key: formKey,
+            child: AppFormSection(
+              children: [
+                AppField(
+                  label: 'Dodaj alergiju',
+                  help: 'Opcionalno.',
+                  child: FormBuilderTextField(
+                    name: 'allergiesToAppend',
+                    decoration: const InputDecoration(hintText: 'npr. Penicilin'),
+                  ),
+                ),
+                AppField(
+                  label: 'Dodaj napomenu',
+                  help: 'Opcionalno.',
+                  child: FormBuilderTextField(
+                    name: 'medicalNotesToAppend',
+                    maxLines: 3,
+                    decoration: const InputDecoration(hintText: 'Napomena za karton'),
+                  ),
+                ),
+              ],
+            ),
+          ),
         ),
       ),
     );
@@ -123,29 +135,14 @@ class _MedicalRecordScreenState extends State<MedicalRecordScreen> {
     await showDialog<void>(
       context: context,
       builder: (dialogContext) => StatefulBuilder(
-        builder: (dialogContext, setDialogState) => AlertDialog(
-          title: const Text('Uredi alergije / napomene'),
-          content: SizedBox(
-            width: 460,
-            child: FormBuilder(
-              key: formKey,
-              initialValue: {
-                'allergies': _record?.allergies ?? '',
-                'medicalNotes': _record?.medicalNotes ?? '',
-              },
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  FormBuilderTextField(name: 'allergies', decoration: const InputDecoration(labelText: 'Alergije')),
-                  const SizedBox(height: 12),
-                  FormBuilderTextField(
-                      name: 'medicalNotes', maxLines: 4, decoration: const InputDecoration(labelText: 'Napomene')),
-                ],
-              ),
-            ),
-          ),
+        builder: (dialogContext, setDialogState) => AppDialog(
+          title: 'Uredi alergije / napomene',
+          subtitle: 'Ovim se postojeći tekst zamjenjuje u cijelosti.',
+          icon: Icons.edit_note_outlined,
+          tone: AppTone.warning,
+          width: 520,
           actions: [
-            TextButton(
+            OutlinedButton(
               onPressed: isSubmitting ? null : () => Navigator.of(dialogContext).pop(),
               child: const Text('Odustani'),
             ),
@@ -167,7 +164,9 @@ class _MedicalRecordScreenState extends State<MedicalRecordScreen> {
                       } on ApiException catch (e) {
                         setDialogState(() => isSubmitting = false);
                         if (dialogContext.mounted) {
-                          ScaffoldMessenger.of(dialogContext).showSnackBar(SnackBar(content: Text(e.message)));
+                          ScaffoldMessenger.of(
+                            dialogContext,
+                          ).showSnackBar(SnackBar(content: Text(e.message)));
                         }
                       }
                     },
@@ -176,6 +175,25 @@ class _MedicalRecordScreenState extends State<MedicalRecordScreen> {
                   : const Text('Sačuvaj'),
             ),
           ],
+          child: FormBuilder(
+            key: formKey,
+            initialValue: {
+              'allergies': _record?.allergies ?? '',
+              'medicalNotes': _record?.medicalNotes ?? '',
+            },
+            child: AppFormSection(
+              children: [
+                AppField(
+                  label: 'Alergije',
+                  child: FormBuilderTextField(name: 'allergies'),
+                ),
+                AppField(
+                  label: 'Napomene',
+                  child: FormBuilderTextField(name: 'medicalNotes', maxLines: 4),
+                ),
+              ],
+            ),
+          ),
         ),
       ),
     );
@@ -189,47 +207,13 @@ class _MedicalRecordScreenState extends State<MedicalRecordScreen> {
     await showDialog<void>(
       context: context,
       builder: (dialogContext) => StatefulBuilder(
-        builder: (dialogContext, setDialogState) => AlertDialog(
-          title: Text(initial == null ? 'Novi unos u historiju liječenja' : 'Uredi unos'),
-          content: SizedBox(
-            width: 460,
-            child: FormBuilder(
-              key: formKey,
-              initialValue: {
-                'entryDate': initial?.entryDate ?? DateTime.now(),
-                'treatment': initial?.treatment ?? '',
-                'description': initial?.description ?? '',
-              },
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  FormBuilderDateTimePicker(
-                    name: 'entryDate',
-                    inputType: InputType.date,
-                    format: _dateFormat,
-                    decoration: const InputDecoration(labelText: 'Datum'),
-                    lastDate: DateTime.now(),
-                    validator: FormBuilderValidators.required(errorText: 'Datum je obavezan.'),
-                  ),
-                  const SizedBox(height: 12),
-                  FormBuilderTextField(
-                    name: 'treatment',
-                    decoration: InputDecoration(labelText: 'Tretman', errorText: fieldErrors['treatment']?.first),
-                    validator: FormBuilderValidators.required(errorText: 'Tretman je obavezan.'),
-                  ),
-                  const SizedBox(height: 12),
-                  FormBuilderTextField(
-                    name: 'description',
-                    maxLines: 3,
-                    decoration: InputDecoration(labelText: 'Opis', errorText: fieldErrors['description']?.first),
-                    validator: FormBuilderValidators.required(errorText: 'Opis je obavezan.'),
-                  ),
-                ],
-              ),
-            ),
-          ),
+        builder: (dialogContext, setDialogState) => AppDialog(
+          title: initial == null ? 'Novi unos u historiju liječenja' : 'Uredi unos',
+          subtitle: widget.patient.fullName,
+          icon: Icons.medical_information_outlined,
+          width: 560,
           actions: [
-            TextButton(
+            OutlinedButton(
               onPressed: isSubmitting ? null : () => Navigator.of(dialogContext).pop(),
               child: const Text('Odustani'),
             ),
@@ -271,28 +255,67 @@ class _MedicalRecordScreenState extends State<MedicalRecordScreen> {
                   : const Text('Sačuvaj'),
             ),
           ],
+          child: FormBuilder(
+            key: formKey,
+            initialValue: {
+              'entryDate': initial?.entryDate ?? DateTime.now(),
+              'treatment': initial?.treatment ?? '',
+              'description': initial?.description ?? '',
+            },
+            child: AppFormSection(
+              children: [
+                AppField(
+                  label: 'Datum',
+                  required: true,
+                  child: FormBuilderDateTimePicker(
+                    name: 'entryDate',
+                    inputType: InputType.date,
+                    format: _dateFormat,
+                    lastDate: DateTime.now(),
+                    validator: FormBuilderValidators.required(errorText: 'Datum je obavezan.'),
+                  ),
+                ),
+                AppField(
+                  label: 'Tretman',
+                  required: true,
+                  child: FormBuilderTextField(
+                    name: 'treatment',
+                    decoration: InputDecoration(
+                      hintText: 'npr. Kontrolni pregled',
+                      errorText: fieldErrors['treatment']?.first,
+                    ),
+                    validator: FormBuilderValidators.required(errorText: 'Tretman je obavezan.'),
+                  ),
+                ),
+                AppField(
+                  label: 'Opis',
+                  required: true,
+                  child: FormBuilderTextField(
+                    name: 'description',
+                    maxLines: 4,
+                    decoration: InputDecoration(errorText: fieldErrors['description']?.first),
+                    validator: FormBuilderValidators.required(errorText: 'Opis je obavezan.'),
+                  ),
+                ),
+              ],
+            ),
+          ),
         ),
       ),
     );
   }
 
   Future<void> _confirmDeleteEntry(MedicalRecordEntry entry) async {
-    final confirmed = await showDialog<bool>(
+    final confirmed = await showConfirmDialog(
       context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Potvrda brisanja'),
-        content: Text('Da li ste sigurni da želite obrisati unos "${entry.treatment}" od ${_dateFormat.format(entry.entryDate)}?'),
-        actions: [
-          TextButton(onPressed: () => Navigator.of(dialogContext).pop(false), child: const Text('Odustani')),
-          FilledButton(
-            onPressed: () => Navigator.of(dialogContext).pop(true),
-            style: FilledButton.styleFrom(backgroundColor: Theme.of(context).colorScheme.error),
-            child: const Text('Obriši'),
-          ),
-        ],
-      ),
+      title: 'Potvrda brisanja',
+      message:
+          'Da li ste sigurni da želite obrisati unos "${entry.treatment}" '
+          'od ${_dateFormat.format(entry.entryDate)}? Ova radnja se ne može poništiti.',
+      confirmLabel: 'Obriši',
+      destructive: true,
     );
-    if (confirmed != true) return;
+    if (!confirmed) return;
 
     try {
       await _provider.deleteEntry(entry.id);
@@ -327,24 +350,27 @@ class _MedicalRecordScreenState extends State<MedicalRecordScreen> {
             )
           : null,
       body: _error != null
-          ? Center(child: Text(_error!, style: TextStyle(color: Theme.of(context).colorScheme.error)))
+          ? Padding(
+              padding: AppSpacing.page,
+              child: AppErrorState(message: _error!, onRetry: _load),
+            )
           : _record == null
-              ? const Center(child: CircularProgressIndicator())
-              : RefreshIndicator(
-                  onRefresh: _load,
-                  child: ListView(
-                    padding: const EdgeInsets.all(24),
-                    children: [
-                      _buildHeader(context),
-                      const Divider(height: 32, thickness: 1.5),
-                      _buildBasicInfo(context),
-                      const SizedBox(height: 24),
-                      _buildNotesSection(context, canAppend: canAppend, canFullyEdit: canFullyEdit),
-                      const SizedBox(height: 24),
-                      _buildEntriesTable(context, canAppend: canAppend, canFullyEdit: canFullyEdit),
-                    ],
-                  ),
-                ),
+          ? const Center(child: CircularProgressIndicator())
+          : RefreshIndicator(
+              onRefresh: _load,
+              child: ListView(
+                padding: AppSpacing.page,
+                children: [
+                  _buildHeader(context),
+                  const Divider(height: 32, thickness: 1.5),
+                  _buildBasicInfo(context),
+                  const SizedBox(height: 24),
+                  _buildNotesSection(context, canAppend: canAppend, canFullyEdit: canFullyEdit),
+                  const SizedBox(height: 24),
+                  _buildEntriesTable(context, canAppend: canAppend, canFullyEdit: canFullyEdit),
+                ],
+              ),
+            ),
     );
   }
 
@@ -357,7 +383,11 @@ class _MedicalRecordScreenState extends State<MedicalRecordScreen> {
         CircleAvatar(
           radius: 28,
           backgroundColor: Theme.of(context).colorScheme.primaryContainer,
-          child: Icon(Icons.local_hospital, size: 32, color: Theme.of(context).colorScheme.onPrimaryContainer),
+          child: Icon(
+            Icons.local_hospital,
+            size: 32,
+            color: Theme.of(context).colorScheme.onPrimaryContainer,
+          ),
         ),
         const SizedBox(width: 16),
         Column(
@@ -398,7 +428,10 @@ class _MedicalRecordScreenState extends State<MedicalRecordScreen> {
       padding: const EdgeInsets.symmetric(vertical: 4),
       child: Row(
         children: [
-          SizedBox(width: 160, child: Text(label, style: const TextStyle(fontWeight: FontWeight.w600))),
+          SizedBox(
+            width: 160,
+            child: Text(label, style: const TextStyle(fontWeight: FontWeight.w600)),
+          ),
           Expanded(child: Text(value)),
         ],
       ),
@@ -466,7 +499,9 @@ class _MedicalRecordScreenState extends State<MedicalRecordScreen> {
                     DataColumn(label: Text('Akcije')),
                   ],
                   rows: entries
-                      .map((entry) => DataRow(cells: [
+                      .map(
+                        (entry) => DataRow(
+                          cells: [
                             DataCell(Text(_dateFormat.format(entry.entryDate))),
                             DataCell(Text(entry.treatment)),
                             DataCell(SizedBox(width: 280, child: Text(entry.description))),
@@ -490,7 +525,9 @@ class _MedicalRecordScreenState extends State<MedicalRecordScreen> {
                                     )
                                   : const SizedBox.shrink(),
                             ),
-                          ]))
+                          ],
+                        ),
+                      )
                       .toList(),
                 ),
               ),

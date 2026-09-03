@@ -13,6 +13,10 @@ import '../../models/working_hours.dart';
 import '../../providers/schedule_block_provider.dart';
 import '../../providers/working_hours_provider.dart';
 import '../../widgets/paged_codebook_table.dart';
+import '../../core/design_tokens.dart';
+import '../../widgets/ui/app_badge.dart';
+import '../../widgets/ui/app_data_table.dart';
+import '../../widgets/ui/app_dialog.dart';
 
 /// Per-doctor schedule editor (PLAN.md Phase 3 item 3: "schedule/blocks
 /// editor") - a recurring weekly availability table plus a blocked-periods
@@ -55,59 +59,13 @@ class _DoctorScheduleScreenState extends State<DoctorScheduleScreen> {
     await showDialog<void>(
       context: context,
       builder: (dialogContext) => StatefulBuilder(
-        builder: (dialogContext, setDialogState) => AlertDialog(
-          title: Text(initial == null ? 'Novo radno vrijeme' : 'Uredi radno vrijeme'),
-          content: SizedBox(
-            width: 400,
-            child: FormBuilder(
-              key: formKey,
-              initialValue: {'dayOfWeek': initial?.dayOfWeek ?? 1},
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  FormBuilderDropdown<int>(
-                    name: 'dayOfWeek',
-                    decoration: InputDecoration(labelText: 'Dan u sedmici', errorText: fieldErrors['dayOfWeek']?.first),
-                    items: List.generate(
-                      7,
-                      (i) => DropdownMenuItem(value: i, child: Text(kDayOfWeekNames[i])),
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: OutlinedButton(
-                          onPressed: () async {
-                            final picked = await showTimePicker(context: dialogContext, initialTime: startTime);
-                            if (picked != null) setDialogState(() => startTime = picked);
-                          },
-                          child: Text('Početak: ${formatTimeOfDay(startTime)}'),
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: OutlinedButton(
-                          onPressed: () async {
-                            final picked = await showTimePicker(context: dialogContext, initialTime: endTime);
-                            if (picked != null) setDialogState(() => endTime = picked);
-                          },
-                          child: Text('Kraj: ${formatTimeOfDay(endTime)}'),
-                        ),
-                      ),
-                    ],
-                  ),
-                  if (fieldErrors['endTime'] != null) ...[
-                    const SizedBox(height: 8),
-                    Text(fieldErrors['endTime']!.first,
-                        style: TextStyle(color: Theme.of(context).colorScheme.error, fontSize: 12)),
-                  ],
-                ],
-              ),
-            ),
-          ),
+        builder: (dialogContext, setDialogState) => AppDialog(
+          title: initial == null ? 'Novo radno vrijeme' : 'Uredi radno vrijeme',
+          subtitle: 'Termini se mogu zakazati samo unutar radnog vremena.',
+          icon: Icons.schedule_outlined,
+          width: 480,
           actions: [
-            TextButton(
+            OutlinedButton(
               onPressed: isSubmitting ? null : () => Navigator.of(dialogContext).pop(),
               child: const Text('Odustani'),
             ),
@@ -148,6 +106,50 @@ class _DoctorScheduleScreenState extends State<DoctorScheduleScreen> {
                   : const Text('Sačuvaj'),
             ),
           ],
+          child: FormBuilder(
+            key: formKey,
+            initialValue: {'dayOfWeek': initial?.dayOfWeek ?? 1},
+            child: AppFormSection(
+              children: [
+                AppField(
+                  label: 'Dan u sedmici',
+                  required: true,
+                  child: FormBuilderDropdown<int>(
+                    name: 'dayOfWeek',
+                    decoration: InputDecoration(errorText: fieldErrors['dayOfWeek']?.first),
+                    items: List.generate(
+                      7,
+                      (i) => DropdownMenuItem(value: i, child: Text(kDayOfWeekNames[i])),
+                    ),
+                  ),
+                ),
+                // Rulebook §K: times are picked, never typed into a raw textbox.
+                AppFieldRow(
+                  children: [
+                    AppField(
+                      label: 'Početak',
+                      required: true,
+                      child: _timeButton(
+                        context: dialogContext,
+                        value: startTime,
+                        onPicked: (picked) => setDialogState(() => startTime = picked),
+                      ),
+                    ),
+                    AppField(
+                      label: 'Kraj',
+                      required: true,
+                      help: fieldErrors['endTime']?.first,
+                      child: _timeButton(
+                        context: dialogContext,
+                        value: endTime,
+                        onPicked: (picked) => setDialogState(() => endTime = picked),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
         ),
       ),
     );
@@ -163,47 +165,14 @@ class _DoctorScheduleScreenState extends State<DoctorScheduleScreen> {
     await showDialog<void>(
       context: context,
       builder: (dialogContext) => StatefulBuilder(
-        builder: (dialogContext, setDialogState) => AlertDialog(
-          title: Text(initial == null ? 'Nova blokada' : 'Uredi blokadu'),
-          content: SizedBox(
-            width: 420,
-            child: FormBuilder(
-              key: formKey,
-              initialValue: {
-                'startUtc': initial?.startUtc,
-                'endUtc': initial?.endUtc,
-                'reason': initial?.reason ?? '',
-              },
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  FormBuilderDateTimePicker(
-                    name: 'startUtc',
-                    inputType: InputType.both,
-                    format: _dateTimeFormat,
-                    decoration: InputDecoration(labelText: 'Početak', errorText: fieldErrors['startUtc']?.first),
-                    validator: FormBuilderValidators.required(errorText: 'Početak je obavezan.'),
-                  ),
-                  const SizedBox(height: 12),
-                  FormBuilderDateTimePicker(
-                    name: 'endUtc',
-                    inputType: InputType.both,
-                    format: _dateTimeFormat,
-                    decoration: InputDecoration(labelText: 'Kraj', errorText: fieldErrors['endUtc']?.first),
-                    validator: FormBuilderValidators.required(errorText: 'Kraj je obavezan.'),
-                  ),
-                  const SizedBox(height: 12),
-                  FormBuilderTextField(
-                    name: 'reason',
-                    decoration: InputDecoration(labelText: 'Razlog', errorText: fieldErrors['reason']?.first),
-                    validator: FormBuilderValidators.required(errorText: 'Razlog je obavezan.'),
-                  ),
-                ],
-              ),
-            ),
-          ),
+        builder: (dialogContext, setDialogState) => AppDialog(
+          title: initial == null ? 'Nova blokada' : 'Uredi blokadu',
+          subtitle: 'Blokirani period se ne nudi pacijentima pri zakazivanju.',
+          icon: Icons.event_busy_outlined,
+          tone: AppTone.warning,
+          width: 520,
           actions: [
-            TextButton(
+            OutlinedButton(
               onPressed: isSubmitting ? null : () => Navigator.of(dialogContext).pop(),
               child: const Text('Odustani'),
             ),
@@ -247,11 +216,98 @@ class _DoctorScheduleScreenState extends State<DoctorScheduleScreen> {
                   : const Text('Sačuvaj'),
             ),
           ],
+          child: FormBuilder(
+            key: formKey,
+            initialValue: {
+              'startUtc': initial?.startUtc,
+              'endUtc': initial?.endUtc,
+              'reason': initial?.reason ?? '',
+            },
+            child: AppFormSection(
+              children: [
+                AppFieldRow(
+                  children: [
+                    AppField(
+                      label: 'Početak',
+                      required: true,
+                      child: FormBuilderDateTimePicker(
+                        name: 'startUtc',
+                        inputType: InputType.both,
+                        format: _dateTimeFormat,
+                        decoration: InputDecoration(errorText: fieldErrors['startUtc']?.first),
+                        validator: FormBuilderValidators.required(errorText: 'Početak je obavezan.'),
+                      ),
+                    ),
+                    AppField(
+                      label: 'Kraj',
+                      required: true,
+                      child: FormBuilderDateTimePicker(
+                        name: 'endUtc',
+                        inputType: InputType.both,
+                        format: _dateTimeFormat,
+                        decoration: InputDecoration(errorText: fieldErrors['endUtc']?.first),
+                        validator: FormBuilderValidators.required(errorText: 'Kraj je obavezan.'),
+                      ),
+                    ),
+                  ],
+                ),
+                AppField(
+                  label: 'Razlog',
+                  required: true,
+                  help: 'Vidljiv samo osoblju, npr. godišnji odmor ili sastanak.',
+                  child: FormBuilderTextField(
+                    name: 'reason',
+                    decoration: InputDecoration(
+                      hintText: 'npr. Godišnji odmor',
+                      errorText: fieldErrors['reason']?.first,
+                    ),
+                    validator: FormBuilderValidators.required(errorText: 'Razlog je obavezan.'),
+                  ),
+                ),
+              ],
+            ),
+          ),
         ),
       ),
     );
 
     _blocksTableKey.currentState?.load();
+  }
+
+  /// Time picker styled as a field-height button, so a picked time sits on the
+  /// same baseline as the text inputs beside it instead of looking like a
+  /// stray action button.
+  Widget _timeButton({
+    required BuildContext context,
+    required TimeOfDay value,
+    required ValueChanged<TimeOfDay> onPicked,
+  }) {
+    final c = context.colors;
+
+    return SizedBox(
+      height: AppSizes.controlHeight,
+      child: OutlinedButton(
+        onPressed: () async {
+          final picked = await showTimePicker(context: context, initialTime: value);
+          if (picked != null) onPicked(picked);
+        },
+        style: OutlinedButton.styleFrom(
+          alignment: Alignment.centerLeft,
+          side: BorderSide(color: c.border),
+          padding: const EdgeInsets.symmetric(horizontal: AppSpacing.sm + 2),
+        ),
+        child: Row(
+          children: [
+            Icon(Icons.access_time_rounded, size: 16, color: c.textMuted),
+            const SizedBox(width: AppSpacing.xs),
+            Text(
+              formatTimeOfDay(value),
+              style: context.text.bodyMedium?.copyWith(fontFeatures: AppTypography.tabular),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   @override
@@ -286,20 +342,31 @@ class _DoctorScheduleScreenState extends State<DoctorScheduleScreen> {
                     orderBy: 'DayOfWeek',
                     canWrite: canWrite,
                     extraSearchParams: {'doctorId': widget.doctor.id},
-                    buildColumns: () => const [
-                      DataColumn(label: Text('Dan')),
-                      DataColumn(label: Text('Početak')),
-                      DataColumn(label: Text('Kraj')),
+                    buildColumns: () => [
+                      AppColumn(
+                        label: 'Dan',
+                        flex: 2,
+                        cell: (context, hours) => Text(kDayOfWeekNames[hours.dayOfWeek]),
+                      ),
+                      AppColumn(
+                        label: 'Početak',
+                        width: 110,
+                        numeric: true,
+                        cell: (context, hours) => Text(formatTimeOfDay(hours.startTime)),
+                      ),
+                      AppColumn(
+                        label: 'Kraj',
+                        width: 110,
+                        numeric: true,
+                        cell: (context, hours) => Text(formatTimeOfDay(hours.endTime)),
+                      ),
                     ],
-                    buildCells: (hours) => [
-                      DataCell(Text(kDayOfWeekNames[hours.dayOfWeek])),
-                      DataCell(Text(formatTimeOfDay(hours.startTime))),
-                      DataCell(Text(formatTimeOfDay(hours.endTime))),
-                    ],
+                    addLabel: 'Dodaj radno vrijeme',
                     onAdd: () => _openHoursForm(),
                     onEdit: (hours) => _openHoursForm(initial: hours),
                     onDelete: (hours) => _hoursProvider.delete(hours.id),
-                    itemLabel: (hours) => '${kDayOfWeekNames[hours.dayOfWeek]} ${formatTimeOfDay(hours.startTime)}-${formatTimeOfDay(hours.endTime)}',
+                    itemLabel: (hours) =>
+                        '${kDayOfWeekNames[hours.dayOfWeek]} ${formatTimeOfDay(hours.startTime)}-${formatTimeOfDay(hours.endTime)}',
                   ),
                   PagedCodebookTable<ScheduleBlock>(
                     key: _blocksTableKey,
@@ -310,14 +377,21 @@ class _DoctorScheduleScreenState extends State<DoctorScheduleScreen> {
                     orderBy: 'StartUtc',
                     canWrite: canWrite,
                     extraSearchParams: {'doctorId': widget.doctor.id},
-                    buildColumns: () => const [
-                      DataColumn(label: Text('Period')),
-                      DataColumn(label: Text('Razlog')),
+                    buildColumns: () => [
+                      AppColumn(
+                        label: 'Period',
+                        flex: 2,
+                        cell: (context, block) => Text(
+                          '${_dateTimeFormat.format(block.startUtc)} — ${_dateTimeFormat.format(block.endUtc)}',
+                        ),
+                      ),
+                      AppColumn(
+                        label: 'Razlog',
+                        flex: 2,
+                        cell: (context, block) => Text(block.reason, overflow: TextOverflow.ellipsis),
+                      ),
                     ],
-                    buildCells: (block) => [
-                      DataCell(Text('${_dateTimeFormat.format(block.startUtc)} — ${_dateTimeFormat.format(block.endUtc)}')),
-                      DataCell(Text(block.reason)),
-                    ],
+                    addLabel: 'Dodaj blokadu',
                     onAdd: () => _openBlockForm(),
                     onEdit: (block) => _openBlockForm(initial: block),
                     onDelete: (block) => _blocksProvider.delete(block.id),

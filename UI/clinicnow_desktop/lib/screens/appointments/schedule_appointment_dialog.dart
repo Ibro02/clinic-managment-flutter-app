@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import '../../core/api_exception.dart';
 import '../../core/auth_session.dart';
 import '../../core/clinic_colors.dart';
+import '../../core/design_tokens.dart';
 import '../../models/doctor.dart';
 import '../../models/medical_service.dart';
 import '../../models/patient.dart';
@@ -12,6 +13,9 @@ import '../../providers/appointment_provider.dart';
 import '../../providers/doctor_provider.dart';
 import '../../providers/medical_service_provider.dart';
 import '../../providers/patient_provider.dart';
+import '../../widgets/ui/app_badge.dart';
+import '../../widgets/ui/app_dialog.dart';
+import '../../widgets/ui/app_states.dart';
 
 /// Staff-side booking dialog: patient + doctor + service dropdowns (all from
 /// the DB, never free text - rulebook Part II §K), then a date picker, then
@@ -82,6 +86,29 @@ class _ScheduleAppointmentDialogState extends State<ScheduleAppointmentDialog> {
     });
   }
 
+  /// Narrows the service list to what the chosen doctor is qualified to perform.
+  /// The filter is applied by the API (`doctorId` on the search object), so staff
+  /// are only ever offered pairings the booking endpoint would accept - the
+  /// server enforces the same rule independently (review item C2).
+  Future<void> _reloadServicesForDoctor(int? doctorId) async {
+    final result = await _serviceProvider.getPaged({
+      'pageSize': 100,
+      'orderBy': 'Name',
+      'doctorId': ?doctorId,
+    });
+    if (!mounted) return;
+    setState(() {
+      _services = result.resultList;
+      // Drop a selection the new doctor can't perform, so the form can't submit
+      // a pairing the server will reject.
+      if (!_services.any((s) => s.id == _medicalServiceId)) {
+        _medicalServiceId = null;
+        _selectedSlot = null;
+        _slots = [];
+      }
+    });
+  }
+
   Future<void> _pickDate() async {
     final picked = await showDatePicker(
       context: context,
@@ -147,90 +174,13 @@ class _ScheduleAppointmentDialogState extends State<ScheduleAppointmentDialog> {
 
   @override
   Widget build(BuildContext context) {
-    return AlertDialog(
-      title: const Text('Novi termin'),
-      content: SizedBox(
-        width: 480,
-        child: _isLoadingOptions
-            ? const SizedBox(height: 120, child: Center(child: CircularProgressIndicator()))
-            : SingleChildScrollView(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    DropdownButtonFormField<int>(
-                      initialValue: _patientId,
-                      decoration: const InputDecoration(labelText: 'Pacijent'),
-                      items: _patients.map((p) => DropdownMenuItem(value: p.id, child: Text(p.fullName))).toList(),
-                      onChanged: (value) => setState(() => _patientId = value),
-                    ),
-                    const SizedBox(height: 12),
-                    DropdownButtonFormField<Doctor>(
-                      initialValue: _doctor,
-                      decoration: const InputDecoration(labelText: 'Doktor'),
-                      // null, not the default 48 - each item is two lines
-                      // (name + clinic), so a fixed single-line height would
-                      // clip the clinic subtext.
-                      itemHeight: null,
-                      items: _doctors.map((d) => DropdownMenuItem(value: d, child: _DoctorOption(doctor: d))).toList(),
-                      onChanged: (value) {
-                        setState(() {
-                          _doctor = value;
-                          _selectedSlot = null;
-                          _slots = [];
-                        });
-                        _loadSlots();
-                      },
-                    ),
-                    const SizedBox(height: 12),
-                    DropdownButtonFormField<int>(
-                      initialValue: _medicalServiceId,
-                      decoration: const InputDecoration(labelText: 'Usluga'),
-                      items: _services
-                          .map((s) => DropdownMenuItem(value: s.id, child: Text('${s.name} (${s.durationMinutes} min)')))
-                          .toList(),
-                      onChanged: (value) {
-                        setState(() {
-                          _medicalServiceId = value;
-                          _selectedSlot = null;
-                          _slots = [];
-                        });
-                        _loadSlots();
-                      },
-                    ),
-                    const SizedBox(height: 12),
-                    OutlinedButton.icon(
-                      onPressed: (_doctor == null || _medicalServiceId == null) ? null : _pickDate,
-                      icon: const Icon(Icons.calendar_today_outlined),
-                      label: Text(_date == null ? 'Odaberite datum' : _dateFormat.format(_date!)),
-                    ),
-                    const SizedBox(height: 12),
-                    if (_isLoadingSlots)
-                      const Center(child: CircularProgressIndicator())
-                    else if (_date != null && _doctor != null && _medicalServiceId != null)
-                      _slots.isEmpty
-                          ? const Text('Nema slobodnih termina za odabrani datum.')
-                          : Wrap(
-                              spacing: 8,
-                              runSpacing: 8,
-                              children: _slots
-                                  .map((slot) => ChoiceChip(
-                                        label: Text(_timeFormat.format(slot)),
-                                        selected: _selectedSlot == slot,
-                                        onSelected: (_) => setState(() => _selectedSlot = slot),
-                                      ))
-                                  .toList(),
-                            ),
-                    if (_error != null) ...[
-                      const SizedBox(height: 12),
-                      Text(_error!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
-                    ],
-                  ],
-                ),
-              ),
-      ),
+    return AppDialog(
+      title: 'Novi termin',
+      subtitle: 'Slobodni termini se dohvaćaju sa servera za odabranog doktora i uslugu.',
+      icon: Icons.event_available_outlined,
+      width: 560,
       actions: [
-        TextButton(
+        OutlinedButton(
           onPressed: _isSubmitting ? null : () => Navigator.of(context).pop(false),
           child: const Text('Odustani'),
         ),
@@ -241,6 +191,139 @@ class _ScheduleAppointmentDialogState extends State<ScheduleAppointmentDialog> {
               : const Text('Zakaži'),
         ),
       ],
+      child: _isLoadingOptions
+          ? const SizedBox(height: 140, child: Center(child: CircularProgressIndicator()))
+          : Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                AppFormSection(
+                  children: [
+                    AppField(
+                      label: 'Pacijent',
+                      required: true,
+                      child: DropdownButtonFormField<int>(
+                        initialValue: _patientId,
+                        decoration: const InputDecoration(hintText: 'Odaberite pacijenta'),
+                        items: _patients
+                            .map((p) => DropdownMenuItem(value: p.id, child: Text(p.fullName)))
+                            .toList(),
+                        onChanged: (value) => setState(() => _patientId = value),
+                      ),
+                    ),
+                    AppField(
+                      label: 'Doktor',
+                      required: true,
+                      help: _doctor == null ? null : 'Klinika: ${_doctor!.locationName}',
+                      child: DropdownButtonFormField<Doctor>(
+                        initialValue: _doctor,
+                        decoration: const InputDecoration(hintText: 'Odaberite doktora'),
+                        // null, not the default 48 - each item is two lines
+                        // (name + clinic), so a fixed single-line height would
+                        // clip the clinic subtext.
+                        itemHeight: null,
+                        items: _doctors
+                            .map(
+                              (d) => DropdownMenuItem(
+                                value: d,
+                                child: _DoctorOption(doctor: d),
+                              ),
+                            )
+                            .toList(),
+                        onChanged: (value) {
+                          setState(() {
+                            _doctor = value;
+                            _selectedSlot = null;
+                            _slots = [];
+                          });
+                          _reloadServicesForDoctor(value?.id);
+                          _loadSlots();
+                        },
+                      ),
+                    ),
+                    AppField(
+                      label: 'Usluga',
+                      required: true,
+                      child: DropdownButtonFormField<int>(
+                        initialValue: _medicalServiceId,
+                        decoration: const InputDecoration(hintText: 'Odaberite uslugu'),
+                        items: _services
+                            .map(
+                              (s) => DropdownMenuItem(
+                                value: s.id,
+                                child: Text('${s.name} (${s.durationMinutes} min)'),
+                              ),
+                            )
+                            .toList(),
+                        onChanged: (value) {
+                          setState(() {
+                            _medicalServiceId = value;
+                            _selectedSlot = null;
+                            _slots = [];
+                          });
+                          _loadSlots();
+                        },
+                      ),
+                    ),
+                    // Rulebook §K: an action whose preconditions aren't met is
+                    // disabled *and* says why, rather than silently doing nothing.
+                    AppField(
+                      label: 'Datum',
+                      required: true,
+                      help: (_doctor == null || _medicalServiceId == null)
+                          ? 'Prvo odaberite doktora i uslugu.'
+                          : null,
+                      child: SizedBox(
+                        height: AppSizes.controlHeight,
+                        child: OutlinedButton.icon(
+                          onPressed: (_doctor == null || _medicalServiceId == null) ? null : _pickDate,
+                          icon: const Icon(Icons.calendar_today_outlined, size: 16),
+                          label: Text(_date == null ? 'Odaberite datum' : _dateFormat.format(_date!)),
+                          style: OutlinedButton.styleFrom(alignment: Alignment.centerLeft),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                if (_date != null && _doctor != null && _medicalServiceId != null) ...[
+                  const SizedBox(height: AppSpacing.lg),
+                  AppFormSection(label: 'Slobodni termini', children: [_slotPicker(context)]),
+                ],
+                if (_error != null) ...[
+                  const SizedBox(height: AppSpacing.md),
+                  AppNotice(tone: AppTone.danger, message: _error!),
+                ],
+              ],
+            ),
+    );
+  }
+
+  Widget _slotPicker(BuildContext context) {
+    if (_isLoadingSlots) {
+      return const Padding(
+        padding: EdgeInsets.symmetric(vertical: AppSpacing.md),
+        child: Center(child: CircularProgressIndicator()),
+      );
+    }
+
+    if (_slots.isEmpty) {
+      return AppNotice(
+        tone: AppTone.warning,
+        message: 'Nema slobodnih termina za odabrani datum. Pokušajte s drugim datumom.',
+      );
+    }
+
+    return Wrap(
+      spacing: AppSpacing.xs,
+      runSpacing: AppSpacing.xs,
+      children: _slots
+          .map(
+            (slot) => ChoiceChip(
+              label: Text(_timeFormat.format(slot)),
+              selected: _selectedSlot == slot,
+              onSelected: (_) => setState(() => _selectedSlot = slot),
+            ),
+          )
+          .toList(),
     );
   }
 }

@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import '../../core/api_exception.dart';
 import '../../core/auth_session.dart';
 import '../../core/clinic_colors.dart';
+import '../../core/design_tokens.dart';
 import '../../core/roles.dart';
 import '../../models/appointment.dart';
 import '../../models/doctor.dart';
@@ -14,6 +15,11 @@ import '../../providers/appointment_provider.dart';
 import '../../providers/doctor_provider.dart';
 import '../../providers/patient_provider.dart';
 import '../../providers/payment_provider.dart';
+import '../../widgets/ui/app_badge.dart';
+import '../../widgets/ui/app_data_table.dart';
+import '../../widgets/ui/app_dialog.dart';
+import '../../widgets/ui/app_fields.dart';
+import '../../widgets/ui/app_states.dart';
 import 'schedule_appointment_dialog.dart';
 
 /// Staff/doctor appointment management: list with ≥1 search param (patient AND
@@ -50,12 +56,7 @@ class _AppointmentScreenState extends State<AppointmentScreen> {
   List<Patient> _patients = [];
   List<Doctor> _doctors = [];
 
-  static const _statusOptions = [
-    (0, 'Na čekanju'),
-    (1, 'Potvrđen'),
-    (2, 'Završen'),
-    (3, 'Otkazan'),
-  ];
+  static const _statusOptions = [(0, 'Na čekanju'), (1, 'Potvrđen'), (2, 'Završen'), (3, 'Otkazan')];
 
   @override
   void initState() {
@@ -125,7 +126,8 @@ class _AppointmentScreenState extends State<AppointmentScreen> {
   Future<void> _confirm(Appointment appointment) async {
     final ok = await _confirmDialog(
       title: 'Potvrda termina',
-      message: 'Potvrditi termin za ${appointment.patientName} kod ${appointment.doctorName} (${_dateTimeFormat.format(appointment.startUtc)})?',
+      message:
+          'Potvrditi termin za ${appointment.patientName} kod ${appointment.doctorName} (${_dateTimeFormat.format(appointment.startUtc)})?',
       actionLabel: 'Potvrdi',
     );
     if (ok != true) return;
@@ -158,34 +160,24 @@ class _AppointmentScreenState extends State<AppointmentScreen> {
     final reasonController = TextEditingController();
     String? reasonError;
 
-    final reason = await showDialog<String>(
+    final reason = await showAppDialog<String>(
       context: context,
       builder: (dialogContext) => StatefulBuilder(
-        builder: (dialogContext, setDialogState) => AlertDialog(
-          title: const Text('Otkazivanje termina'),
-          content: SizedBox(
-            width: 400,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('Termin za ${appointment.patientName} kod ${appointment.doctorName} - ${_dateTimeFormat.format(appointment.startUtc)}'),
-                const SizedBox(height: 16),
-                TextField(
-                  controller: reasonController,
-                  decoration: InputDecoration(labelText: 'Razlog otkazivanja', errorText: reasonError),
-                  maxLines: 2,
-                ),
-              ],
-            ),
-          ),
+        builder: (dialogContext, setDialogState) => AppDialog(
+          title: 'Otkazivanje termina',
+          subtitle:
+              '${appointment.patientName} kod ${appointment.doctorName} — '
+              '${_dateTimeFormat.format(appointment.startUtc)}',
+          icon: Icons.cancel_outlined,
+          tone: AppTone.danger,
+          width: 480,
           actions: [
-            TextButton(
-              onPressed: () => Navigator.of(dialogContext).pop(),
-              child: const Text('Odustani'),
-            ),
+            OutlinedButton(onPressed: () => Navigator.of(dialogContext).pop(), child: const Text('Odustani')),
             FilledButton(
-              style: FilledButton.styleFrom(backgroundColor: Theme.of(context).colorScheme.error),
+              style: FilledButton.styleFrom(
+                backgroundColor: dialogContext.colors.danger,
+                foregroundColor: Colors.white,
+              ),
               onPressed: () {
                 if (reasonController.text.trim().isEmpty) {
                   setDialogState(() => reasonError = 'Razlog otkazivanja je obavezan.');
@@ -196,6 +188,18 @@ class _AppointmentScreenState extends State<AppointmentScreen> {
               child: const Text('Otkaži termin'),
             ),
           ],
+          // Rulebook §G: a cancellation must carry a reason - it is recorded in
+          // the audit trail and sent to the patient in the notification.
+          child: AppField(
+            label: 'Razlog otkazivanja',
+            required: true,
+            help: 'Pacijent vidi ovaj razlog u obavijesti o otkazivanju.',
+            child: TextField(
+              controller: reasonController,
+              decoration: InputDecoration(errorText: reasonError),
+              maxLines: 3,
+            ),
+          ),
         ),
       ),
     );
@@ -232,42 +236,20 @@ class _AppointmentScreenState extends State<AppointmentScreen> {
     String? amountError;
     String? reasonError;
 
-    final confirmed = await showDialog<bool>(
+    final confirmed = await showAppDialog<bool>(
       context: context,
       builder: (dialogContext) => StatefulBuilder(
-        builder: (dialogContext, setDialogState) => AlertDialog(
-          title: const Text('Povrat sredstava'),
-          content: SizedBox(
-            width: 400,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('Termin za ${appointment.patientName} kod ${appointment.doctorName}'),
-                const SizedBox(height: 8),
-                Text('Uplaćeno: ${payment.amountEur.toStringAsFixed(2)} EUR'),
-                Text('Već vraćeno: ${payment.refundedAmountEur.toStringAsFixed(2)} EUR'),
-                Text(
-                  'Preostalo za povrat: ${payment.remainingRefundableEur.toStringAsFixed(2)} EUR',
-                  style: const TextStyle(fontWeight: FontWeight.bold),
-                ),
-                const SizedBox(height: 16),
-                TextField(
-                  controller: amountController,
-                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                  decoration: InputDecoration(labelText: 'Iznos povrata (EUR)', errorText: amountError),
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: reasonController,
-                  decoration: InputDecoration(labelText: 'Razlog povrata', errorText: reasonError),
-                  maxLines: 2,
-                ),
-              ],
-            ),
-          ),
+        builder: (dialogContext, setDialogState) => AppDialog(
+          title: 'Povrat sredstava',
+          subtitle: '${appointment.patientName} kod ${appointment.doctorName}',
+          icon: Icons.undo_rounded,
+          tone: AppTone.warning,
+          width: 500,
           actions: [
-            TextButton(onPressed: () => Navigator.of(dialogContext).pop(false), child: const Text('Odustani')),
+            OutlinedButton(
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: const Text('Odustani'),
+            ),
             FilledButton(
               onPressed: () {
                 final amount = double.tryParse(amountController.text.replaceAll(',', '.'));
@@ -275,8 +257,8 @@ class _AppointmentScreenState extends State<AppointmentScreen> {
                   amountError = (amount == null || amount <= 0)
                       ? 'Unesite ispravan iznos veći od 0.'
                       : (amount > payment.remainingRefundableEur
-                          ? 'Iznos ne može biti veći od preostalih ${payment.remainingRefundableEur.toStringAsFixed(2)} EUR.'
-                          : null);
+                            ? 'Iznos ne može biti veći od preostalih ${payment.remainingRefundableEur.toStringAsFixed(2)} EUR.'
+                            : null);
                   reasonError = reasonController.text.trim().isEmpty ? 'Razlog povrata je obavezan.' : null;
                 });
                 if (amountError == null && reasonError == null) {
@@ -286,6 +268,45 @@ class _AppointmentScreenState extends State<AppointmentScreen> {
               child: const Text('Izvrši povrat'),
             ),
           ],
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              // The remaining refundable balance is the number staff actually
+              // need, so it is stated plainly rather than left to be inferred
+              // from a 400 after submitting too much.
+              AppNotice(
+                tone: AppTone.info,
+                message:
+                    'Uplaćeno ${payment.amountEur.toStringAsFixed(2)} EUR · '
+                    'već vraćeno ${payment.refundedAmountEur.toStringAsFixed(2)} EUR · '
+                    'preostalo za povrat ${payment.remainingRefundableEur.toStringAsFixed(2)} EUR.',
+              ),
+              const SizedBox(height: AppSpacing.md),
+              AppFormSection(
+                children: [
+                  AppField(
+                    label: 'Iznos povrata (EUR)',
+                    required: true,
+                    help: 'Najviše ${payment.remainingRefundableEur.toStringAsFixed(2)} EUR.',
+                    child: TextField(
+                      controller: amountController,
+                      keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                      decoration: InputDecoration(errorText: amountError),
+                    ),
+                  ),
+                  AppField(
+                    label: 'Razlog povrata',
+                    required: true,
+                    child: TextField(
+                      controller: reasonController,
+                      decoration: InputDecoration(errorText: reasonError),
+                      maxLines: 3,
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -296,61 +317,53 @@ class _AppointmentScreenState extends State<AppointmentScreen> {
       final amount = double.parse(amountController.text.replaceAll(',', '.'));
       await _paymentProvider.refund(payment.id, amount, reasonController.text.trim());
       await _load();
-      _showError('Povrat je uspješno izvršen.'); // reused SnackBar helper - message just happens to be a success, not an error
+      _showError(
+        'Povrat je uspješno izvršen.',
+      ); // reused SnackBar helper - message just happens to be a success, not an error
     } on ApiException catch (e) {
       _showError(e.message);
     }
   }
 
-  Future<bool?> _confirmDialog({required String title, required String message, required String actionLabel}) {
-    return showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: Text(title),
-        content: Text(message),
-        actions: [
-          TextButton(onPressed: () => Navigator.of(dialogContext).pop(false), child: const Text('Odustani')),
-          FilledButton(onPressed: () => Navigator.of(dialogContext).pop(true), child: Text(actionLabel)),
-        ],
-      ),
-    );
+  Future<bool?> _confirmDialog({
+    required String title,
+    required String message,
+    required String actionLabel,
+  }) {
+    return showConfirmDialog(context: context, title: title, message: message, confirmLabel: actionLabel);
   }
 
   void _showError(String message) {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
   }
 
-  Color _statusColor(BuildContext context, int status) => switch (status) {
-        0 => Colors.orange,
-        1 => Theme.of(context).colorScheme.tertiary,
-        2 => Colors.green,
-        3 => Colors.red,
-        _ => Colors.grey,
-      };
-
-  // Status 1 (Confirmed) uses colorScheme.tertiary as its background, which is
-  // a pale tone in dark mode - white text on it is illegible, so it needs
-  // onTertiary instead. Every other status is a fixed Material mid-tone that
-  // stays legible with white text in both themes.
-  Color _statusForegroundColor(BuildContext context, int status) =>
-      status == 1 ? Theme.of(context).colorScheme.onTertiary : Colors.white;
+  /// Status as a semantic tone, not a colour. The token layer resolves the tone
+  /// per theme, so a badge stays legible in dark mode without this screen
+  /// knowing anything about foreground/background pairing - which is exactly
+  /// what the previous hand-picked `Colors.orange`/`white` mapping kept getting
+  /// wrong.
+  AppTone _statusTone(int status) => switch (status) {
+    0 => AppTone.warning, // Na čekanju
+    1 => AppTone.info, // Potvrđen
+    2 => AppTone.success, // Završen
+    3 => AppTone.danger, // Otkazan
+    _ => AppTone.neutral,
+  };
 
   /// Backend `PaymentStatusExtensions.ToDisplayName(PartiallyRefunded)` - the
   /// appointment DTO carries the payment status only as its display name, so
-  /// this is the one value the color mapping below has to recognise by text.
+  /// this is the one value the tone mapping below has to recognise by text.
   static const _partiallyRefundedLabel = 'Djelomično vraćeno';
 
-  /// Grey when the appointment has no payment at all, green while it is fully
-  /// paid, orange once part of it has been refunded, red when it has been
-  /// refunded in full - `isPaid` is false again in that last case, matching the
-  /// backend's own `AppointmentDto.IsPaid` definition.
-  Color _paymentStatusColor(Appointment appointment) {
-    if (appointment.paymentStatus == null) return Colors.grey;
-    if (!appointment.isPaid) return Colors.red;
-    return appointment.paymentStatus == _partiallyRefundedLabel ? Colors.orange : Colors.green;
+  /// Neutral when the appointment has no payment at all, success while it is
+  /// fully paid, warning once part of it has been refunded, danger when it has
+  /// been refunded in full - `isPaid` is false again in that last case,
+  /// matching the backend's own `AppointmentDto.IsPaid` definition.
+  AppTone _paymentTone(Appointment appointment) {
+    if (appointment.paymentStatus == null) return AppTone.neutral;
+    if (!appointment.isPaid) return AppTone.danger;
+    return appointment.paymentStatus == _partiallyRefundedLabel ? AppTone.warning : AppTone.success;
   }
-
-  int get _totalPages => _count == 0 ? 1 : ((_count - 1) ~/ _pageSize) + 1;
 
   @override
   Widget build(BuildContext context) {
@@ -362,210 +375,199 @@ class _AppointmentScreenState extends State<AppointmentScreen> {
     final canSchedule = authSession.hasRole(Roles.administrator) || authSession.hasRole(Roles.staff);
 
     return Padding(
-      padding: const EdgeInsets.all(16),
+      padding: AppSpacing.page,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Row(
-            children: [
-              Expanded(child: Text('Termini', style: Theme.of(context).textTheme.titleLarge)),
+          AppToolbar(
+            title: 'Termini',
+            subtitle: 'Zakazivanje, potvrda i naplata termina.',
+            actions: [
               if (canSchedule)
                 FilledButton.icon(
                   onPressed: _openScheduleDialog,
-                  icon: const Icon(Icons.add),
+                  icon: const Icon(Icons.add_rounded, size: 18),
                   label: const Text('Novi termin'),
                 ),
             ],
           ),
-          const SizedBox(height: 12),
-          Wrap(
-            spacing: 12,
-            runSpacing: 12,
-            children: [
-              SizedBox(
-                width: 220,
-                child: DropdownButtonFormField<int?>(
-                  initialValue: _filterPatientId,
-                  decoration: const InputDecoration(labelText: 'Pacijent', isDense: true),
-                  items: [
-                    const DropdownMenuItem(value: null, child: Text('Svi pacijenti')),
-                    ..._patients.map((p) => DropdownMenuItem(value: p.id, child: Text(p.fullName))),
-                  ],
-                  onChanged: (value) {
-                    _filterPatientId = value;
-                    _resetPageAndLoad();
-                  },
-                ),
-              ),
-              SizedBox(
-                width: 220,
-                child: DropdownButtonFormField<int?>(
-                  initialValue: _filterDoctorId,
-                  decoration: const InputDecoration(labelText: 'Doktor', isDense: true),
-                  itemHeight: null, // items are two lines (name + clinic)
-                  items: [
-                    const DropdownMenuItem(value: null, child: Text('Svi doktori')),
-                    ..._doctors.map((d) => DropdownMenuItem(
-                          value: d.id,
-                          child: Padding(
-                            padding: const EdgeInsets.symmetric(vertical: 4),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Text(d.fullName),
-                                Text(d.locationName, style: TextStyle(fontSize: 12, color: clinicColor(d.locationId, Theme.of(context).brightness))),
-                              ],
-                            ),
-                          ),
-                        )),
-                  ],
-                  onChanged: (value) {
-                    _filterDoctorId = value;
-                    _resetPageAndLoad();
-                  },
-                ),
-              ),
-              SizedBox(
-                width: 180,
-                child: DropdownButtonFormField<int?>(
-                  initialValue: _filterStatus,
-                  decoration: const InputDecoration(labelText: 'Status', isDense: true),
-                  items: [
-                    const DropdownMenuItem(value: null, child: Text('Svi statusi')),
-                    ..._statusOptions.map((s) => DropdownMenuItem(value: s.$1, child: Text(s.$2))),
-                  ],
-                  onChanged: (value) {
-                    _filterStatus = value;
-                    _resetPageAndLoad();
-                  },
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          if (_error != null)
-            Padding(
-              padding: const EdgeInsets.only(bottom: 12),
-              child: Text(_error!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
-            ),
+          _filters(context),
+          const SizedBox(height: AppSpacing.md),
           Expanded(
-            child: _isLoading
-                ? const Center(child: CircularProgressIndicator())
-                : _appointments.isEmpty
-                    ? const Center(child: Text('Nema termina za prikaz.'))
-                    : SingleChildScrollView(
-                        child: SingleChildScrollView(
-                          scrollDirection: Axis.horizontal,
-                          child: DataTable(
-                            columns: const [
-                              DataColumn(label: Text('Datum i vrijeme')),
-                              DataColumn(label: Text('Pacijent')),
-                              DataColumn(label: Text('Doktor')),
-                              DataColumn(label: Text('Usluga')),
-                              DataColumn(label: Text('Lokacija')),
-                              DataColumn(label: Text('Status')),
-                              DataColumn(label: Text('Plaćanje')),
-                              DataColumn(label: Text('Akcije')),
-                            ],
-                            rows: _appointments.map((appointment) {
-                              return DataRow(cells: [
-                                DataCell(Text(_dateTimeFormat.format(appointment.startUtc))),
-                                DataCell(Text(appointment.patientName)),
-                                DataCell(Text(appointment.doctorName)),
-                                DataCell(Text(appointment.medicalServiceName)),
-                                DataCell(Text(appointment.locationName)),
-                                DataCell(Chip(
-                                  label: Text(
-                                    appointment.statusName,
-                                    style: TextStyle(color: _statusForegroundColor(context, appointment.status), fontSize: 12),
-                                  ),
-                                  backgroundColor: _statusColor(context, appointment.status),
-                                  visualDensity: VisualDensity.compact,
-                                  padding: EdgeInsets.zero,
-                                )),
-                                DataCell(Chip(
-                                  label: Text(
-                                    appointment.paymentStatus ?? 'Nije plaćeno',
-                                    style: const TextStyle(color: Colors.white, fontSize: 12),
-                                  ),
-                                  backgroundColor: _paymentStatusColor(appointment),
-                                  visualDensity: VisualDensity.compact,
-                                  padding: EdgeInsets.zero,
-                                )),
-                                DataCell(Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    if (appointment.canConfirm)
-                                      IconButton(
-                                        tooltip: 'Potvrdi',
-                                        icon: const Icon(Icons.check_circle_outline, color: Colors.blue),
-                                        onPressed: () => _confirm(appointment),
-                                      )
-                                    else
-                                      IconButton(
-                                        tooltip: 'Potvrda nije moguća u ovom statusu',
-                                        icon: const Icon(Icons.check_circle_outline),
-                                        color: Theme.of(context).disabledColor,
-                                        onPressed: null,
-                                      ),
-                                    if (appointment.canComplete)
-                                      IconButton(
-                                        tooltip: 'Završi',
-                                        icon: const Icon(Icons.task_alt, color: Colors.green),
-                                        onPressed: () => _complete(appointment),
-                                      )
-                                    else
-                                      IconButton(
-                                        tooltip: 'Završetak nije moguć u ovom statusu',
-                                        icon: const Icon(Icons.task_alt),
-                                        color: Theme.of(context).disabledColor,
-                                        onPressed: null,
-                                      ),
-                                    if (appointment.canCancel)
-                                      IconButton(
-                                        tooltip: 'Otkaži',
-                                        icon: const Icon(Icons.cancel_outlined, color: Colors.red),
-                                        onPressed: () => _cancel(appointment),
-                                      )
-                                    else
-                                      IconButton(
-                                        tooltip: 'Otkazivanje nije moguće u ovom statusu',
-                                        icon: const Icon(Icons.cancel_outlined),
-                                        color: Theme.of(context).disabledColor,
-                                        onPressed: null,
-                                      ),
-                                    if (appointment.canRefund)
-                                      IconButton(
-                                        tooltip: 'Povrat sredstava',
-                                        icon: const Icon(Icons.undo, color: Colors.orange),
-                                        onPressed: () => _refund(appointment),
-                                      ),
-                                  ],
-                                )),
-                              ]);
-                            }).toList(),
-                          ),
-                        ),
-                      ),
-          ),
-          const SizedBox(height: 8),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              IconButton(
-                icon: const Icon(Icons.chevron_left),
-                onPressed: _page > 1 ? () { setState(() => _page--); _load(); } : null,
-              ),
-              Text('Strana $_page od $_totalPages'),
-              IconButton(
-                icon: const Icon(Icons.chevron_right),
-                onPressed: _page < _totalPages ? () { setState(() => _page++); _load(); } : null,
-              ),
-            ],
+            child: AppDataTable<Appointment>(
+              rows: _appointments,
+              isLoading: _isLoading,
+              error: _error,
+              onRetry: _load,
+              emptyTitle: 'Nema termina',
+              emptyMessage: 'Nijedan termin ne odgovara odabranim filterima.',
+              actionsWidth: 160,
+              paging: AppTablePaging(page: _page - 1, pageSize: _pageSize, totalCount: _count),
+              onPageChanged: (zeroBased) {
+                setState(() => _page = zeroBased + 1);
+                _load();
+              },
+              columns: [
+                AppColumn(
+                  label: 'Datum i vrijeme',
+                  width: 160,
+                  numeric: true,
+                  cell: (context, a) => Text(_dateTimeFormat.format(a.startUtc)),
+                ),
+                AppColumn(
+                  label: 'Pacijent',
+                  flex: 2,
+                  cell: (context, a) => Text(a.patientName, overflow: TextOverflow.ellipsis),
+                ),
+                AppColumn(
+                  label: 'Doktor',
+                  flex: 2,
+                  cell: (context, a) => Text(a.doctorName, overflow: TextOverflow.ellipsis),
+                ),
+                AppColumn(
+                  label: 'Usluga',
+                  flex: 2,
+                  cell: (context, a) => Text(a.medicalServiceName, overflow: TextOverflow.ellipsis),
+                ),
+                AppColumn(
+                  label: 'Lokacija',
+                  cell: (context, a) => Text(a.locationName, overflow: TextOverflow.ellipsis),
+                ),
+                AppColumn(
+                  label: 'Status',
+                  width: 130,
+                  cell: (context, a) => AppStatusBadge(label: a.statusName, tone: _statusTone(a.status)),
+                ),
+                AppColumn(
+                  label: 'Plaćanje',
+                  width: 150,
+                  cell: (context, a) =>
+                      AppStatusBadge(label: a.paymentStatus ?? 'Nije plaćeno', tone: _paymentTone(a)),
+                ),
+              ],
+              // Rulebook §K: an action that is not currently legal stays visible
+              // but disabled, with a tooltip saying why - never silently absent.
+              rowActions: (context, a) => [
+                AppRowAction(
+                  icon: Icons.check_circle_outline,
+                  tooltip: a.canConfirm ? 'Potvrdi' : 'Potvrda nije moguća u ovom statusu',
+                  onPressed: a.canConfirm ? () => _confirm(a) : null,
+                ),
+                AppRowAction(
+                  icon: Icons.task_alt,
+                  tooltip: a.canComplete ? 'Završi' : 'Završetak nije moguć u ovom statusu',
+                  onPressed: a.canComplete ? () => _complete(a) : null,
+                ),
+                AppRowAction(
+                  icon: Icons.cancel_outlined,
+                  tooltip: a.canCancel ? 'Otkaži' : 'Otkazivanje nije moguće u ovom statusu',
+                  destructive: true,
+                  onPressed: a.canCancel ? () => _cancel(a) : null,
+                ),
+                if (a.canRefund)
+                  AppRowAction(
+                    icon: Icons.undo_rounded,
+                    tooltip: 'Povrat sredstava',
+                    onPressed: () => _refund(a),
+                  ),
+              ],
+            ),
           ),
         ],
       ),
+    );
+  }
+
+  /// Filter bar. Sits directly above the grid, matching every other list screen
+  /// in the app.
+  Widget _filters(BuildContext context) {
+    final c = context.colors;
+
+    return Wrap(
+      spacing: AppSpacing.xs,
+      runSpacing: AppSpacing.xs,
+      children: [
+        SizedBox(
+          width: 220,
+          child: DropdownButtonFormField<int?>(
+            initialValue: _filterPatientId,
+            decoration: const InputDecoration(isDense: true),
+            items: [
+              const DropdownMenuItem(value: null, child: Text('Svi pacijenti')),
+              ..._patients.map((p) => DropdownMenuItem(value: p.id, child: Text(p.fullName))),
+            ],
+            onChanged: (value) {
+              _filterPatientId = value;
+              _resetPageAndLoad();
+            },
+          ),
+        ),
+        SizedBox(
+          width: 240,
+          child: DropdownButtonFormField<int?>(
+            initialValue: _filterDoctorId,
+            decoration: const InputDecoration(isDense: true),
+            itemHeight: null, // items are two lines (name + clinic)
+            items: [
+              const DropdownMenuItem(value: null, child: Text('Svi doktori')),
+              ..._doctors.map(
+                (d) => DropdownMenuItem(
+                  value: d.id,
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: AppSpacing.xxs),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(d.fullName),
+                        Text(
+                          d.locationName,
+                          style: context.text.bodySmall?.copyWith(
+                            color: clinicColor(d.locationId, Theme.of(context).brightness),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ],
+            onChanged: (value) {
+              _filterDoctorId = value;
+              _resetPageAndLoad();
+            },
+          ),
+        ),
+        SizedBox(
+          width: 180,
+          child: DropdownButtonFormField<int?>(
+            initialValue: _filterStatus,
+            decoration: const InputDecoration(isDense: true),
+            items: [
+              const DropdownMenuItem(value: null, child: Text('Svi statusi')),
+              ..._statusOptions.map((s) => DropdownMenuItem(value: s.$1, child: Text(s.$2))),
+            ],
+            onChanged: (value) {
+              _filterStatus = value;
+              _resetPageAndLoad();
+            },
+          ),
+        ),
+        if (_filterPatientId != null || _filterDoctorId != null || _filterStatus != null)
+          SizedBox(
+            height: AppSizes.controlHeight,
+            child: TextButton.icon(
+              onPressed: () {
+                _filterPatientId = null;
+                _filterDoctorId = null;
+                _filterStatus = null;
+                _resetPageAndLoad();
+              },
+              icon: Icon(Icons.filter_alt_off_outlined, size: 16, color: c.textSecondary),
+              label: Text('Poništi filtere', style: context.text.labelMedium),
+            ),
+          ),
+      ],
     );
   }
 }

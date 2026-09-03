@@ -6,8 +6,12 @@ import 'package:provider/provider.dart';
 
 import '../../core/api_exception.dart';
 import '../../core/auth_session.dart';
+import '../../core/design_tokens.dart';
 import '../../models/medical_document.dart';
 import '../../providers/medical_document_provider.dart';
+import '../../widgets/ui/app_badge.dart';
+import '../../widgets/ui/app_states.dart';
+import '../../widgets/ui/app_tiles.dart';
 
 /// The patient's own medical documents (CLAUDE.md §6: "patient views/
 /// downloads own documents only"). Ownership is enforced server-side - this
@@ -66,38 +70,48 @@ class _MyDocumentsScreenState extends State<MyDocumentsScreen> {
     return Scaffold(
       appBar: AppBar(title: const Text('Moji dokumenti')),
       body: _error != null
-          ? Center(child: Text(_error!, style: TextStyle(color: Theme.of(context).colorScheme.error)))
+          ? Padding(
+              padding: const EdgeInsets.all(AppSpacing.md),
+              child: AppErrorState(message: _error!, onRetry: _load),
+            )
           : _documents == null
-              ? const Center(child: CircularProgressIndicator())
-              : _documents!.isEmpty
-                  ? const Center(child: Text('Nemate priloženih medicinskih dokumenata.'))
-                  : RefreshIndicator(
-                      onRefresh: _load,
-                      child: ListView.separated(
-                        padding: const EdgeInsets.all(12),
-                        itemCount: _documents!.length,
-                        separatorBuilder: (context, index) => const Divider(),
-                        itemBuilder: (context, index) {
-                          final document = _documents![index];
-                          return ListTile(
-                            leading: Icon(document.contentType == 'application/pdf'
-                                ? Icons.picture_as_pdf_outlined
-                                : Icons.image_outlined),
-                            title: Text(document.fileName),
-                            subtitle: Text(
-                              '${document.description ?? 'Bez opisa'}\n'
-                              '${_dateFormat.format(document.createdAtUtc.toLocal())}',
-                            ),
-                            isThreeLine: true,
-                            trailing: IconButton(
-                              tooltip: 'Preuzmi',
-                              icon: const Icon(Icons.download_outlined),
-                              onPressed: () => _download(document),
-                            ),
-                          );
-                        },
+          ? const Center(child: CircularProgressIndicator())
+          : _documents!.isEmpty
+          ? const Padding(
+              padding: EdgeInsets.all(AppSpacing.md),
+              child: AppEmptyState(
+                icon: Icons.folder_open_outlined,
+                title: 'Nemate dokumenata',
+                message: 'Nalazi i dokumenti koje klinika priloži uz vaš karton pojavit će se ovdje.',
+              ),
+            )
+          : RefreshIndicator(
+              onRefresh: _load,
+              child: ListView.separated(
+                padding: const EdgeInsets.all(AppSpacing.md),
+                itemCount: _documents!.length,
+                separatorBuilder: (context, index) => const SizedBox(height: AppSpacing.xs),
+                itemBuilder: (context, index) {
+                  final document = _documents![index];
+                  final isPdf = document.contentType == 'application/pdf';
+
+                  return AppListCard(
+                    icon: isPdf ? Icons.picture_as_pdf_outlined : Icons.image_outlined,
+                    tone: isPdf ? AppTone.danger : AppTone.info,
+                    title: document.fileName,
+                    subtitle: document.description ?? 'Bez opisa',
+                    meta: _dateFormat.format(document.createdAtUtc.toLocal()),
+                    actions: [
+                      IconButton(
+                        tooltip: 'Preuzmi',
+                        icon: const Icon(Icons.download_outlined),
+                        onPressed: () => _download(document),
                       ),
-                    ),
+                    ],
+                  );
+                },
+              ),
+            ),
     );
   }
 }

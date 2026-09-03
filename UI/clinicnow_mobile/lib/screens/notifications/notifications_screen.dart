@@ -4,8 +4,12 @@ import 'package:provider/provider.dart';
 
 import '../../core/api_exception.dart';
 import '../../core/auth_session.dart';
+import '../../core/design_tokens.dart';
 import '../../models/notification_item.dart';
 import '../../providers/notification_provider.dart';
+import '../../widgets/ui/app_badge.dart';
+import '../../widgets/ui/app_states.dart';
+import '../../widgets/ui/app_tiles.dart';
 
 /// The patient's own notifications - read/unread, mark-read, mark-all-read.
 /// Auto-refreshes via polling on entry/pull-to-refresh (rulebook Part II §G
@@ -60,38 +64,55 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         title: const Text('Obavijesti'),
         actions: [
           if (_items != null && _items!.any((n) => !n.isRead))
+            // No hardcoded colour: the app bar sits on `surface` now, so white
+            // text would be invisible. The theme's own action colour is correct
+            // in both light and dark.
             TextButton(
               onPressed: _markAllAsRead,
-              child: const Text('Označi sve', style: TextStyle(color: Colors.white)),
+              child: const Text('Označi sve'),
             ),
+          const SizedBox(width: AppSpacing.xs),
         ],
       ),
       body: _error != null
-          ? Center(child: Text(_error!, style: TextStyle(color: Theme.of(context).colorScheme.error)))
+          ? Padding(
+              padding: const EdgeInsets.all(AppSpacing.md),
+              child: AppErrorState(message: _error!, onRetry: _load),
+            )
           : _items == null
-              ? const Center(child: CircularProgressIndicator())
-              : _items!.isEmpty
-                  ? const Center(child: Text('Nemate obavijesti.'))
-                  : RefreshIndicator(
-                      onRefresh: _load,
-                      child: ListView.separated(
-                        itemCount: _items!.length,
-                        separatorBuilder: (context, index) => const Divider(height: 1),
-                        itemBuilder: (context, index) {
-                          final item = _items![index];
-                          return ListTile(
-                            leading: Icon(
-                              item.isRead ? Icons.mail_outline : Icons.mark_email_unread,
-                              color: item.isRead ? null : Theme.of(context).colorScheme.primary,
-                            ),
-                            title: Text(item.title, style: TextStyle(fontWeight: item.isRead ? FontWeight.normal : FontWeight.bold)),
-                            subtitle: Text('${item.text}\n${_dateFormat.format(item.createdAtUtc.toLocal())}'),
-                            isThreeLine: true,
-                            onTap: () => _markAsRead(item),
-                          );
-                        },
-                      ),
-                    ),
+          ? const Center(child: CircularProgressIndicator())
+          : _items!.isEmpty
+          ? const Padding(
+              padding: EdgeInsets.all(AppSpacing.md),
+              child: AppEmptyState(
+                icon: Icons.notifications_none_rounded,
+                title: 'Nemate obavijesti',
+                message: 'Obavijesti o vašim terminima i uplatama pojavit će se ovdje.',
+              ),
+            )
+          : RefreshIndicator(
+              onRefresh: _load,
+              child: ListView.separated(
+                padding: const EdgeInsets.all(AppSpacing.md),
+                itemCount: _items!.length,
+                separatorBuilder: (context, index) => const SizedBox(height: AppSpacing.xs),
+                itemBuilder: (context, index) {
+                  final item = _items![index];
+
+                  return AppListCard(
+                    icon: item.isRead ? Icons.mail_outline : Icons.mark_email_unread_rounded,
+                    tone: item.isRead ? AppTone.neutral : AppTone.primary,
+                    // An unread notification is tinted rather than just bolded -
+                    // weight alone is easy to miss in a long list.
+                    highlighted: !item.isRead,
+                    title: item.title,
+                    subtitle: item.text,
+                    meta: _dateFormat.format(item.createdAtUtc.toLocal()),
+                    onTap: () => _markAsRead(item),
+                  );
+                },
+              ),
+            ),
     );
   }
 }

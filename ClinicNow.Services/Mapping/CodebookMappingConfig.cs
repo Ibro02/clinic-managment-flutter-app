@@ -17,5 +17,8 @@ public class CodebookMappingConfig : IRegister
     {
         config.NewConfig<Location, LocationDto>()
             .Map(dest => dest.CityName, src => src.City != null ? src.City.Name : string.Empty);
+
+        config.NewConfig<MedicalService, MedicalServiceDto>()
+            .Map(dest => dest.SpecializationName, src => src.Specialization != null ? src.Specialization.Name : string.Empty);
     }
 }

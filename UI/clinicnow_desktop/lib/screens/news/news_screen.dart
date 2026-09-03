@@ -9,7 +9,10 @@ import '../../core/auth_session.dart';
 import '../../core/roles.dart';
 import '../../models/news_item.dart';
 import '../../providers/news_item_provider.dart';
+import '../../core/design_tokens.dart';
 import '../../widgets/paged_codebook_table.dart';
+import '../../widgets/ui/app_data_table.dart';
+import '../../widgets/ui/app_dialog.dart';
 
 /// Administrator/Staff CRUD for news/announcements (rulebook Part II §G). The
 /// seeded demo data already includes real images (see migration
@@ -39,46 +42,16 @@ class _NewsScreenState extends State<NewsScreen> {
     var isSubmitting = false;
     Map<String, List<String>> fieldErrors = {};
 
-    await showDialog<void>(
+    await showAppDialog<void>(
       context: context,
       builder: (dialogContext) => StatefulBuilder(
-        builder: (dialogContext, setDialogState) => AlertDialog(
-          title: Text(initial == null ? 'Nova obavijest' : 'Uredi obavijest'),
-          content: SizedBox(
-            width: 480,
-            child: FormBuilder(
-              key: formKey,
-              initialValue: {
-                'title': initial?.title ?? '',
-                'text': initial?.text ?? '',
-              },
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  FormBuilderTextField(
-                    name: 'title',
-                    decoration: InputDecoration(
-                      labelText: 'Naslov',
-                      errorText: fieldErrors['title']?.first,
-                    ),
-                    validator: FormBuilderValidators.required(errorText: 'Naslov je obavezan.'),
-                  ),
-                  const SizedBox(height: 12),
-                  FormBuilderTextField(
-                    name: 'text',
-                    maxLines: 4,
-                    decoration: InputDecoration(
-                      labelText: 'Tekst',
-                      errorText: fieldErrors['text']?.first,
-                    ),
-                    validator: FormBuilderValidators.required(errorText: 'Tekst je obavezan.'),
-                  ),
-                ],
-              ),
-            ),
-          ),
+        builder: (dialogContext, setDialogState) => AppDialog(
+          title: initial == null ? 'Nova obavijest' : 'Uredi obavijest',
+          subtitle: 'Obavijest je odmah vidljiva pacijentima u mobilnoj aplikaciji.',
+          icon: Icons.campaign_outlined,
+          width: 560,
           actions: [
-            TextButton(
+            OutlinedButton(
               onPressed: isSubmitting ? null : () => Navigator.of(dialogContext).pop(),
               child: const Text('Odustani'),
             ),
@@ -92,10 +65,7 @@ class _NewsScreenState extends State<NewsScreen> {
                         isSubmitting = true;
                         fieldErrors = {};
                       });
-                      final request = {
-                        'title': form.value['title'],
-                        'text': form.value['text'],
-                      };
+                      final request = {'title': form.value['title'], 'text': form.value['text']};
                       try {
                         if (initial == null) {
                           await _provider.insert(request);
@@ -115,6 +85,39 @@ class _NewsScreenState extends State<NewsScreen> {
                   : const Text('Sačuvaj'),
             ),
           ],
+          child: FormBuilder(
+            key: formKey,
+            initialValue: {'title': initial?.title ?? '', 'text': initial?.text ?? ''},
+            child: AppFormSection(
+              children: [
+                AppField(
+                  label: 'Naslov',
+                  required: true,
+                  child: FormBuilderTextField(
+                    name: 'title',
+                    decoration: InputDecoration(
+                      hintText: 'Kratak, jasan naslov',
+                      errorText: fieldErrors['title']?.first,
+                    ),
+                    validator: FormBuilderValidators.required(errorText: 'Naslov je obavezan.'),
+                  ),
+                ),
+                AppField(
+                  label: 'Tekst',
+                  required: true,
+                  child: FormBuilderTextField(
+                    name: 'text',
+                    maxLines: 6,
+                    decoration: InputDecoration(
+                      hintText: 'Sadržaj obavijesti',
+                      errorText: fieldErrors['text']?.first,
+                    ),
+                    validator: FormBuilderValidators.required(errorText: 'Tekst je obavezan.'),
+                  ),
+                ),
+              ],
+            ),
+          ),
         ),
       ),
     );
@@ -124,7 +127,8 @@ class _NewsScreenState extends State<NewsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final canWrite = context.watch<AuthSession>().hasRole(Roles.administrator) ||
+    final canWrite =
+        context.watch<AuthSession>().hasRole(Roles.administrator) ||
         context.watch<AuthSession>().hasRole(Roles.staff);
 
     return PagedCodebookTable<NewsItem>(
@@ -134,33 +138,54 @@ class _NewsScreenState extends State<NewsScreen> {
       provider: _provider,
       orderBy: 'Title',
       canWrite: canWrite,
-      buildColumns: () => const [
-        DataColumn(label: Text('Slika')),
-        DataColumn(label: Text('Naslov')),
-        DataColumn(label: Text('Datum')),
-      ],
-      buildCells: (item) => [
-        DataCell(
-          item.hasImage
-              ? ClipRRect(
-                  borderRadius: BorderRadius.circular(4),
-                  child: Image.network(
-                    _provider.absoluteImageUrl(item)!,
-                    width: 40,
-                    height: 40,
-                    fit: BoxFit.cover,
-                    errorBuilder: (context, error, stackTrace) => const Icon(Icons.broken_image_outlined),
-                  ),
-                )
-              : const Icon(Icons.image_not_supported_outlined),
+      buildColumns: () => [
+        // Rulebook §K: the entity's image sits next to its name in the list.
+        AppColumn(label: 'Slika', width: 72, cell: (context, item) => _thumbnail(context, item)),
+        AppColumn(label: 'Naslov', sortKey: 'Title', flex: 3, cell: (context, item) => Text(item.title)),
+        AppColumn(
+          label: 'Datum',
+          width: 130,
+          numeric: true,
+          cell: (context, item) => Text(_dateFormat.format(item.createdAtUtc.toLocal())),
         ),
-        DataCell(Text(item.title)),
-        DataCell(Text(_dateFormat.format(item.createdAtUtc.toLocal()))),
       ],
       onAdd: () => _openForm(),
       onEdit: (item) => _openForm(initial: item),
       onDelete: (item) => _provider.delete(item.id),
       itemLabel: (item) => item.title,
+      addLabel: 'Nova obavijest',
+    );
+  }
+
+  /// Row thumbnail. A news item with no image still occupies the column, so
+  /// rows never jog left and right as the list scrolls past items that happen
+  /// to have a picture.
+  Widget _thumbnail(BuildContext context, NewsItem item) {
+    final c = context.colors;
+
+    Widget placeholder(IconData icon) => Container(
+      width: 44,
+      height: 44,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        color: c.surfaceMuted,
+        borderRadius: AppRadius.all(AppRadius.sm),
+        border: Border.all(color: c.border),
+      ),
+      child: Icon(icon, size: 18, color: c.textMuted),
+    );
+
+    if (!item.hasImage) return placeholder(Icons.image_not_supported_outlined);
+
+    return ClipRRect(
+      borderRadius: AppRadius.all(AppRadius.sm),
+      child: Image.network(
+        _provider.absoluteImageUrl(item)!,
+        width: 44,
+        height: 44,
+        fit: BoxFit.cover,
+        errorBuilder: (context, error, stackTrace) => placeholder(Icons.broken_image_outlined),
+      ),
     );
   }
 }

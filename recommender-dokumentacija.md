@@ -64,8 +64,8 @@ prosječnu ocjenu, a zatim je ignorisati).
 | Vrsta pregleda | `Appointment.MedicalServiceId → MedicalService` | pri kreiranju termina | sadržajna karakteristika (feature) |
 | Doktor | `Appointment.DoctorId → Doctor` | pri kreiranju termina | sadržajna karakteristika (feature) |
 | Specijalizacija | `Doctor` ↔ `Specialization` (M:N) | referentni podatak | sadržajna karakteristika (feature) |
-| Dan u sedmici | izvedeno iz `Appointment.DateTimeUtc` (UTC) | pri kreiranju termina | vremenski obrazac (feature) |
-| Doba dana | izvedeno iz `Appointment.DateTimeUtc` (UTC) | pri kreiranju termina | vremenski obrazac (feature) |
+| Dan u sedmici | izvedeno iz `Appointment.DateTimeUtc`, projektovano u lokalno vrijeme klinike | pri kreiranju termina | vremenski obrazac (feature) |
+| Doba dana | izvedeno iz `Appointment.DateTimeUtc`, projektovano u lokalno vrijeme klinike | pri kreiranju termina | vremenski obrazac (feature) |
 | Interakcije (pregledi/pretrage) | `RecommenderInteraction` | pri pregledu doktora/usluge i pretrazi | pojačanje (*boost*) profila |
 
 Tabela **`RecommenderInteraction`** (`UserId`, `InteractionType`, `DoctorId?`, `MedicalServiceId?`,
@@ -76,8 +76,14 @@ doktora ili usluge, pretraga). Time se osigurava da su ulazni podaci recommender
 > `MedicalService`, ...) su na engleskom jer je programski kod pisan na engleskom
 > (vidi CLAUDE.md "Language"); ostatak teksta ostaje na bosanskom jeziku.
 
-> Sva vremena čuvaju se u **UTC** (`DateTime.UtcNow`); izvođenje dana u sedmici i doba dana radi se
-> nad UTC vrijednostima kako bi rezultat bio konzistentan i u Docker okruženju.
+> Sva vremena **čuvaju se** u **UTC** (`DateTime.UtcNow`), ali se dan u sedmici i doba dana izvode
+> nad **lokalnim vremenom klinike** (`Europe/Sarajevo`), preko centralne klase
+> `ClinicNow.Model.Common.ClinicTimeZone`. Razlog: pacijentova navika "ponedjeljkom ujutro" odnosi
+> se na sat koji pokazuje sat u ordinaciji — termin u 08:00 po Sarajevu je ljeti 06:00 UTC, pa bi
+> izvođenje nad sirovim UTC vrijednostima pomjeralo granice kategorija za jedan sat dva puta
+> godišnje, a termin poslije 22:00 lokalno svrstavalo u pogrešan dan u sedmici. Rezultat i dalje ne
+> zavisi od vremenske zone servera/Docker kontejnera, jer je zona klinike fiksna, a ne preuzeta sa
+> mašine.
 
 ---
 

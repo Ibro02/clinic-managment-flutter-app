@@ -8,6 +8,8 @@ import '../../core/auth_session.dart';
 import '../../models/city.dart';
 import '../../providers/city_provider.dart';
 import '../../widgets/paged_codebook_table.dart';
+import '../../widgets/ui/app_data_table.dart';
+import '../../widgets/ui/app_dialog.dart';
 
 class CityScreen extends StatefulWidget {
   const CityScreen({super.key});
@@ -31,28 +33,16 @@ class _CityScreenState extends State<CityScreen> {
     var isSubmitting = false;
     Map<String, List<String>> fieldErrors = {};
 
-    await showDialog<void>(
+    await showAppDialog<void>(
       context: context,
       builder: (dialogContext) => StatefulBuilder(
-        builder: (dialogContext, setDialogState) => AlertDialog(
-          title: Text(initial == null ? 'Novi grad' : 'Uredi grad'),
-          content: SizedBox(
-            width: 400,
-            child: FormBuilder(
-              key: formKey,
-              initialValue: {'name': initial?.name ?? ''},
-              child: FormBuilderTextField(
-                name: 'name',
-                decoration: InputDecoration(
-                  labelText: 'Naziv',
-                  errorText: fieldErrors['name']?.first,
-                ),
-                validator: FormBuilderValidators.required(errorText: 'Naziv je obavezan.'),
-              ),
-            ),
-          ),
+        builder: (dialogContext, setDialogState) => AppDialog(
+          title: initial == null ? 'Novi grad' : 'Uredi grad',
+          subtitle: 'Gradovi se koriste pri unosu lokacija klinika.',
+          icon: Icons.location_city_outlined,
+          width: 460,
           actions: [
-            TextButton(
+            OutlinedButton(
               onPressed: isSubmitting ? null : () => Navigator.of(dialogContext).pop(),
               child: const Text('Odustani'),
             ),
@@ -86,6 +76,19 @@ class _CityScreenState extends State<CityScreen> {
                   : const Text('Sačuvaj'),
             ),
           ],
+          child: FormBuilder(
+            key: formKey,
+            initialValue: {'name': initial?.name ?? ''},
+            child: AppField(
+              label: 'Naziv',
+              required: true,
+              child: FormBuilderTextField(
+                name: 'name',
+                decoration: InputDecoration(hintText: 'npr. Sarajevo', errorText: fieldErrors['name']?.first),
+                validator: FormBuilderValidators.required(errorText: 'Naziv je obavezan.'),
+              ),
+            ),
+          ),
         ),
       ),
     );
@@ -100,8 +103,9 @@ class _CityScreenState extends State<CityScreen> {
       title: 'Gradovi',
       searchHint: 'Pretraga po nazivu',
       provider: _provider,
-      buildColumns: () => const [DataColumn(label: Text('Naziv'))],
-      buildCells: (city) => [DataCell(Text(city.name))],
+      buildColumns: () => [
+        AppColumn(label: 'Naziv', sortKey: 'Name', cell: (context, city) => Text(city.name)),
+      ],
       onAdd: () => _openForm(),
       onEdit: (city) => _openForm(initial: city),
       onDelete: (city) => _provider.delete(city.id),

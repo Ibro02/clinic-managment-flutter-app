@@ -6,7 +6,12 @@ import '../../core/api_exception.dart';
 import '../../core/auth_session.dart';
 import '../../models/appointment.dart';
 import '../../providers/appointment_provider.dart';
+import '../../core/design_tokens.dart';
 import '../../providers/payment_provider.dart';
+import '../../widgets/ui/app_badge.dart';
+import '../../widgets/ui/app_card.dart';
+import '../../widgets/ui/app_dialog.dart';
+import '../../widgets/ui/app_states.dart';
 import '../payments/payment_webview_screen.dart';
 
 /// Detail view of a single appointment, with the Cancel action - only shown
@@ -39,50 +44,38 @@ class _AppointmentDetailScreenState extends State<AppointmentDetailScreen> {
     _paymentProvider = PaymentProvider(context.read<AuthSession>());
   }
 
-  Color _statusColor(BuildContext context, int status) => switch (status) {
-        0 => Colors.orange,
-        1 => Theme.of(context).colorScheme.tertiary,
-        2 => Colors.green,
-        3 => Colors.red,
-        _ => Colors.grey,
-      };
-
-  // Status 1 (Confirmed) uses colorScheme.tertiary as its background, which is
-  // a pale tone in dark mode - white text on it is illegible, so it needs
-  // onTertiary instead. Every other status is a fixed Material mid-tone that
-  // stays legible with white text in both themes.
-  Color _statusForegroundColor(BuildContext context, int status) =>
-      status == 1 ? Theme.of(context).colorScheme.onTertiary : Colors.white;
+  /// Status as a semantic tone - the same mapping the list screen and the
+  /// desktop app use, so one appointment never reads as two different things.
+  AppTone _statusTone(int status) => switch (status) {
+    0 => AppTone.warning, // Na čekanju
+    1 => AppTone.info, // Potvrđen
+    2 => AppTone.success, // Završen
+    3 => AppTone.danger, // Otkazan
+    _ => AppTone.neutral,
+  };
 
   Future<void> _cancel() async {
     final reasonController = TextEditingController();
     String? reasonError;
 
-    final reason = await showDialog<String>(
+    final reason = await showAppDialog<String>(
       context: context,
       builder: (dialogContext) => StatefulBuilder(
-        builder: (dialogContext, setDialogState) => AlertDialog(
-          title: const Text('Otkazivanje termina'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text('Jeste li sigurni da želite otkazati ovaj termin?'),
-              const SizedBox(height: 16),
-              TextField(
-                controller: reasonController,
-                decoration: InputDecoration(labelText: 'Razlog otkazivanja', errorText: reasonError),
-                maxLines: 2,
-              ),
-            ],
-          ),
+        builder: (dialogContext, setDialogState) => AppDialog(
+          title: 'Otkazivanje termina',
+          subtitle: 'Jeste li sigurni da želite otkazati ovaj termin?',
+          icon: Icons.cancel_outlined,
+          tone: AppTone.danger,
           actions: [
-            TextButton(
+            OutlinedButton(
               onPressed: () => Navigator.of(dialogContext).pop(),
               child: const Text('Odustani'),
             ),
             FilledButton(
-              style: FilledButton.styleFrom(backgroundColor: Theme.of(context).colorScheme.error),
+              style: FilledButton.styleFrom(
+                backgroundColor: dialogContext.colors.danger,
+                foregroundColor: Colors.white,
+              ),
               onPressed: () {
                 if (reasonController.text.trim().isEmpty) {
                   setDialogState(() => reasonError = 'Razlog otkazivanja je obavezan.');
@@ -93,6 +86,15 @@ class _AppointmentDetailScreenState extends State<AppointmentDetailScreen> {
               child: const Text('Otkaži termin'),
             ),
           ],
+          child: AppField(
+            label: 'Razlog otkazivanja',
+            required: true,
+            child: TextField(
+              controller: reasonController,
+              decoration: InputDecoration(errorText: reasonError),
+              maxLines: 3,
+            ),
+          ),
         ),
       ),
     );
@@ -142,64 +144,69 @@ class _AppointmentDetailScreenState extends State<AppointmentDetailScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('Detalji termina')),
-      body: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Chip(
-              label: Text(
-                _appointment.statusName,
-                style: TextStyle(color: _statusForegroundColor(context, _appointment.status)),
-              ),
-              backgroundColor: _statusColor(context, _appointment.status),
-            ),
-            const SizedBox(height: 16),
-            _DetailRow(label: 'Datum i vrijeme', value: _dateTimeFormat.format(_appointment.startUtc)),
-            _DetailRow(label: 'Doktor', value: _appointment.doctorName),
-            _DetailRow(label: 'Usluga', value: _appointment.medicalServiceName),
-            _DetailRow(label: 'Lokacija', value: _appointment.locationName),
-            if (_appointment.cancellationReason != null)
-              _DetailRow(label: 'Razlog otkazivanja', value: _appointment.cancellationReason!),
-            const SizedBox(height: 8),
-            if (_appointment.isPaid)
-              Chip(
-                avatar: const Icon(Icons.check_circle, color: Colors.white, size: 18),
-                label: Text(_appointment.paymentStatus ?? 'Plaćeno', style: const TextStyle(color: Colors.white)),
-                backgroundColor: Colors.green,
-              )
-            else if (_appointment.status != 3) // never offer to pay a Cancelled appointment
-              FilledButton.icon(
-                onPressed: _isPaying ? null : _pay,
-                icon: _isPaying
-                    ? const SizedBox(height: 16, width: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                    : const Icon(Icons.payment),
-                label: const Text('Plati'),
-              ),
-            const SizedBox(height: 24),
-            if (_appointment.canCancel)
-              FilledButton.icon(
-                onPressed: _isCancelling ? null : _cancel,
-                style: FilledButton.styleFrom(backgroundColor: Theme.of(context).colorScheme.error),
-                icon: _isCancelling
-                    ? const SizedBox(height: 16, width: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                    : const Icon(Icons.cancel_outlined),
-                label: const Text('Otkaži termin'),
-              )
-            else
-              Padding(
-                padding: const EdgeInsets.symmetric(vertical: 8),
-                child: Text(
-                  _appointment.status == 3
-                      ? 'Termin je već otkazan.'
-                      : _appointment.status == 2
-                          ? 'Završen termin se ne može otkazati.'
-                          : 'Otkazivanje nije moguće manje od 48 sati prije termina.',
-                  style: TextStyle(color: Theme.of(context).colorScheme.error),
+      body: ListView(
+        padding: const EdgeInsets.all(AppSpacing.md),
+        children: [
+          AppCard(
+            padding: const EdgeInsets.all(AppSpacing.md),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                AppStatusBadge(
+                  label: _appointment.statusName,
+                  tone: _statusTone(_appointment.status),
                 ),
+                const SizedBox(height: AppSpacing.md),
+                _DetailRow(label: 'Datum i vrijeme', value: _dateTimeFormat.format(_appointment.startUtc)),
+                _DetailRow(label: 'Doktor', value: _appointment.doctorName),
+                _DetailRow(label: 'Usluga', value: _appointment.medicalServiceName),
+                _DetailRow(label: 'Lokacija', value: _appointment.locationName),
+                if (_appointment.cancellationReason != null)
+                  _DetailRow(label: 'Razlog otkazivanja', value: _appointment.cancellationReason!),
+              ],
+            ),
+          ),
+          const SizedBox(height: AppSpacing.md),
+          // Rulebook §J: once paid, the UI states it plainly and the pay button
+          // is gone - never a second chance to pay the same thing twice.
+          if (_appointment.isPaid)
+            AppNotice(
+              tone: AppTone.success,
+              message: _appointment.paymentStatus ?? 'Plaćeno',
+            )
+          else if (_appointment.status != 3) // never offer to pay a Cancelled appointment
+            FilledButton.icon(
+              onPressed: _isPaying ? null : _pay,
+              icon: _isPaying
+                  ? const SizedBox(height: 16, width: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                  : const Icon(Icons.payment),
+              label: const Text('Plati'),
+            ),
+          const SizedBox(height: AppSpacing.lg),
+          // Rulebook §K: when cancelling isn't allowed, say why rather than
+          // hiding the control and leaving the patient guessing.
+          if (_appointment.canCancel)
+            FilledButton.icon(
+              onPressed: _isCancelling ? null : _cancel,
+              style: FilledButton.styleFrom(
+                backgroundColor: context.colors.danger,
+                foregroundColor: Colors.white,
               ),
-          ],
-        ),
+              icon: _isCancelling
+                  ? const SizedBox(height: 16, width: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                  : const Icon(Icons.cancel_outlined),
+              label: const Text('Otkaži termin'),
+            )
+          else
+            AppNotice(
+              tone: AppTone.neutral,
+              message: _appointment.status == 3
+                  ? 'Termin je već otkazan.'
+                  : _appointment.status == 2
+                  ? 'Završen termin se ne može otkazati.'
+                  : 'Otkazivanje nije moguće manje od 48 sati prije termina.',
+            ),
+        ],
       ),
     );
   }

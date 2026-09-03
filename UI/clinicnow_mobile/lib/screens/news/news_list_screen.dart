@@ -4,8 +4,11 @@ import 'package:provider/provider.dart';
 
 import '../../core/api_exception.dart';
 import '../../core/auth_session.dart';
+import '../../core/design_tokens.dart';
 import '../../models/news_item.dart';
 import '../../providers/news_item_provider.dart';
+import '../../widgets/ui/app_card.dart';
+import '../../widgets/ui/app_states.dart';
 
 /// News/announcements list - patient-facing "home" screen. Master-detail:
 /// tapping a card opens the full text + image (rulebook Part II §K).
@@ -43,72 +46,104 @@ class _NewsListScreenState extends State<NewsListScreen> {
   @override
   Widget build(BuildContext context) {
     if (_error != null) {
-      return Center(child: Text(_error!, style: TextStyle(color: Theme.of(context).colorScheme.error)));
+      return Padding(
+        padding: const EdgeInsets.all(AppSpacing.md),
+        child: AppErrorState(message: _error!, onRetry: _load),
+      );
     }
     if (_items == null) {
       return const Center(child: CircularProgressIndicator());
     }
     if (_items!.isEmpty) {
-      return const Center(child: Text('Trenutno nema obavijesti.'));
+      return const Padding(
+        padding: EdgeInsets.all(AppSpacing.md),
+        child: AppEmptyState(
+          icon: Icons.campaign_outlined,
+          title: 'Nema obavijesti',
+          message: 'Novosti iz klinike pojavit će se ovdje.',
+        ),
+      );
     }
+
+    final c = context.colors;
 
     return RefreshIndicator(
       onRefresh: _load,
-      child: ListView.builder(
-        padding: const EdgeInsets.all(12),
+      child: ListView.separated(
+        padding: const EdgeInsets.all(AppSpacing.md),
         itemCount: _items!.length,
+        separatorBuilder: (context, index) => const SizedBox(height: AppSpacing.xs),
         itemBuilder: (context, index) {
           final item = _items![index];
-          return Card(
-            margin: const EdgeInsets.only(bottom: 12),
-            child: InkWell(
-              onTap: () => Navigator.of(context).push(MaterialPageRoute(
-                builder: (_) => _NewsDetailScreen(item: item, provider: _provider),
-              )),
-              child: Padding(
-                padding: const EdgeInsets.all(12),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    if (item.hasImage)
-                      ClipRRect(
-                        borderRadius: BorderRadius.circular(6),
-                        child: Image.network(
-                          _provider.absoluteImageUrl(item)!,
-                          width: 64,
-                          height: 64,
-                          fit: BoxFit.cover,
-                          errorBuilder: (context, error, stackTrace) => const Icon(Icons.broken_image_outlined),
-                        ),
-                      )
-                    else
-                      const SizedBox(width: 64, height: 64, child: Icon(Icons.campaign_outlined)),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(item.title, style: Theme.of(context).textTheme.titleMedium),
-                          const SizedBox(height: 4),
-                          Text(
-                            item.text,
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            _dateFormat.format(item.createdAtUtc.toLocal()),
-                            style: Theme.of(context).textTheme.bodySmall,
-                          ),
-                        ],
+
+          return AppCard(
+            padding: const EdgeInsets.all(AppSpacing.sm + 2),
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => _NewsDetailScreen(item: item, provider: _provider)),
+            ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Rulebook §K: the entity's image sits beside its name in a list.
+                _thumbnail(context, item),
+                const SizedBox(width: AppSpacing.sm),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(item.title, style: context.text.titleSmall),
+                      const SizedBox(height: 3),
+                      Text(
+                        item.text,
+                        style: context.text.bodySmall?.copyWith(color: c.textSecondary),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
                       ),
-                    ),
-                  ],
+                      const SizedBox(height: 4),
+                      Text(
+                        _dateFormat.format(item.createdAtUtc.toLocal()),
+                        style: context.text.bodySmall?.copyWith(color: c.textMuted, fontSize: 12),
+                      ),
+                    ],
+                  ),
                 ),
-              ),
+              ],
             ),
           );
         },
+      ),
+    );
+  }
+
+  /// Row thumbnail. An item with no image still occupies the column, so rows
+  /// never jog left and right as the list scrolls past items that happen to
+  /// have a picture.
+  Widget _thumbnail(BuildContext context, NewsItem item) {
+    final c = context.colors;
+
+    Widget placeholder(IconData icon) => Container(
+      width: 56,
+      height: 56,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        color: c.surfaceMuted,
+        borderRadius: AppRadius.all(AppRadius.md),
+        border: Border.all(color: c.border),
+      ),
+      child: Icon(icon, size: 22, color: c.textMuted),
+    );
+
+    if (!item.hasImage) return placeholder(Icons.campaign_outlined);
+
+    return ClipRRect(
+      borderRadius: AppRadius.all(AppRadius.md),
+      child: Image.network(
+        _provider.absoluteImageUrl(item)!,
+        width: 56,
+        height: 56,
+        fit: BoxFit.cover,
+        errorBuilder: (context, error, stackTrace) => placeholder(Icons.broken_image_outlined),
       ),
     );
   }

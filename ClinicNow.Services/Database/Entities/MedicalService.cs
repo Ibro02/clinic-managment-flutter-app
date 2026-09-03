@@ -15,6 +15,16 @@ public class MedicalService
 
     public string? Description { get; set; }
 
+    /// <summary>
+    /// The specialization a doctor must hold to perform this service. Joined to
+    /// doctors through <see cref="DoctorSpecialization"/>, this is what makes
+    /// "can this doctor perform this service" answerable on the server instead of
+    /// being a UI-only convention (review item C2).
+    /// </summary>
+    public int SpecializationId { get; set; }
+
+    public Specialization Specialization { get; set; } = null!;
+
     public decimal Price { get; set; }
 
     public int DurationMinutes { get; set; }

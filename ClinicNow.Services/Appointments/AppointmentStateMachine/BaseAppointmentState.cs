@@ -58,6 +58,27 @@ public abstract class BaseAppointmentState
         $"Akcija '{action}' nije dozvoljena za termin u statusu '{status.ToDisplayName()}'.";
 
     /// <summary>
+    /// True once <paramref name="appointment"/>'s start time has passed. The one
+    /// definition of "has this appointment happened yet" (review item C9) -
+    /// Confirm requires it to be false, Complete requires it to be true, and
+    /// <c>AppointmentService.MapToDto</c> reads the same predicate to filter
+    /// <c>AllowedActions</c>, so the UI is never offered a button the server
+    /// would then reject.
+    /// </summary>
+    public static bool HasStarted(Appointment appointment) => DateTime.UtcNow >= appointment.StartUtc;
+
+    /// <summary>
+    /// True when fewer than 48 hours remain before <paramref name="appointment"/>
+    /// starts (or it has already started) - the patient-initiated cancellation
+    /// cutoff (rulebook §7). Shared between the hard check in
+    /// <see cref="ValidateAndApplyCancel"/> and the <c>AllowedActions</c>
+    /// filtering in <c>AppointmentService.MapToDto</c>, for the same reason as
+    /// <see cref="HasStarted"/>.
+    /// </summary>
+    public static bool IsWithinCancellationCutoff(Appointment appointment) =>
+        appointment.StartUtc - DateTime.UtcNow < TimeSpan.FromHours(48);
+
+    /// <summary>
     /// Shared cancellation logic (reason required, optional 48h cutoff) used by
     /// every non-terminal state's <c>CancelAsync</c> override - one place to get
     /// the business rule right instead of duplicating it per state.
@@ -69,7 +90,7 @@ public abstract class BaseAppointmentState
             throw new ValidationException("reason", "Razlog otkazivanja je obavezan.");
         }
 
-        if (enforceCutoff && appointment.StartUtc - DateTime.UtcNow < TimeSpan.FromHours(48))
+        if (enforceCutoff && IsWithinCancellationCutoff(appointment))
         {
             throw new BusinessException("Otkazivanje je moguće najkasnije 48 sati prije termina.");
         }

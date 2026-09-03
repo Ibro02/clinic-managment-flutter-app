@@ -10,7 +10,11 @@ import '../../core/roles.dart';
 import '../../models/gender.dart';
 import '../../models/patient.dart';
 import '../../providers/patient_provider.dart';
+import '../../core/design_tokens.dart';
 import '../../widgets/paged_codebook_table.dart';
+import '../../widgets/ui/app_badge.dart';
+import '../../widgets/ui/app_data_table.dart';
+import '../../widgets/ui/app_dialog.dart';
 import 'medical_record_screen.dart';
 import 'patient_documents_screen.dart';
 
@@ -37,99 +41,16 @@ class _PatientScreenState extends State<PatientScreen> {
     var isSubmitting = false;
     Map<String, List<String>> fieldErrors = {};
 
-    await showDialog<void>(
+    await showAppDialog<void>(
       context: context,
       builder: (dialogContext) => StatefulBuilder(
-        builder: (dialogContext, setDialogState) => AlertDialog(
-          title: Text(initial == null ? 'Novi pacijent' : 'Uredi pacijenta'),
-          content: SizedBox(
-            width: 460,
-            child: FormBuilder(
-              key: formKey,
-              initialValue: {
-                'firstName': initial?.firstName ?? '',
-                'lastName': initial?.lastName ?? '',
-                'personalIdNumber': initial?.personalIdNumber ?? '',
-                'dateOfBirth': initial?.dateOfBirth,
-                'gender': initial?.gender,
-                'phoneNumber': initial?.phoneNumber ?? '',
-                'email': initial?.email ?? '',
-                'address': initial?.address ?? '',
-              },
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Row(
-                    children: [
-                      Expanded(
-                        child: FormBuilderTextField(
-                          name: 'firstName',
-                          decoration: InputDecoration(labelText: 'Ime', errorText: fieldErrors['firstName']?.first),
-                          validator: FormBuilderValidators.required(errorText: 'Ime je obavezno.'),
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: FormBuilderTextField(
-                          name: 'lastName',
-                          decoration: InputDecoration(labelText: 'Prezime', errorText: fieldErrors['lastName']?.first),
-                          validator: FormBuilderValidators.required(errorText: 'Prezime je obavezno.'),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-                  FormBuilderTextField(
-                    name: 'personalIdNumber',
-                    decoration: InputDecoration(
-                      labelText: 'JMBG / ID broj (opcionalno)',
-                      errorText: fieldErrors['personalIdNumber']?.first,
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  FormBuilderDateTimePicker(
-                    name: 'dateOfBirth',
-                    inputType: InputType.date,
-                    format: _dateFormat,
-                    decoration: const InputDecoration(labelText: 'Datum rođenja (opcionalno)'),
-                    lastDate: DateTime.now(),
-                  ),
-                  const SizedBox(height: 12),
-                  FormBuilderDropdown<Gender>(
-                    name: 'gender',
-                    decoration: InputDecoration(labelText: 'Spol', errorText: fieldErrors['gender']?.first),
-                    validator: FormBuilderValidators.required(errorText: 'Spol je obavezan.'),
-                    items: Gender.values
-                        .map((g) => DropdownMenuItem(value: g, child: Text(g.label)))
-                        .toList(),
-                  ),
-                  const SizedBox(height: 12),
-                  FormBuilderTextField(
-                    name: 'phoneNumber',
-                    decoration: const InputDecoration(labelText: 'Broj telefona (opcionalno)'),
-                    keyboardType: TextInputType.phone,
-                  ),
-                  const SizedBox(height: 12),
-                  FormBuilderTextField(
-                    name: 'email',
-                    decoration: InputDecoration(
-                      labelText: 'Email (opcionalno)',
-                      errorText: fieldErrors['email']?.first,
-                    ),
-                    keyboardType: TextInputType.emailAddress,
-                    validator: FormBuilderValidators.email(errorText: 'Unesite ispravnu email adresu (npr. ime@domena.com).'),
-                  ),
-                  const SizedBox(height: 12),
-                  FormBuilderTextField(
-                    name: 'address',
-                    decoration: const InputDecoration(labelText: 'Adresa (opcionalno)'),
-                  ),
-                ],
-              ),
-            ),
-          ),
+        builder: (dialogContext, setDialogState) => AppDialog(
+          title: initial == null ? 'Novi pacijent' : 'Uredi pacijenta',
+          subtitle: 'Osnovni podaci pacijenta. Medicinski karton se vodi zasebno.',
+          icon: Icons.person_outline_rounded,
+          width: 620,
           actions: [
-            TextButton(
+            OutlinedButton(
               onPressed: isSubmitting ? null : () => Navigator.of(dialogContext).pop(),
               child: const Text('Odustani'),
             ),
@@ -183,6 +104,134 @@ class _PatientScreenState extends State<PatientScreen> {
                   : const Text('Sačuvaj'),
             ),
           ],
+          child: FormBuilder(
+            key: formKey,
+            initialValue: {
+              'firstName': initial?.firstName ?? '',
+              'lastName': initial?.lastName ?? '',
+              'personalIdNumber': initial?.personalIdNumber ?? '',
+              'dateOfBirth': initial?.dateOfBirth,
+              'gender': initial?.gender,
+              'phoneNumber': initial?.phoneNumber ?? '',
+              'email': initial?.email ?? '',
+              'address': initial?.address ?? '',
+            },
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                AppFormSection(
+                  label: 'Identitet',
+                  children: [
+                    AppFieldRow(
+                      children: [
+                        AppField(
+                          label: 'Ime',
+                          required: true,
+                          child: FormBuilderTextField(
+                            name: 'firstName',
+                            decoration: InputDecoration(errorText: fieldErrors['firstName']?.first),
+                            validator: FormBuilderValidators.required(errorText: 'Ime je obavezno.'),
+                          ),
+                        ),
+                        AppField(
+                          label: 'Prezime',
+                          required: true,
+                          child: FormBuilderTextField(
+                            name: 'lastName',
+                            decoration: InputDecoration(errorText: fieldErrors['lastName']?.first),
+                            validator: FormBuilderValidators.required(errorText: 'Prezime je obavezno.'),
+                          ),
+                        ),
+                      ],
+                    ),
+                    AppFieldRow(
+                      children: [
+                        AppField(
+                          label: 'JMBG / ID broj',
+                          help: 'Opcionalno.',
+                          child: FormBuilderTextField(
+                            name: 'personalIdNumber',
+                            decoration: InputDecoration(
+                              hintText: '13 cifara',
+                              errorText: fieldErrors['personalIdNumber']?.first,
+                            ),
+                          ),
+                        ),
+                        AppField(
+                          label: 'Spol',
+                          required: true,
+                          child: FormBuilderDropdown<Gender>(
+                            name: 'gender',
+                            decoration: InputDecoration(
+                              hintText: 'Odaberite',
+                              errorText: fieldErrors['gender']?.first,
+                            ),
+                            validator: FormBuilderValidators.required(errorText: 'Spol je obavezan.'),
+                            items: Gender.values
+                                .map((g) => DropdownMenuItem(value: g, child: Text(g.label)))
+                                .toList(),
+                          ),
+                        ),
+                      ],
+                    ),
+                    AppField(
+                      label: 'Datum rođenja',
+                      help: 'Opcionalno.',
+                      child: FormBuilderDateTimePicker(
+                        name: 'dateOfBirth',
+                        inputType: InputType.date,
+                        format: _dateFormat,
+                        decoration: const InputDecoration(hintText: 'Odaberite datum'),
+                        lastDate: DateTime.now(),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: AppSpacing.lg),
+                AppFormSection(
+                  label: 'Kontakt',
+                  children: [
+                    AppFieldRow(
+                      children: [
+                        AppField(
+                          label: 'Broj telefona',
+                          help: 'Opcionalno.',
+                          child: FormBuilderTextField(
+                            name: 'phoneNumber',
+                            decoration: const InputDecoration(hintText: '+387 …'),
+                            keyboardType: TextInputType.phone,
+                          ),
+                        ),
+                        AppField(
+                          label: 'Email',
+                          help: 'Opcionalno.',
+                          child: FormBuilderTextField(
+                            name: 'email',
+                            decoration: InputDecoration(
+                              hintText: 'ime@domena.com',
+                              errorText: fieldErrors['email']?.first,
+                            ),
+                            keyboardType: TextInputType.emailAddress,
+                            validator: FormBuilderValidators.email(
+                              errorText: 'Unesite ispravnu email adresu (npr. ime@domena.com).',
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    AppField(
+                      label: 'Adresa',
+                      help: 'Opcionalno.',
+                      child: FormBuilderTextField(
+                        name: 'address',
+                        decoration: const InputDecoration(hintText: 'Ulica i broj, grad'),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
         ),
       ),
     );
@@ -202,38 +251,60 @@ class _PatientScreenState extends State<PatientScreen> {
       provider: _provider,
       orderBy: 'LastName',
       canWrite: canWrite,
-      buildColumns: () => const [
-        DataColumn(label: Text('Ime i prezime')),
-        DataColumn(label: Text('JMBG / ID')),
-        DataColumn(label: Text('Datum rođenja')),
-        DataColumn(label: Text('Telefon')),
-      ],
-      buildCells: (patient) => [
-        DataCell(Text(patient.fullName)),
-        DataCell(Text(patient.personalIdNumber ?? '—')),
-        DataCell(Text(patient.dateOfBirth == null ? '—' : _dateFormat.format(patient.dateOfBirth!))),
-        DataCell(Text(patient.phoneNumber ?? '—')),
-      ],
-      extraRowActions: (patient) => [
-        IconButton(
-          tooltip: 'Medicinski karton',
-          icon: const Icon(Icons.folder_shared_outlined),
-          onPressed: () => Navigator.of(context).push(
-            MaterialPageRoute(builder: (_) => MedicalRecordScreen(patient: patient)),
+      buildColumns: () => [
+        AppColumn(
+          label: 'Ime i prezime',
+          sortKey: 'LastName',
+          flex: 2,
+          cell: (context, patient) => Row(
+            children: [
+              AppAvatar(name: patient.fullName, size: 30),
+              const SizedBox(width: AppSpacing.xs),
+              Expanded(child: Text(patient.fullName, overflow: TextOverflow.ellipsis)),
+            ],
           ),
         ),
-        IconButton(
+        AppColumn(
+          label: 'JMBG / ID',
+          width: 150,
+          numeric: true,
+          cell: (context, patient) => Text(patient.personalIdNumber ?? '—'),
+        ),
+        AppColumn(
+          label: 'Datum rođenja',
+          width: 140,
+          numeric: true,
+          cell: (context, patient) =>
+              Text(patient.dateOfBirth == null ? '—' : _dateFormat.format(patient.dateOfBirth!)),
+        ),
+        AppColumn(
+          label: 'Telefon',
+          width: 150,
+          numeric: true,
+          cell: (context, patient) => Text(patient.phoneNumber ?? '—'),
+        ),
+      ],
+      extraRowActions: (patient) => [
+        AppRowAction(
+          icon: Icons.folder_shared_outlined,
+          tooltip: 'Medicinski karton',
+          onPressed: () => Navigator.of(
+            context,
+          ).push(MaterialPageRoute(builder: (_) => MedicalRecordScreen(patient: patient))),
+        ),
+        AppRowAction(
+          icon: Icons.folder_outlined,
           tooltip: 'Dokumenti',
-          icon: const Icon(Icons.folder_outlined),
-          onPressed: () => Navigator.of(context).push(
-            MaterialPageRoute(builder: (_) => PatientDocumentsScreen(patient: patient)),
-          ),
+          onPressed: () => Navigator.of(
+            context,
+          ).push(MaterialPageRoute(builder: (_) => PatientDocumentsScreen(patient: patient))),
         ),
       ],
       onAdd: () => _openForm(),
       onEdit: (patient) => _openForm(initial: patient),
       onDelete: (patient) => _provider.delete(patient.id),
       itemLabel: (patient) => patient.fullName,
+      addLabel: 'Dodaj pacijenta',
     );
   }
 }

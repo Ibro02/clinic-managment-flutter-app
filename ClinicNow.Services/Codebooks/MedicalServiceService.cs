@@ -25,27 +25,61 @@ public class MedicalServiceService
 
     protected override IQueryable<DbMedicalService> ApplyFilter(MedicalServiceSearchObject search, IQueryable<DbMedicalService> query)
     {
+        // Needed for MedicalServiceDto.SpecializationName (CodebookMappingConfig).
+        query = query.Include(s => s.Specialization);
+
         if (!string.IsNullOrWhiteSpace(search.Name))
         {
             query = query.Where(s => s.Name.Contains(search.Name));
         }
 
+        if (search.SpecializationId.HasValue)
+        {
+            query = query.Where(s => s.SpecializationId == search.SpecializationId.Value);
+        }
+
+        // "Which services can this doctor perform" - the booking screens filter on
+        // this so the dropdown offers exactly what the server would accept
+        // (review item C2). Expressed as a subquery, not an in-memory join.
+        if (search.DoctorId.HasValue)
+        {
+            query = query.Where(s => Context.DoctorSpecializations
+                .Any(ds => ds.DoctorId == search.DoctorId.Value && ds.SpecializationId == s.SpecializationId));
+        }
+
         return query;
+    }
+
+    public override async Task<MedicalServiceDto?> GetByIdAsync(int id, CancellationToken cancellationToken = default)
+    {
+        var entity = await Context.MedicalServices
+            .Include(s => s.Specialization)
+            .SingleOrDefaultAsync(s => s.Id == id, cancellationToken);
+
+        return entity is null ? null : Mapper.Map<MedicalServiceDto>(entity);
     }
 
     protected override async Task BeforeInsertAsync(MedicalServiceInsertRequest request, DbMedicalService entity, CancellationToken cancellationToken)
     {
         Validate(request.Name, request.Price, request.DurationMinutes);
         await EnsureNameIsUniqueAsync(request.Name.Trim(), excludeId: null, cancellationToken);
+        await EnsureSpecializationExistsAsync(request.SpecializationId, cancellationToken);
         entity.Name = request.Name.Trim();
     }
+
+    protected override async Task AfterInsertAsync(MedicalServiceInsertRequest request, DbMedicalService entity, CancellationToken cancellationToken) =>
+        await Context.Entry(entity).Reference(s => s.Specialization).LoadAsync(cancellationToken);
 
     protected override async Task BeforeUpdateAsync(MedicalServiceUpdateRequest request, DbMedicalService entity, CancellationToken cancellationToken)
     {
         Validate(request.Name, request.Price, request.DurationMinutes);
         await EnsureNameIsUniqueAsync(request.Name.Trim(), excludeId: entity.Id, cancellationToken);
+        await EnsureSpecializationExistsAsync(request.SpecializationId, cancellationToken);
         request.Name = request.Name.Trim();
     }
+
+    protected override async Task AfterUpdateAsync(MedicalServiceUpdateRequest request, DbMedicalService entity, CancellationToken cancellationToken) =>
+        await Context.Entry(entity).Reference(s => s.Specialization).LoadAsync(cancellationToken);
 
     private static void Validate(string name, decimal price, int durationMinutes)
     {
@@ -69,6 +103,14 @@ public class MedicalServiceService
         if (errors.Count > 0)
         {
             throw new ValidationException(errors);
+        }
+    }
+
+    private async Task EnsureSpecializationExistsAsync(int specializationId, CancellationToken cancellationToken)
+    {
+        if (!await Context.Specializations.AnyAsync(s => s.Id == specializationId, cancellationToken))
+        {
+            throw new ValidationException("specializationId", "Odabrana specijalizacija ne postoji.");
         }
     }
 

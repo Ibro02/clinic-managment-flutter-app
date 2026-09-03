@@ -17,6 +17,11 @@ class AppCard extends StatelessWidget {
   /// such as a table that needs its header row flush with the border.
   final bool flush;
 
+  /// Makes the whole card a tap target. Null leaves it inert, which is the
+  /// right default - a card that lights up under the cursor and then does
+  /// nothing is worse than one that never reacted at all.
+  final VoidCallback? onTap;
+
   const AppCard({
     super.key,
     required this.child,
@@ -27,6 +32,7 @@ class AppCard extends StatelessWidget {
     this.actions = const [],
     this.dense = false,
     this.flush = false,
+    this.onTap,
   });
 
   @override
@@ -43,23 +49,36 @@ class AppCard extends StatelessWidget {
       ),
       child: ClipRRect(
         borderRadius: AppRadius.all(AppRadius.lg),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            if (hasHeader) _header(context),
-            if (flush)
-              child
-            else
-              Padding(
-                padding: hasHeader
-                    ? padding.subtract(EdgeInsets.only(top: dense ? 0 : AppSpacing.xs))
-                    : padding,
-                child: child,
-              ),
-          ],
+        child: _maybeTappable(
+          Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              if (hasHeader) _header(context),
+              if (flush)
+                child
+              else
+                Padding(
+                  padding: hasHeader
+                      ? padding.subtract(EdgeInsets.only(top: dense ? 0 : AppSpacing.xs))
+                      : padding,
+                  child: child,
+                ),
+            ],
+          ),
         ),
       ),
+    );
+  }
+
+  /// Adds an ink surface only when there is something to tap, so a plain card
+  /// costs no extra Material layer.
+  Widget _maybeTappable(Widget content) {
+    if (onTap == null) return content;
+
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(onTap: onTap, child: content),
     );
   }
 

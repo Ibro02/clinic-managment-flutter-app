@@ -8,11 +8,17 @@ import '../../core/clinic_colors.dart';
 import '../../models/doctor.dart';
 import '../../models/medical_service.dart';
 import '../../models/recommendation.dart';
+import '../../core/design_tokens.dart';
 import '../../providers/appointment_provider.dart';
 import '../../providers/doctor_provider.dart';
 import '../../providers/medical_service_provider.dart';
 import '../../providers/payment_provider.dart';
 import '../../providers/recommendation_provider.dart';
+import '../../widgets/ui/app_badge.dart';
+import '../../widgets/ui/app_card.dart';
+import '../../widgets/ui/app_dialog.dart';
+import '../../widgets/ui/app_states.dart';
+import '../../widgets/ui/app_tiles.dart';
 import '../payments/payment_webview_screen.dart';
 
 /// Multi-step patient booking flow (PLAN.md Phase 4 item 6): doctor → service
@@ -104,11 +110,11 @@ class _BookAppointmentScreenState extends State<BookAppointmentScreen> {
 
   Future<void> _loadOptions() async {
     final doctors = await _doctorProvider.getPaged({'pageSize': 100, 'orderBy': 'LastName'});
-    final services = await _serviceProvider.getPaged({'pageSize': 100, 'orderBy': 'Name'});
+    final services = await _fetchServices(widget.initialDoctorId);
     if (!mounted) return;
     setState(() {
       _doctors = doctors.resultList;
-      _services = services.resultList;
+      _services = services;
       _isLoadingOptions = false;
     });
 
@@ -128,6 +134,38 @@ class _BookAppointmentScreenState extends State<BookAppointmentScreen> {
         await _loadSlots();
       }
     }
+  }
+
+  /// Services the given doctor is actually qualified for. The filtering is done
+  /// by the API (`doctorId` on the search object), not in the widget, so the
+  /// dropdown can only ever offer pairings the booking endpoint would accept -
+  /// the server enforces the same rule independently (review item C2).
+  Future<List<MedicalService>> _fetchServices(int? doctorId) async {
+    final result = await _serviceProvider.getPaged({
+      'pageSize': 100,
+      'orderBy': 'Name',
+      'doctorId': ?doctorId,
+    });
+    return result.resultList;
+  }
+
+  /// Reloads the service list for the chosen doctor and re-resolves the current
+  /// selection against it. Re-resolving by id is required, not cosmetic: the
+  /// dropdown matches items by object identity, so keeping the old instance
+  /// after the list is replaced would throw even when the same service is still
+  /// on offer.
+  Future<void> _reloadServicesForDoctor(int? doctorId) async {
+    final services = await _fetchServices(doctorId);
+    if (!mounted) return;
+    setState(() {
+      _services = services;
+      _service = _services.cast<MedicalService?>().firstWhere(
+            (s) => s?.id == _service?.id,
+            orElse: () => null,
+          );
+      _selectedSlot = null;
+      _slots = [];
+    });
   }
 
   Future<void> _loadTopRecommendation() async {
@@ -199,15 +237,33 @@ class _BookAppointmentScreenState extends State<BookAppointmentScreen> {
       });
       if (!mounted) return;
 
-      final wantsToPay = await showDialog<bool>(
+      final wantsToPay = await showAppDialog<bool>(
         context: context,
-        builder: (dialogContext) => AlertDialog(
-          title: const Text('Plaćanje'),
-          content: Text('Termin je zakazan. Željeli biste li odmah platiti (${_service!.price.toStringAsFixed(2)} KM)?'),
+        builder: (dialogContext) => AppDialog(
+          title: 'Plaćanje',
+          subtitle: 'Termin je uspješno zakazan.',
+          icon: Icons.payment_outlined,
+          tone: AppTone.success,
+          showClose: false,
           actions: [
-            TextButton(onPressed: () => Navigator.of(dialogContext).pop(false), child: const Text('Kasnije')),
-            FilledButton(onPressed: () => Navigator.of(dialogContext).pop(true), child: const Text('Plati sada')),
+            OutlinedButton(
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: const Text('Kasnije'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(dialogContext).pop(true),
+              child: const Text('Plati sada'),
+            ),
           ],
+          child: Text(
+            'Željeli biste li odmah platiti '
+            '${_service!.price.toStringAsFixed(2)} KM? '
+            'Plaćanje možete izvršiti i kasnije sa ekrana termina.',
+            style: dialogContext.text.bodyMedium?.copyWith(
+              color: dialogContext.colors.textSecondary,
+              height: 1.5,
+            ),
+          ),
         ),
       );
 
@@ -282,43 +338,49 @@ class _BookAppointmentScreenState extends State<BookAppointmentScreen> {
       body: _isLoadingOptions
           ? const Center(child: CircularProgressIndicator())
           : SingleChildScrollView(
-              padding: const EdgeInsets.all(16),
+              padding: const EdgeInsets.all(AppSpacing.md),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
+                  // The recommender's top pick, offered as a one-tap shortcut
+                  // that fills the whole form. Its reason is shown, never just
+                  // the suggestion (rulebook §I: the recommender is explainable).
                   if (_topRecommendation != null) ...[
-                    Card(
-                      color: Theme.of(context).colorScheme.secondaryContainer,
-                      child: ListTile(
-                        leading: const Icon(Icons.recommend_outlined),
-                        title: Text('Preporučeno: ${_topRecommendation!.doctorName} — ${_topRecommendation!.medicalServiceName}'),
-                        subtitle: Text(_topRecommendation!.reason),
-                        trailing: TextButton(
-                          child: const Text('Odaberi'),
-                          onPressed: () {
-                            final recommendation = _topRecommendation!;
-                            setState(() {
-                              _doctor = _doctors.cast<Doctor?>().firstWhere((d) => d?.id == recommendation.doctorId, orElse: () => null);
-                              _service = _services.cast<MedicalService?>().firstWhere((s) => s?.id == recommendation.medicalServiceId, orElse: () => null);
-                              _date = recommendation.suggestedStartUtc.toLocal();
-                            });
-                            _loadSlots();
-                          },
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 16),
+                    _recommendationCard(context),
+                    const SizedBox(height: AppSpacing.md),
                   ],
-                  Text('1. Odaberite doktora', style: Theme.of(context).textTheme.titleMedium),
-                  const SizedBox(height: 8),
+                  _step(context, 1, 'Odaberite doktora'),
                   DropdownButtonFormField<Doctor>(
                     initialValue: _doctor,
-                    decoration: const InputDecoration(border: OutlineInputBorder()),
+                    decoration: const InputDecoration(hintText: 'Odaberite doktora'),
+                    // Without this, DropdownButtonFormField sizes its internal
+                    // row to the selected item's intrinsic width instead of the
+                    // width the field actually has - once C2 made the item text
+                    // longer (doctor name + every specialization), that
+                    // intrinsic width exceeded the available space and Flutter
+                    // logged "RenderFlex overflowed ... on the right" even with
+                    // no doctor selected yet, since the same row layout applies
+                    // to the hint. isExpanded is Flutter's own fix for exactly
+                    // this ("apply a flex factor... force the children to fit").
+                    isExpanded: true,
                     // null, not the default 48 - each item is two lines
                     // (name/specializations + clinic), so a fixed single-line
-                    // height would clip the clinic subtext.
+                    // height would clip the clinic subtext IN THE OPEN MENU.
                     itemHeight: null,
-                    items: _doctors.map((d) => DropdownMenuItem(value: d, child: _DoctorOption(doctor: d))).toList(),
+                    items: _doctors
+                        .map((d) => DropdownMenuItem(value: d, child: _DoctorOption(doctor: d)))
+                        .toList(),
+                    // The CLOSED field is a separate render path from the open
+                    // menu and Flutter caps its height at one text line
+                    // regardless of itemHeight - a two-line _DoctorOption there
+                    // overflows vertically no matter how padding is tuned.
+                    // selectedItemBuilder is Flutter's built-in mechanism for
+                    // exactly this: a different (here, single-line, ellipsized)
+                    // representation for the closed state, while the open menu
+                    // keeps the full name/specializations/clinic detail.
+                    selectedItemBuilder: (context) => _doctors
+                        .map((d) => Text(d.fullName, maxLines: 1, overflow: TextOverflow.ellipsis))
+                        .toList(),
                     onChanged: (value) {
                       setState(() {
                         _doctor = value;
@@ -326,19 +388,29 @@ class _BookAppointmentScreenState extends State<BookAppointmentScreen> {
                         _selectedSlot = null;
                         _slots = [];
                       });
+                      // Narrow the service list to what this doctor can perform.
+                      _reloadServicesForDoctor(value?.id);
                       if (value != null) {
-                        _recommendationProvider.logInteraction(type: InteractionType.doctorView, doctorId: value.id).catchError((_) {});
+                        _recommendationProvider
+                            .logInteraction(type: InteractionType.doctorView, doctorId: value.id)
+                            .catchError((_) {});
                       }
                     },
                   ),
-                  const SizedBox(height: 20),
-                  Text('2. Odaberite uslugu', style: Theme.of(context).textTheme.titleMedium),
-                  const SizedBox(height: 8),
+                  const SizedBox(height: AppSpacing.lg),
+                  _step(context, 2, 'Odaberite uslugu'),
                   DropdownButtonFormField<MedicalService>(
                     initialValue: _service,
-                    decoration: const InputDecoration(border: OutlineInputBorder()),
+                    decoration: const InputDecoration(hintText: 'Odaberite uslugu'),
                     items: _services
-                        .map((s) => DropdownMenuItem(value: s, child: Text('${s.name} (${s.durationMinutes} min, ${s.price.toStringAsFixed(2)} KM)')))
+                        .map(
+                          (s) => DropdownMenuItem(
+                            value: s,
+                            child: Text(
+                              '${s.name} (${s.durationMinutes} min, ${s.price.toStringAsFixed(2)} KM)',
+                            ),
+                          ),
+                        )
                         .toList(),
                     onChanged: (value) {
                       setState(() {
@@ -348,44 +420,42 @@ class _BookAppointmentScreenState extends State<BookAppointmentScreen> {
                       });
                       _loadSlots();
                       if (value != null) {
-                        _recommendationProvider.logInteraction(type: InteractionType.medicalServiceView, medicalServiceId: value.id).catchError((_) {});
+                        _recommendationProvider
+                            .logInteraction(
+                              type: InteractionType.medicalServiceView,
+                              medicalServiceId: value.id,
+                            )
+                            .catchError((_) {});
                       }
                     },
                   ),
-                  const SizedBox(height: 20),
-                  Text('3. Odaberite datum', style: Theme.of(context).textTheme.titleMedium),
-                  const SizedBox(height: 8),
-                  OutlinedButton.icon(
-                    onPressed: (_doctor == null || _service == null) ? null : _pickDate,
-                    icon: const Icon(Icons.calendar_today_outlined),
-                    label: Text(_date == null ? 'Odaberite datum' : _dateFormat.format(_date!)),
-                  ),
-                  const SizedBox(height: 20),
-                  Text('4. Odaberite termin', style: Theme.of(context).textTheme.titleMedium),
-                  const SizedBox(height: 8),
-                  if (_isLoadingSlots)
-                    const Center(child: CircularProgressIndicator())
-                  else if (_date == null)
-                    const Text('Prvo odaberite datum.')
-                  else if (_slots.isEmpty)
-                    const Text('Nema slobodnih termina za odabrani datum.')
-                  else
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      children: _slots
-                          .map((slot) => ChoiceChip(
-                                label: Text(_timeFormat.format(slot)),
-                                selected: _selectedSlot == slot,
-                                onSelected: (_) => setState(() => _selectedSlot = slot),
-                              ))
-                          .toList(),
+                  const SizedBox(height: AppSpacing.lg),
+                  _step(context, 3, 'Odaberite datum'),
+                  SizedBox(
+                    height: 48,
+                    child: OutlinedButton.icon(
+                      onPressed: (_doctor == null || _service == null) ? null : _pickDate,
+                      icon: const Icon(Icons.calendar_today_outlined, size: 18),
+                      label: Text(_date == null ? 'Odaberite datum' : _dateFormat.format(_date!)),
+                      style: OutlinedButton.styleFrom(alignment: Alignment.centerLeft),
                     ),
+                  ),
+                  if (_doctor == null || _service == null)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 5),
+                      child: Text(
+                        'Prvo odaberite doktora i uslugu.',
+                        style: context.text.bodySmall?.copyWith(color: context.colors.textMuted, fontSize: 12),
+                      ),
+                    ),
+                  const SizedBox(height: AppSpacing.lg),
+                  _step(context, 4, 'Odaberite termin'),
+                  _slotSection(context),
                   if (_error != null) ...[
-                    const SizedBox(height: 16),
-                    Text(_error!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
+                    const SizedBox(height: AppSpacing.md),
+                    AppNotice(tone: AppTone.danger, message: _error!),
                   ],
-                  const SizedBox(height: 24),
+                  const SizedBox(height: AppSpacing.lg),
                   FilledButton(
                     onPressed: _isSubmitting ? null : _submit,
                     child: _isSubmitting
@@ -395,6 +465,110 @@ class _BookAppointmentScreenState extends State<BookAppointmentScreen> {
                 ],
               ),
             ),
+    );
+  }
+
+  /// A numbered step label. The booking flow is four decisions in order, and
+  /// numbering them makes that sequence visible instead of leaving four
+  /// similar-looking fields stacked up.
+  Widget _step(BuildContext context, int number, String label) {
+    final c = context.colors;
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: AppSpacing.xs),
+      child: Row(
+        children: [
+          Container(
+            width: 22,
+            height: 22,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: c.primarySoft,
+              borderRadius: AppRadius.all(AppRadius.xs),
+            ),
+            child: Text(
+              '$number',
+              style: context.text.labelMedium?.copyWith(color: c.primary, fontSize: 12),
+            ),
+          ),
+          const SizedBox(width: AppSpacing.xs),
+          Text(label, style: context.text.titleSmall),
+        ],
+      ),
+    );
+  }
+
+  Widget _recommendationCard(BuildContext context) {
+    final recommendation = _topRecommendation!;
+
+    return AppCard(
+      padding: const EdgeInsets.all(AppSpacing.sm + 2),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.recommend_outlined, size: 18, color: context.colors.primary),
+              const SizedBox(width: AppSpacing.xs),
+              Text('Preporučeno za vas', style: context.text.labelSmall),
+            ],
+          ),
+          const SizedBox(height: AppSpacing.xs),
+          Text(
+            '${recommendation.doctorName} — ${recommendation.medicalServiceName}',
+            style: context.text.titleSmall,
+          ),
+          const SizedBox(height: 3),
+          Text(
+            recommendation.reason,
+            style: context.text.bodySmall?.copyWith(color: context.colors.textSecondary),
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          Align(
+            alignment: Alignment.centerRight,
+            child: FilledButton(
+              onPressed: () {
+                setState(() {
+                  _doctor = _doctors
+                      .cast<Doctor?>()
+                      .firstWhere((d) => d?.id == recommendation.doctorId, orElse: () => null);
+                  _service = _services
+                      .cast<MedicalService?>()
+                      .firstWhere((s) => s?.id == recommendation.medicalServiceId, orElse: () => null);
+                  _date = recommendation.suggestedStartUtc.toLocal();
+                });
+                _loadSlots();
+              },
+              child: const Text('Odaberi'),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _slotSection(BuildContext context) {
+    if (_isLoadingSlots) {
+      return const Padding(
+        padding: EdgeInsets.symmetric(vertical: AppSpacing.md),
+        child: Center(child: CircularProgressIndicator()),
+      );
+    }
+    if (_date == null) {
+      return AppNotice(tone: AppTone.neutral, message: 'Prvo odaberite datum.');
+    }
+    if (_slots.isEmpty) {
+      return AppNotice(
+        tone: AppTone.warning,
+        message: 'Nema slobodnih termina za odabrani datum. Pokušajte s drugim datumom.',
+      );
+    }
+
+    return AppSlotPicker(
+      slots: _slots,
+      selected: _selectedSlot,
+      onSelected: (slot) => setState(() => _selectedSlot = slot),
+      labelBuilder: _timeFormat.format,
     );
   }
 }
@@ -414,9 +588,19 @@ class _DoctorOption extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
       children: [
-        Text('${doctor.fullName}${doctor.specializations.isNotEmpty ? ' (${doctor.specializations.join(', ')})' : ''}'),
+        // maxLines + ellipsis: a doctor with several specializations (C2 added
+        // the list inline here) can produce a name line wider than the
+        // dropdown's selected-value area, which otherwise renders a "RenderFlex
+        // overflowed" debug banner instead of clipping gracefully.
+        Text(
+          '${doctor.fullName}${doctor.specializations.isNotEmpty ? ' (${doctor.specializations.join(', ')})' : ''}',
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+        ),
         Text(
           doctor.locationName,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
           style: TextStyle(fontSize: 12, color: clinicColor(doctor.locationId, Theme.of(context).brightness)),
         ),
       ],

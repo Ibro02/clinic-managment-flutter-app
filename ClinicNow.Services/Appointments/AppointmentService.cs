@@ -303,6 +303,13 @@ public class AppointmentService : IAppointmentService
         var medicalService = await _context.MedicalServices.FindAsync([medicalServiceId], cancellationToken)
             ?? throw new ValidationException("medicalServiceId", "Odabrana usluga ne postoji.");
 
+        // No slots at all for a pairing the booking endpoint would reject anyway
+        // (review item C2) - offering them would just move the error to the click.
+        if (!await DoctorCompatibility.CanPerformAsync(_context, doctorId, medicalService.SpecializationId, cancellationToken))
+        {
+            return [];
+        }
+
         var workingHours = await _context.WorkingHoursEntries
             .Where(w => w.DoctorId == doctorId && w.DayOfWeek == date.DayOfWeek)
             .ToListAsync(cancellationToken);
@@ -312,8 +319,13 @@ public class AppointmentService : IAppointmentService
             return [];
         }
 
-        var dayStartUtc = date.ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc);
-        var dayEndUtc = dayStartUtc.AddDays(1);
+        // `date` is the clinic-local calendar day the patient picked, and
+        // WorkingHours holds clinic wall-clock times - so both the day bounds and
+        // the window edges below must be resolved through ClinicTimeZone, never
+        // stamped as UTC (review item C1). LocalDateEndExclusiveUtc also keeps the
+        // 23h/25h DST days correct, which `dayStartUtc.AddDays(1)` did not.
+        var dayStartUtc = ClinicTimeZone.LocalDateStartUtc(date);
+        var dayEndUtc = ClinicTimeZone.LocalDateEndExclusiveUtc(date);
 
         var blocks = await _context.ScheduleBlocks
             .Where(b => b.DoctorId == doctorId && b.StartUtc < dayEndUtc && b.EndUtc > dayStartUtc)
@@ -331,8 +343,8 @@ public class AppointmentService : IAppointmentService
 
         foreach (var window in workingHours)
         {
-            var slotStart = date.ToDateTime(window.StartTime, DateTimeKind.Utc);
-            var windowEnd = date.ToDateTime(window.EndTime, DateTimeKind.Utc);
+            var slotStart = ClinicTimeZone.ToUtc(date, window.StartTime);
+            var windowEnd = ClinicTimeZone.ToUtc(date, window.EndTime);
 
             while (slotStart + duration <= windowEnd)
             {
@@ -439,6 +451,27 @@ public class AppointmentService : IAppointmentService
     private static bool CanManageAppointments(ClaimsPrincipal principal) =>
         principal.IsInRole(Roles.Administrator) || principal.IsInRole(Roles.Staff) || principal.IsInRole(Roles.Doctor);
 
+    /// <summary>
+    /// Whether <paramref name="principal"/> may actually perform <paramref name="action"/>
+    /// on <paramref name="appointment"/> right now - the same role/time rules
+    /// <see cref="ConfirmAsync"/>, <see cref="CompleteAsync"/> and
+    /// <see cref="CancelAsync"/> already enforce, mirrored here so
+    /// <c>AllowedActions</c> never offers a button the server would reject on
+    /// click (review item C9).
+    /// </summary>
+    private static bool IsActuallyAllowed(AppointmentAction action, Appointment appointment, ClaimsPrincipal principal) => action switch
+    {
+        // Same role gate as ConfirmAsync/CompleteAsync, plus the timing rule that
+        // is otherwise only enforced when the click actually happens.
+        AppointmentAction.Confirm => CanManageAppointments(principal) && !BaseAppointmentState.HasStarted(appointment),
+        AppointmentAction.Complete => CanManageAppointments(principal) && BaseAppointmentState.HasStarted(appointment),
+        // Same role gate as CancelAsync: Administrator/Staff/Doctor cancel without
+        // a cutoff; a Patient is subject to the 48h rule.
+        AppointmentAction.Cancel => CanManageAppointments(principal)
+            || (principal.IsInRole(Roles.Patient) && !BaseAppointmentState.IsWithinCancellationCutoff(appointment)),
+        _ => false
+    };
+
     private async Task<int> GetOwnPatientIdAsync(int userId, CancellationToken cancellationToken)
     {
         var patient = await _context.Patients.SingleOrDefaultAsync(p => p.UserId == userId, cancellationToken)
@@ -463,8 +496,20 @@ public class AppointmentService : IAppointmentService
     private AppointmentDto MapToDto(Appointment appointment)
     {
         var dto = _mapper.Map<AppointmentDto>(appointment);
-        dto.AllowedActions = BaseAppointmentState.CreateState(appointment.Status, _serviceProvider)
-            .AllowedActions()
+
+        // The state class only knows "legal from this status" - actually being
+        // allowed also depends on who's asking and what time it is (review item
+        // C9: ScheduledAppointmentState listed Confirm as allowed even for an
+        // appointment whose time had passed, and AllowedActions never considered
+        // role or the 48h cutoff). By the time an appointment reaches this method,
+        // ApplyOwnershipAsync/EnsureOwnershipAsync/EnsureDoctorOwnershipIfApplicableAsync
+        // have already restricted a Doctor/Patient caller to their own
+        // appointments, so no further ownership check is needed here - only role
+        // and timing.
+        var principal = CurrentUser();
+        var structurallyAllowed = BaseAppointmentState.CreateState(appointment.Status, _serviceProvider).AllowedActions();
+        dto.AllowedActions = structurallyAllowed
+            .Where(action => IsActuallyAllowed(action, appointment, principal))
             .Select(a => a.ToString())
             .ToList();
 

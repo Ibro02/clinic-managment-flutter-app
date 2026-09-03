@@ -65,15 +65,11 @@ public class DashboardService : IDashboardService
     {
         var nowUtc = DateTime.UtcNow;
 
-        // WorkingHours.StartTime/EndTime are read here as UTC wall-clock
-        // values, not clinic-local - intentionally matching how the existing
-        // booking engine (AppointmentService.GetAvailableSlotsAsync) already
-        // interprets the exact same columns. WorkingHours-as-local-vs-UTC is a
-        // known, separately-tracked ambiguity; don't "fix" this back to
-        // ClinicTimeZone.NowLocal without also revisiting the booking engine,
-        // or the two would silently drift apart again.
-        var todayDayOfWeek = nowUtc.DayOfWeek;
-        var timeNow = TimeOnly.FromDateTime(nowUtc);
+        // WorkingHours.StartTime/EndTime are clinic wall-clock values, so "on duty
+        // right now" is a clinic-local question - resolved through ClinicTimeZone,
+        // the same way the booking engine reads these columns (review item C1).
+        var todayDayOfWeek = ClinicTimeZone.LocalDayOfWeekOf(nowUtc);
+        var timeNow = ClinicTimeZone.LocalTimeOf(nowUtc);
 
         var onDutyDoctorIds = await _context.Doctors
             .Where(d => d.User.IsActive)

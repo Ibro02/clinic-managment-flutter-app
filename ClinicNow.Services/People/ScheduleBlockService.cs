@@ -1,3 +1,4 @@
+using ClinicNow.Model.Common;
 using ClinicNow.Model.Dto;
 using ClinicNow.Model.Exceptions;
 using ClinicNow.Model.Requests;
@@ -45,12 +46,18 @@ public class ScheduleBlockService : BaseCRUDService<ScheduleBlockDto, ScheduleBl
     protected override async Task BeforeInsertAsync(ScheduleBlockInsertRequest request, ScheduleBlock entity, CancellationToken cancellationToken)
     {
         await ValidateAsync(request.DoctorId, request.StartUtc, request.EndUtc, request.Reason, cancellationToken);
+        await EnsureNoAppointmentConflictAsync(request.DoctorId, request.StartUtc, request.EndUtc, cancellationToken);
     }
 
     protected override async Task BeforeUpdateAsync(ScheduleBlockUpdateRequest request, ScheduleBlock entity, CancellationToken cancellationToken)
     {
         await ValidateAsync(request.DoctorId, request.StartUtc, request.EndUtc, request.Reason, cancellationToken);
+        await EnsureNoAppointmentConflictAsync(request.DoctorId, request.StartUtc, request.EndUtc, cancellationToken);
     }
+
+    // No BeforeDeleteAsync guard: removing a block only ever restores
+    // availability, it can never strand an appointment - unlike WorkingHours,
+    // there is nothing here for a delete to protect against (review item C10).
 
     private async Task ValidateAsync(int doctorId, DateTime startUtc, DateTime endUtc, string reason, CancellationToken cancellationToken)
     {
@@ -75,6 +82,34 @@ public class ScheduleBlockService : BaseCRUDService<ScheduleBlockDto, ScheduleBl
         if (errors.Count > 0)
         {
             throw new ValidationException(errors);
+        }
+    }
+
+    /// <summary>
+    /// Rejects a block that would cover a future Pending/Confirmed appointment
+    /// (review item C10) - staff must cancel or reschedule the appointment
+    /// first, rather than the block silently leaving it active while the
+    /// doctor is marked unavailable. Compared directly in UTC: both
+    /// <see cref="ScheduleBlock"/> and <see cref="Appointment"/> already store
+    /// real instants, unlike WorkingHours' wall-clock columns.
+    /// </summary>
+    private async Task EnsureNoAppointmentConflictAsync(int doctorId, DateTime startUtc, DateTime endUtc, CancellationToken cancellationToken)
+    {
+        var conflicting = await Context.Appointments
+            .Where(a => a.DoctorId == doctorId
+                && (a.Status == AppointmentStatus.Pending || a.Status == AppointmentStatus.Confirmed)
+                && a.StartUtc > DateTime.UtcNow
+                && a.StartUtc < endUtc && a.EndUtc > startUtc)
+            .Select(a => new { a.Id, a.StartUtc })
+            .ToListAsync(cancellationToken);
+
+        if (conflicting.Count > 0)
+        {
+            var list = string.Join(", ", conflicting
+                .OrderBy(a => a.StartUtc)
+                .Select(a => $"#{a.Id} ({ClinicTimeZone.LocalDateOf(a.StartUtc):dd.MM.yyyy} {ClinicTimeZone.LocalTimeOf(a.StartUtc):HH:mm})"));
+            throw new BusinessException(
+                $"Blokada se preklapa sa {conflicting.Count} zakazan(im)/potvrđen(im) termin(om/ima): {list}. Prvo otkažite ili premjestite te termine.");
         }
     }
 }

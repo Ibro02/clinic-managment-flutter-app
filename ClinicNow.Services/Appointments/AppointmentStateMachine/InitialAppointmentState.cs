@@ -47,6 +47,14 @@ public class InitialAppointmentState : BaseAppointmentState
             throw new ValidationException("patientId", "Odabrani pacijent ne postoji.");
         }
 
+        // Both rows existing is not enough - the doctor must actually be qualified
+        // for this service (review item C2). Enforced here, on the server, because
+        // the client's dropdown filter is presentation and can be bypassed.
+        if (!await DoctorCompatibility.CanPerformAsync(Context, doctorId, medicalService.SpecializationId, cancellationToken))
+        {
+            throw new ValidationException("medicalServiceId", DoctorCompatibility.NotQualifiedMessage);
+        }
+
         if (startUtc <= DateTime.UtcNow)
         {
             throw new ValidationException("startUtc", "Termin mora biti zakazan u budućnosti.");
@@ -56,9 +64,14 @@ public class InitialAppointmentState : BaseAppointmentState
 
         await using var transaction = await Context.Database.BeginTransactionAsync(IsolationLevel.Serializable, cancellationToken);
 
-        var dayOfWeek = startUtc.DayOfWeek;
-        var startTime = TimeOnly.FromDateTime(startUtc);
-        var endTime = TimeOnly.FromDateTime(endUtc);
+        // WorkingHours stores the clinic's wall clock, so the requested instant has
+        // to be projected into clinic-local time before it can be compared against
+        // it - reading DayOfWeek/TimeOnly straight off the UTC instant booked
+        // 08:00 Sarajevo as 08:00 UTC and looked up the wrong weekday near
+        // midnight (review item C1).
+        var dayOfWeek = ClinicTimeZone.LocalDayOfWeekOf(startUtc);
+        var startTime = ClinicTimeZone.LocalTimeOf(startUtc);
+        var endTime = ClinicTimeZone.LocalTimeOf(endUtc);
 
         var withinWorkingHours = await Context.WorkingHoursEntries.AnyAsync(w =>
             w.DoctorId == doctorId && w.DayOfWeek == dayOfWeek &&

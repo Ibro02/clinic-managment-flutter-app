@@ -9,7 +9,10 @@ import '../../models/city.dart';
 import '../../models/location.dart';
 import '../../providers/city_provider.dart';
 import '../../providers/location_provider.dart';
+import '../../core/design_tokens.dart';
 import '../../widgets/paged_codebook_table.dart';
+import '../../widgets/ui/app_data_table.dart';
+import '../../widgets/ui/app_dialog.dart';
 
 class LocationScreen extends StatefulWidget {
   const LocationScreen({super.key});
@@ -46,27 +49,16 @@ class _LocationScreenState extends State<LocationScreen> {
     final formKey = GlobalKey<FormBuilderState>();
     String? error;
 
-    return showDialog<City>(
+    return showAppDialog<City>(
       context: dialogContext,
       builder: (innerContext) => StatefulBuilder(
-        builder: (innerContext, setDialogState) => AlertDialog(
-          title: const Text('Novi grad'),
-          content: SizedBox(
-            width: 320,
-            child: FormBuilder(
-              key: formKey,
-              child: FormBuilderTextField(
-                name: 'name',
-                decoration: InputDecoration(labelText: 'Naziv', errorText: error),
-                validator: FormBuilderValidators.required(errorText: 'Naziv je obavezan.'),
-              ),
-            ),
-          ),
+        builder: (innerContext, setDialogState) => AppDialog(
+          title: 'Novi grad',
+          subtitle: 'Novi grad se odmah odabire na formi lokacije.',
+          icon: Icons.location_city_outlined,
+          width: 420,
           actions: [
-            TextButton(
-              onPressed: () => Navigator.of(innerContext).pop(),
-              child: const Text('Odustani'),
-            ),
+            OutlinedButton(onPressed: () => Navigator.of(innerContext).pop(), child: const Text('Odustani')),
             FilledButton(
               onPressed: () async {
                 final form = formKey.currentState;
@@ -81,6 +73,18 @@ class _LocationScreenState extends State<LocationScreen> {
               child: const Text('Sačuvaj'),
             ),
           ],
+          child: FormBuilder(
+            key: formKey,
+            child: AppField(
+              label: 'Naziv',
+              required: true,
+              child: FormBuilderTextField(
+                name: 'name',
+                decoration: InputDecoration(hintText: 'npr. Sarajevo', errorText: error),
+                validator: FormBuilderValidators.required(errorText: 'Naziv je obavezan.'),
+              ),
+            ),
+          ),
         ),
       ),
     );
@@ -98,73 +102,13 @@ class _LocationScreenState extends State<LocationScreen> {
     await showDialog<void>(
       context: context,
       builder: (dialogContext) => StatefulBuilder(
-        builder: (dialogContext, setDialogState) => AlertDialog(
-          title: Text(initial == null ? 'Nova lokacija' : 'Uredi lokaciju'),
-          content: SizedBox(
-            width: 420,
-            child: FormBuilder(
-              key: formKey,
-              initialValue: {
-                'name': initial?.name ?? '',
-                'address': initial?.address ?? '',
-              },
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  FormBuilderTextField(
-                    name: 'name',
-                    decoration: InputDecoration(
-                      labelText: 'Naziv',
-                      errorText: fieldErrors['name']?.first,
-                    ),
-                    validator: FormBuilderValidators.required(errorText: 'Naziv je obavezan.'),
-                  ),
-                  const SizedBox(height: 12),
-                  FormBuilderTextField(
-                    name: 'address',
-                    decoration: InputDecoration(
-                      labelText: 'Adresa',
-                      errorText: fieldErrors['address']?.first,
-                    ),
-                    validator: FormBuilderValidators.required(errorText: 'Adresa je obavezna.'),
-                  ),
-                  const SizedBox(height: 12),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: DropdownButtonFormField<int>(
-                          initialValue: selectedCityId,
-                          decoration: InputDecoration(
-                            labelText: 'Grad',
-                            errorText: fieldErrors['cityId']?.first,
-                          ),
-                          items: cities
-                              .map((city) => DropdownMenuItem(value: city.id, child: Text(city.name)))
-                              .toList(),
-                          onChanged: (value) => setDialogState(() => selectedCityId = value),
-                        ),
-                      ),
-                      IconButton(
-                        tooltip: 'Novi grad',
-                        icon: const Icon(Icons.add_circle_outline),
-                        onPressed: () async {
-                          final created = await _quickAddCity(dialogContext);
-                          if (created == null) return;
-                          final refreshed = await _loadCities();
-                          setDialogState(() {
-                            cities = refreshed;
-                            selectedCityId = created.id;
-                          });
-                        },
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-          ),
+        builder: (dialogContext, setDialogState) => AppDialog(
+          title: initial == null ? 'Nova lokacija' : 'Uredi lokaciju',
+          subtitle: 'Lokacija je klinika u kojoj doktori primaju pacijente.',
+          icon: Icons.place_outlined,
+          width: 520,
           actions: [
-            TextButton(
+            OutlinedButton(
               onPressed: isSubmitting ? null : () => Navigator.of(dialogContext).pop(),
               child: const Text('Odustani'),
             ),
@@ -202,6 +146,82 @@ class _LocationScreenState extends State<LocationScreen> {
                   : const Text('Sačuvaj'),
             ),
           ],
+          child: FormBuilder(
+            key: formKey,
+            initialValue: {'name': initial?.name ?? '', 'address': initial?.address ?? ''},
+            child: AppFormSection(
+              children: [
+                AppField(
+                  label: 'Naziv',
+                  required: true,
+                  child: FormBuilderTextField(
+                    name: 'name',
+                    decoration: InputDecoration(
+                      hintText: 'npr. Poliklinika Centar',
+                      errorText: fieldErrors['name']?.first,
+                    ),
+                    validator: FormBuilderValidators.required(errorText: 'Naziv je obavezan.'),
+                  ),
+                ),
+                AppField(
+                  label: 'Adresa',
+                  required: true,
+                  child: FormBuilderTextField(
+                    name: 'address',
+                    decoration: InputDecoration(
+                      hintText: 'Ulica i broj',
+                      errorText: fieldErrors['address']?.first,
+                    ),
+                    validator: FormBuilderValidators.required(errorText: 'Adresa je obavezna.'),
+                  ),
+                ),
+                // Rulebook §K: a missing FK row is addable via a modal without
+                // leaving the form, so staff never have to cancel out to the
+                // City screen and start over.
+                AppField(
+                  label: 'Grad',
+                  required: true,
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(
+                        child: DropdownButtonFormField<int>(
+                          initialValue: selectedCityId,
+                          decoration: InputDecoration(
+                            hintText: 'Odaberite grad',
+                            errorText: fieldErrors['cityId']?.first,
+                          ),
+                          items: cities
+                              .map((city) => DropdownMenuItem(value: city.id, child: Text(city.name)))
+                              .toList(),
+                          onChanged: (value) => setDialogState(() => selectedCityId = value),
+                        ),
+                      ),
+                      const SizedBox(width: AppSpacing.xs),
+                      SizedBox(
+                        height: AppSizes.controlHeight,
+                        child: OutlinedButton(
+                          onPressed: () async {
+                            final created = await _quickAddCity(dialogContext);
+                            if (created == null) return;
+                            final refreshed = await _loadCities();
+                            setDialogState(() {
+                              cities = refreshed;
+                              selectedCityId = created.id;
+                            });
+                          },
+                          style: OutlinedButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(horizontal: AppSpacing.sm),
+                          ),
+                          child: const Icon(Icons.add_rounded, size: 18),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
         ),
       ),
     );
@@ -216,15 +236,10 @@ class _LocationScreenState extends State<LocationScreen> {
       title: 'Lokacije',
       searchHint: 'Pretraga po nazivu',
       provider: _locationProvider,
-      buildColumns: () => const [
-        DataColumn(label: Text('Naziv')),
-        DataColumn(label: Text('Adresa')),
-        DataColumn(label: Text('Grad')),
-      ],
-      buildCells: (location) => [
-        DataCell(Text(location.name)),
-        DataCell(Text(location.address)),
-        DataCell(Text(location.cityName)),
+      buildColumns: () => [
+        AppColumn(label: 'Naziv', sortKey: 'Name', flex: 2, cell: (context, location) => Text(location.name)),
+        AppColumn(label: 'Adresa', flex: 2, cell: (context, location) => Text(location.address)),
+        AppColumn(label: 'Grad', cell: (context, location) => Text(location.cityName)),
       ],
       onAdd: () => _openForm(),
       onEdit: (location) => _openForm(initial: location),
