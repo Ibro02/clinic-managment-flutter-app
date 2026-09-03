@@ -14,10 +14,11 @@ public class MedicalRecordUpdateNotesRequest
     public string? MedicalNotes { get; set; }
 }
 
-/// <summary>Adds one row to the treatment history table. All three fields are required (rulebook: Date/Treatment/Description all mandatory).</summary>
+/// <summary>Adds one row to the treatment history table. All four fields are required (rulebook: Date/Diagnosis/Treatment/Description all mandatory - review item C11 makes Diagnosis its own structured field rather than free text folded into Description).</summary>
 public class MedicalRecordEntryInsertRequest
 {
     public DateOnly EntryDate { get; set; }
+    public string Diagnosis { get; set; } = string.Empty;
     public string Treatment { get; set; } = string.Empty;
     public string Description { get; set; } = string.Empty;
 }
@@ -26,6 +27,7 @@ public class MedicalRecordEntryInsertRequest
 public class MedicalRecordEntryUpdateRequest
 {
     public DateOnly EntryDate { get; set; }
+    public string Diagnosis { get; set; } = string.Empty;
     public string Treatment { get; set; } = string.Empty;
     public string Description { get; set; } = string.Empty;
 }

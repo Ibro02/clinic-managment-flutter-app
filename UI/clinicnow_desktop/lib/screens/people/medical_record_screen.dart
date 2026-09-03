@@ -232,12 +232,14 @@ class _MedicalRecordScreenState extends State<MedicalRecordScreen> {
                             ? await _provider.addEntry(
                                 widget.patient.id,
                                 entryDate: form.value['entryDate'] as DateTime,
+                                diagnosis: form.value['diagnosis'] as String,
                                 treatment: form.value['treatment'] as String,
                                 description: form.value['description'] as String,
                               )
                             : await _provider.updateEntry(
                                 initial.id,
                                 entryDate: form.value['entryDate'] as DateTime,
+                                diagnosis: form.value['diagnosis'] as String,
                                 treatment: form.value['treatment'] as String,
                                 description: form.value['description'] as String,
                               );
@@ -259,6 +261,7 @@ class _MedicalRecordScreenState extends State<MedicalRecordScreen> {
             key: formKey,
             initialValue: {
               'entryDate': initial?.entryDate ?? DateTime.now(),
+              'diagnosis': initial?.diagnosis ?? '',
               'treatment': initial?.treatment ?? '',
               'description': initial?.description ?? '',
             },
@@ -273,6 +276,18 @@ class _MedicalRecordScreenState extends State<MedicalRecordScreen> {
                     format: _dateFormat,
                     lastDate: DateTime.now(),
                     validator: FormBuilderValidators.required(errorText: 'Datum je obavezan.'),
+                  ),
+                ),
+                AppField(
+                  label: 'Dijagnoza',
+                  required: true,
+                  child: FormBuilderTextField(
+                    name: 'diagnosis',
+                    decoration: InputDecoration(
+                      hintText: 'npr. J06.9 - Akutna infekcija gornjih disajnih puteva',
+                      errorText: fieldErrors['diagnosis']?.first,
+                    ),
+                    validator: FormBuilderValidators.required(errorText: 'Dijagnoza je obavezna.'),
                   ),
                 ),
                 AppField(
@@ -493,6 +508,7 @@ class _MedicalRecordScreenState extends State<MedicalRecordScreen> {
                 child: DataTable(
                   columns: const [
                     DataColumn(label: Text('Datum')),
+                    DataColumn(label: Text('Dijagnoza')),
                     DataColumn(label: Text('Tretman')),
                     DataColumn(label: Text('Opis')),
                     DataColumn(label: Text('Unio/la')),
@@ -503,6 +519,7 @@ class _MedicalRecordScreenState extends State<MedicalRecordScreen> {
                         (entry) => DataRow(
                           cells: [
                             DataCell(Text(_dateFormat.format(entry.entryDate))),
+                            DataCell(SizedBox(width: 220, child: Text(entry.diagnosis))),
                             DataCell(Text(entry.treatment)),
                             DataCell(SizedBox(width: 280, child: Text(entry.description))),
                             DataCell(Text(entry.createdByName)),

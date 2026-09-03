@@ -45,12 +45,19 @@ class MedicalRecordProvider {
   }
 
   /// Doctor or Administrator: adds one row to the treatment history table.
-  Future<MedicalRecord> addEntry(int patientId, {required DateTime entryDate, required String treatment, required String description}) async {
+  Future<MedicalRecord> addEntry(
+    int patientId, {
+    required DateTime entryDate,
+    required String diagnosis,
+    required String treatment,
+    required String description,
+  }) async {
     final response = await http.post(
       _base.buildUri('api/MedicalRecord/patient/$patientId/entries'),
       headers: _base.authHeaders(),
       body: jsonEncode({
         'entryDate': _dateOnly(entryDate),
+        'diagnosis': diagnosis,
         'treatment': treatment,
         'description': description,
       }),
@@ -59,12 +66,19 @@ class MedicalRecordProvider {
   }
 
   /// Administrator-only: edits an existing treatment-history row.
-  Future<MedicalRecord> updateEntry(int entryId, {required DateTime entryDate, required String treatment, required String description}) async {
+  Future<MedicalRecord> updateEntry(
+    int entryId, {
+    required DateTime entryDate,
+    required String diagnosis,
+    required String treatment,
+    required String description,
+  }) async {
     final response = await http.put(
       _base.buildUri('api/MedicalRecord/entries/$entryId'),
       headers: _base.authHeaders(),
       body: jsonEncode({
         'entryDate': _dateOnly(entryDate),
+        'diagnosis': diagnosis,
         'treatment': treatment,
         'description': description,
       }),

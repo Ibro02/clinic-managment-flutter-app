@@ -8,6 +8,7 @@ public class MedicalRecordEntryConfiguration : IEntityTypeConfiguration<MedicalR
 {
     public void Configure(EntityTypeBuilder<MedicalRecordEntry> builder)
     {
+        builder.Property(e => e.Diagnosis).IsRequired().HasMaxLength(300);
         builder.Property(e => e.Treatment).IsRequired().HasMaxLength(200);
         builder.Property(e => e.Description).IsRequired().HasMaxLength(2000);
 
@@ -27,6 +28,7 @@ public class MedicalRecordEntryConfiguration : IEntityTypeConfiguration<MedicalR
             Id = 1,
             MedicalRecordId = 1,
             EntryDate = new DateOnly(2026, 8, 10),
+            Diagnosis = "Z00.0 - Opća kontrola bez nalaza",
             Treatment = "Redovni pregled",
             Description = "Opći pregled bez nalaza. Preporučena kontrola za 6 mjeseci.",
             CreatedByUserId = 3,

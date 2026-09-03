@@ -27,4 +27,7 @@ public class MedicalRecord
     public DateTime UpdatedAtUtc { get; set; }
 
     public ICollection<MedicalRecordEntry> Entries { get; set; } = [];
+
+    /// <summary>Audit trail for every mutation of this record or its entries (review item C11) - never exposed via DTO, same as <c>Appointment.AuditLogs</c>.</summary>
+    public ICollection<MedicalRecordAuditLog> AuditLogs { get; set; } = [];
 }

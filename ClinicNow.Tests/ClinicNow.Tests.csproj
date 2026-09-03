@@ -8,6 +8,14 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <!-- Needed for DefaultHttpContext/HttpContextAccessor in TestContextFactory
+         (services like MedicalRecordService read the acting user off IHttpContextAccessor) -
+         these are concrete ASP.NET Core types, not covered by the Http.Abstractions
+         package ClinicNow.Services already references transitively. -->
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="coverlet.collector" Version="6.0.4" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.InMemory" Version="10.0.0" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />

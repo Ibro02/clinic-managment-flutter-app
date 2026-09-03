@@ -4,6 +4,7 @@ import 'gender.dart';
 class MedicalRecordEntry {
   final int id;
   final DateTime entryDate;
+  final String diagnosis;
   final String treatment;
   final String description;
   final String createdByName;
@@ -12,6 +13,7 @@ class MedicalRecordEntry {
   const MedicalRecordEntry({
     required this.id,
     required this.entryDate,
+    required this.diagnosis,
     required this.treatment,
     required this.description,
     required this.createdByName,
@@ -21,6 +23,7 @@ class MedicalRecordEntry {
   factory MedicalRecordEntry.fromJson(Map<String, dynamic> json) => MedicalRecordEntry(
         id: json['id'] as int,
         entryDate: DateTime.parse(json['entryDate'] as String),
+        diagnosis: json['diagnosis'] as String? ?? '',
         treatment: json['treatment'] as String? ?? '',
         description: json['description'] as String? ?? '',
         createdByName: json['createdByName'] as String? ?? '',
