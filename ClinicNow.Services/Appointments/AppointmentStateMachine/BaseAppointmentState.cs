@@ -1,7 +1,9 @@
+using System.Data;
 using ClinicNow.Model.Common;
 using ClinicNow.Model.Exceptions;
 using ClinicNow.Services.Database;
 using ClinicNow.Services.Database.Entities;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace ClinicNow.Services.Appointments.AppointmentStateMachine;
@@ -54,6 +56,9 @@ public abstract class BaseAppointmentState
     public virtual Task<Appointment> CancelAsync(Appointment appointment, int actingUserId, string reason, bool enforceCutoff, CancellationToken cancellationToken) =>
         throw new BusinessException(NotAllowedMessage("otkaži", appointment.Status));
 
+    public virtual Task<Appointment> RescheduleAsync(Appointment appointment, int newDoctorId, DateTime newStartUtc, int actingUserId, bool enforceCutoff, CancellationToken cancellationToken) =>
+        throw new BusinessException(NotAllowedMessage("premjesti", appointment.Status));
+
     private static string NotAllowedMessage(string action, AppointmentStatus status) =>
         $"Akcija '{action}' nije dozvoljena za termin u statusu '{status.ToDisplayName()}'.";
 
@@ -97,6 +102,134 @@ public abstract class BaseAppointmentState
 
         appointment.CancellationReason = reason.Trim();
         AddAuditLog(appointment, AppointmentStatus.Cancelled, actingUserId, reason.Trim());
+    }
+
+    /// <summary>
+    /// The full availability check shared by a new booking
+    /// (<see cref="InitialAppointmentState.ScheduleAsync"/>) and a reschedule
+    /// (<see cref="RescheduleCoreAsync"/>, review item C6): patient/doctor/service
+    /// exist, the doctor is qualified for the service (review item C2), the slot
+    /// falls within working hours and outside any block (both compared in
+    /// clinic-local time, review item C1), and neither the doctor nor the patient
+    /// already has another active appointment overlapping it. One definition, so
+    /// a reschedule can never be validated more loosely than a fresh booking -
+    /// the same reasoning behind <see cref="DoctorCompatibility"/> being a single
+    /// predicate rather than two.
+    /// </summary>
+    /// <param name="excludeAppointmentId">
+    /// The appointment being rescheduled, excluded from the overlap checks
+    /// against its own current row - <c>null</c> for a brand-new booking, which
+    /// has no row yet.
+    /// </param>
+    protected async Task<(DateTime EndUtc, int LocationId)> EnsureAvailableAsync(
+        int patientId, int doctorId, int medicalServiceId, DateTime startUtc,
+        int? excludeAppointmentId, CancellationToken cancellationToken)
+    {
+        var medicalService = await Context.MedicalServices.FindAsync([medicalServiceId], cancellationToken)
+            ?? throw new ValidationException("medicalServiceId", "Odabrana usluga ne postoji.");
+
+        // Doctor.LocationId, not a client-supplied field: a doctor practices at
+        // exactly one clinic (1:1), so the appointment's location is always
+        // derived from the chosen doctor, never picked independently.
+        var doctor = await Context.Doctors.FindAsync([doctorId], cancellationToken)
+            ?? throw new ValidationException("doctorId", "Odabrani doktor ne postoji.");
+
+        if (!await Context.Patients.AnyAsync(p => p.Id == patientId, cancellationToken))
+        {
+            throw new ValidationException("patientId", "Odabrani pacijent ne postoji.");
+        }
+
+        if (!await DoctorCompatibility.CanPerformAsync(Context, doctorId, medicalService.SpecializationId, cancellationToken))
+        {
+            throw new ValidationException("medicalServiceId", DoctorCompatibility.NotQualifiedMessage);
+        }
+
+        if (startUtc <= DateTime.UtcNow)
+        {
+            throw new ValidationException("startUtc", "Termin mora biti zakazan u budućnosti.");
+        }
+
+        var endUtc = startUtc.AddMinutes(medicalService.DurationMinutes);
+
+        var dayOfWeek = ClinicTimeZone.LocalDayOfWeekOf(startUtc);
+        var startTime = ClinicTimeZone.LocalTimeOf(startUtc);
+        var endTime = ClinicTimeZone.LocalTimeOf(endUtc);
+
+        var withinWorkingHours = await Context.WorkingHoursEntries.AnyAsync(w =>
+            w.DoctorId == doctorId && w.DayOfWeek == dayOfWeek &&
+            w.StartTime <= startTime && w.EndTime >= endTime, cancellationToken);
+        if (!withinWorkingHours)
+        {
+            throw new BusinessException("Odabrani termin je izvan radnog vremena doktora.");
+        }
+
+        var isBlocked = await Context.ScheduleBlocks.AnyAsync(b =>
+            b.DoctorId == doctorId && b.StartUtc < endUtc && b.EndUtc > startUtc, cancellationToken);
+        if (isBlocked)
+        {
+            throw new BusinessException("Doktor nije dostupan u odabranom terminu (blokada rasporeda).");
+        }
+
+        var doctorOverlap = await Context.Appointments.AnyAsync(a =>
+            a.Id != (excludeAppointmentId ?? 0) &&
+            a.DoctorId == doctorId && a.Status != AppointmentStatus.Cancelled &&
+            a.StartUtc < endUtc && a.EndUtc > startUtc, cancellationToken);
+        if (doctorOverlap)
+        {
+            throw new BusinessException("Doktor već ima zakazan termin u odabranom periodu.");
+        }
+
+        var patientOverlap = await Context.Appointments.AnyAsync(a =>
+            a.Id != (excludeAppointmentId ?? 0) &&
+            a.PatientId == patientId && a.Status != AppointmentStatus.Cancelled &&
+            a.StartUtc < endUtc && a.EndUtc > startUtc, cancellationToken);
+        if (patientOverlap)
+        {
+            throw new BusinessException("Pacijent već ima zakazan termin u odabranom periodu.");
+        }
+
+        return (endUtc, doctor.LocationId);
+    }
+
+    /// <summary>
+    /// The actual reschedule mechanics (review item C6), identical regardless of
+    /// which non-terminal state initiated it - <see cref="ScheduledAppointmentState"/>
+    /// and <see cref="ConfirmedAppointmentState"/> both delegate their
+    /// <see cref="RescheduleAsync"/> override here rather than duplicating it.
+    /// Re-runs the complete availability check used for a new booking, inside the
+    /// same Serializable isolation as <see cref="InitialAppointmentState.ScheduleAsync"/>
+    /// so the classic concurrent-double-booking race can't slip through a
+    /// reschedule either. Resets status to Pending: whoever confirmed the old
+    /// slot never confirmed this one.
+    /// </summary>
+    protected async Task<Appointment> RescheduleCoreAsync(
+        Appointment appointment, int newDoctorId, DateTime newStartUtc, int actingUserId, bool enforceCutoff, CancellationToken cancellationToken)
+    {
+        if (enforceCutoff && IsWithinCancellationCutoff(appointment))
+        {
+            throw new BusinessException("Termin je moguće premjestiti najkasnije 48 sati prije zakazanog vremena.");
+        }
+
+        await using var transaction = await Context.Database.BeginTransactionAsync(IsolationLevel.Serializable, cancellationToken);
+
+        var (endUtc, locationId) = await EnsureAvailableAsync(
+            appointment.PatientId, newDoctorId, appointment.MedicalServiceId, newStartUtc,
+            excludeAppointmentId: appointment.Id, cancellationToken);
+
+        appointment.DoctorId = newDoctorId;
+        appointment.LocationId = locationId;
+        appointment.StartUtc = newStartUtc;
+        appointment.EndUtc = endUtc;
+        // Any reminder already sent was for the old time - it no longer applies
+        // to the new one, so the reminder scanner must be free to send again.
+        appointment.ReminderSentAtUtc = null;
+
+        AddAuditLog(appointment, AppointmentStatus.Pending, actingUserId, "Termin premješten.");
+
+        await Context.SaveChangesAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+
+        return appointment;
     }
 
     /// <summary>

@@ -298,6 +298,76 @@ public class AppointmentService : IAppointmentService
         return MapToDto(reloaded);
     }
 
+    public async Task<AppointmentDto> RescheduleAsync(int id, AppointmentRescheduleRequest request, CancellationToken cancellationToken = default)
+    {
+        var principal = CurrentUser();
+        var actingUserId = CurrentUserId(principal);
+        var appointment = await LoadTrackedAsync(id, cancellationToken);
+
+        // Same role/ownership shape as CancelAsync (review item C6: "a rule for
+        // who may reschedule") - a move is, from the doctor's schedule's point of
+        // view, exactly as disruptive on short notice as a cancellation, so it
+        // gets the same 48h patient cutoff.
+        bool enforceCutoff;
+        if (principal.IsInRole(Roles.Administrator) || principal.IsInRole(Roles.Staff))
+        {
+            enforceCutoff = false;
+        }
+        else if (principal.IsInRole(Roles.Doctor))
+        {
+            await EnsureDoctorOwnershipIfApplicableAsync(principal, appointment, cancellationToken);
+            enforceCutoff = false;
+        }
+        else if (principal.IsInRole(Roles.Patient))
+        {
+            var ownPatientId = await GetOwnPatientIdAsync(actingUserId, cancellationToken);
+            if (appointment.PatientId != ownPatientId)
+            {
+                throw new ForbiddenException("Ne možete premjestiti tuđi termin.");
+            }
+            enforceCutoff = true;
+        }
+        else
+        {
+            throw new ForbiddenException("Nemate dozvolu za premještanje termina.");
+        }
+
+        var state = BaseAppointmentState.CreateState(appointment.Status, _serviceProvider);
+        await state.RescheduleAsync(appointment, request.DoctorId, request.StartUtc, actingUserId, enforceCutoff, cancellationToken);
+
+        var reloaded = await ReloadAsync(appointment.Id, cancellationToken);
+
+        // A moved appointment is a status change (back to Pending) affecting
+        // both sides, exactly the kind of event the rulebook requires a
+        // notification for (Part II §G) - same shape as Schedule/Confirm/Cancel.
+        if (reloaded.Patient.UserId is int patientUserId)
+        {
+            await _notificationService.CreateAsync(
+                patientUserId,
+                "Termin premješten",
+                $"Vaš termin kod dr. {reloaded.Doctor.User.FirstName} {reloaded.Doctor.User.LastName} je premješten na {reloaded.StartUtc:dd.MM.yyyy HH:mm} UTC.",
+                cancellationToken);
+        }
+
+        await _notificationService.CreateAsync(
+            reloaded.Doctor.UserId,
+            "Termin premješten",
+            $"Termin sa pacijentom {reloaded.Patient.FirstName} {reloaded.Patient.LastName} je premješten na {reloaded.StartUtc:dd.MM.yyyy HH:mm} UTC.",
+            cancellationToken);
+
+        if (reloaded.Patient.User is not null)
+        {
+            await _emailPublisher.PublishAsync(new EmailMessage
+            {
+                To = reloaded.Patient.User.Email,
+                Subject = "ClinicNow - termin premješten",
+                Body = $"Vaš termin kod dr. {reloaded.Doctor.User.FirstName} {reloaded.Doctor.User.LastName} je premješten na {reloaded.StartUtc:dd.MM.yyyy HH:mm} UTC."
+            }, cancellationToken);
+        }
+
+        return MapToDto(reloaded);
+    }
+
     public async Task<List<DateTime>> GetAvailableSlotsAsync(int doctorId, int medicalServiceId, DateOnly date, CancellationToken cancellationToken = default)
     {
         var medicalService = await _context.MedicalServices.FindAsync([medicalServiceId], cancellationToken)
@@ -468,6 +538,10 @@ public class AppointmentService : IAppointmentService
         // Same role gate as CancelAsync: Administrator/Staff/Doctor cancel without
         // a cutoff; a Patient is subject to the 48h rule.
         AppointmentAction.Cancel => CanManageAppointments(principal)
+            || (principal.IsInRole(Roles.Patient) && !BaseAppointmentState.IsWithinCancellationCutoff(appointment)),
+        // Same role gate and cutoff as Cancel - RescheduleAsync enforces the
+        // identical rule (review item C6).
+        AppointmentAction.Reschedule => CanManageAppointments(principal)
             || (principal.IsInRole(Roles.Patient) && !BaseAppointmentState.IsWithinCancellationCutoff(appointment)),
         _ => false
     };

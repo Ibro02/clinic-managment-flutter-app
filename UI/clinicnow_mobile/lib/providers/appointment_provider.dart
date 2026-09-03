@@ -31,6 +31,19 @@ class AppointmentProvider extends BaseProvider<Appointment> {
     return fromJson(decode(response) as Map<String, dynamic>);
   }
 
+  /// Moves the appointment to a new doctor/time (review item C6). The medical
+  /// service can't change here - the server re-validates everything else
+  /// (working hours, blocks, overlap, doctor↔service compatibility) exactly
+  /// as it does for a new booking.
+  Future<Appointment> reschedule(int id, {required int doctorId, required DateTime startUtc}) async {
+    final response = await http.post(
+      buildUri('api/Appointment/$id/reschedule'),
+      headers: authHeaders(),
+      body: jsonEncode({'doctorId': doctorId, 'startUtc': startUtc.toUtc().toIso8601String()}),
+    );
+    return fromJson(decode(response) as Map<String, dynamic>);
+  }
+
   /// Real free start times (UTC) for a doctor+service on a given day - drives
   /// the booking flow's time picker (rulebook §7: only real free slots offered).
   Future<List<DateTime>> availableSlots({

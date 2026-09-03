@@ -48,6 +48,11 @@ public class AppointmentController : BaseController<AppointmentDto, AppointmentS
     public async Task<ActionResult<AppointmentDto>> Cancel(int id, AppointmentCancelRequest request, CancellationToken cancellationToken) =>
         Ok(await _appointmentService.CancelAsync(id, request, cancellationToken));
 
+    /// <summary>Moves an appointment to a new doctor/time (review item C6) - open to every authenticated role, ownership and the 48h patient cutoff are enforced in the service, same shape as <see cref="Cancel"/>.</summary>
+    [HttpPost("{id:int}/reschedule")]
+    public async Task<ActionResult<AppointmentDto>> Reschedule(int id, AppointmentRescheduleRequest request, CancellationToken cancellationToken) =>
+        Ok(await _appointmentService.RescheduleAsync(id, request, cancellationToken));
+
     /// <summary>Real free slots for a doctor+service on a given day - drives the mobile booking flow's time picker (rulebook §7: only real free slots offered).</summary>
     [HttpGet("available-slots")]
     public async Task<ActionResult<List<DateTime>>> GetAvailableSlots(

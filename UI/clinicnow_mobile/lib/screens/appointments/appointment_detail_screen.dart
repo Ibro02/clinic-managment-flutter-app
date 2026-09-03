@@ -13,6 +13,7 @@ import '../../widgets/ui/app_card.dart';
 import '../../widgets/ui/app_dialog.dart';
 import '../../widgets/ui/app_states.dart';
 import '../payments/payment_webview_screen.dart';
+import 'reschedule_appointment_screen.dart';
 
 /// Detail view of a single appointment, with the Cancel action - only shown
 /// (rulebook Part II §K: "disabled-with-reason for unavailable actions") when
@@ -115,6 +116,18 @@ class _AppointmentDetailScreenState extends State<AppointmentDetailScreen> {
     }
   }
 
+  Future<void> _reschedule() async {
+    final moved = await Navigator.of(context).push<bool>(
+      MaterialPageRoute(
+        builder: (_) => RescheduleAppointmentScreen(appointment: _appointment, provider: widget.provider),
+      ),
+    );
+    if (moved != true || !mounted) return;
+
+    final refreshed = await widget.provider.getById(_appointment.id);
+    if (mounted) setState(() => _appointment = refreshed);
+  }
+
   Future<void> _pay() async {
     setState(() => _isPaying = true);
     try {
@@ -182,6 +195,14 @@ class _AppointmentDetailScreenState extends State<AppointmentDetailScreen> {
                   : const Icon(Icons.payment),
               label: const Text('Plati'),
             ),
+          if (_appointment.canReschedule) ...[
+            const SizedBox(height: AppSpacing.lg),
+            OutlinedButton.icon(
+              onPressed: _reschedule,
+              icon: const Icon(Icons.edit_calendar_outlined),
+              label: const Text('Premjesti termin'),
+            ),
+          ],
           const SizedBox(height: AppSpacing.lg),
           // Rulebook §K: when cancelling isn't allowed, say why rather than
           // hiding the control and leaving the patient guessing.

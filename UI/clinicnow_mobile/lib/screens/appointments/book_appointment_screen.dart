@@ -4,7 +4,6 @@ import 'package:provider/provider.dart';
 
 import '../../core/api_exception.dart';
 import '../../core/auth_session.dart';
-import '../../core/clinic_colors.dart';
 import '../../models/doctor.dart';
 import '../../models/medical_service.dart';
 import '../../models/recommendation.dart';
@@ -17,6 +16,7 @@ import '../../providers/recommendation_provider.dart';
 import '../../widgets/ui/app_badge.dart';
 import '../../widgets/ui/app_card.dart';
 import '../../widgets/ui/app_dialog.dart';
+import '../../widgets/doctor_dropdown_field.dart';
 import '../../widgets/ui/app_states.dart';
 import '../../widgets/ui/app_tiles.dart';
 import '../payments/payment_webview_screen.dart';
@@ -350,37 +350,9 @@ class _BookAppointmentScreenState extends State<BookAppointmentScreen> {
                     const SizedBox(height: AppSpacing.md),
                   ],
                   _step(context, 1, 'Odaberite doktora'),
-                  DropdownButtonFormField<Doctor>(
-                    initialValue: _doctor,
-                    decoration: const InputDecoration(hintText: 'Odaberite doktora'),
-                    // Without this, DropdownButtonFormField sizes its internal
-                    // row to the selected item's intrinsic width instead of the
-                    // width the field actually has - once C2 made the item text
-                    // longer (doctor name + every specialization), that
-                    // intrinsic width exceeded the available space and Flutter
-                    // logged "RenderFlex overflowed ... on the right" even with
-                    // no doctor selected yet, since the same row layout applies
-                    // to the hint. isExpanded is Flutter's own fix for exactly
-                    // this ("apply a flex factor... force the children to fit").
-                    isExpanded: true,
-                    // null, not the default 48 - each item is two lines
-                    // (name/specializations + clinic), so a fixed single-line
-                    // height would clip the clinic subtext IN THE OPEN MENU.
-                    itemHeight: null,
-                    items: _doctors
-                        .map((d) => DropdownMenuItem(value: d, child: _DoctorOption(doctor: d)))
-                        .toList(),
-                    // The CLOSED field is a separate render path from the open
-                    // menu and Flutter caps its height at one text line
-                    // regardless of itemHeight - a two-line _DoctorOption there
-                    // overflows vertically no matter how padding is tuned.
-                    // selectedItemBuilder is Flutter's built-in mechanism for
-                    // exactly this: a different (here, single-line, ellipsized)
-                    // representation for the closed state, while the open menu
-                    // keeps the full name/specializations/clinic detail.
-                    selectedItemBuilder: (context) => _doctors
-                        .map((d) => Text(d.fullName, maxLines: 1, overflow: TextOverflow.ellipsis))
-                        .toList(),
+                  DoctorDropdownField(
+                    doctors: _doctors,
+                    value: _doctor,
                     onChanged: (value) {
                       setState(() {
                         _doctor = value;
@@ -569,41 +541,6 @@ class _BookAppointmentScreenState extends State<BookAppointmentScreen> {
       selected: _selectedSlot,
       onSelected: (slot) => setState(() => _selectedSlot = slot),
       labelBuilder: _timeFormat.format,
-    );
-  }
-}
-
-/// A doctor dropdown item: name (+ specializations, if any), with the clinic
-/// they practice at shown smaller underneath, colored per-clinic (rulebook
-/// Part II §K) - reinforces which clinic a doctor belongs to at a glance
-/// without adding an extra step to the booking flow.
-class _DoctorOption extends StatelessWidget {
-  final Doctor doctor;
-
-  const _DoctorOption({required this.doctor});
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        // maxLines + ellipsis: a doctor with several specializations (C2 added
-        // the list inline here) can produce a name line wider than the
-        // dropdown's selected-value area, which otherwise renders a "RenderFlex
-        // overflowed" debug banner instead of clipping gracefully.
-        Text(
-          '${doctor.fullName}${doctor.specializations.isNotEmpty ? ' (${doctor.specializations.join(', ')})' : ''}',
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-        ),
-        Text(
-          doctor.locationName,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: TextStyle(fontSize: 12, color: clinicColor(doctor.locationId, Theme.of(context).brightness)),
-        ),
-      ],
     );
   }
 }

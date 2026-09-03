@@ -20,6 +20,7 @@ import '../../widgets/ui/app_data_table.dart';
 import '../../widgets/ui/app_dialog.dart';
 import '../../widgets/ui/app_fields.dart';
 import '../../widgets/ui/app_states.dart';
+import 'reschedule_appointment_dialog.dart';
 import 'schedule_appointment_dialog.dart';
 
 /// Staff/doctor appointment management: list with ≥1 search param (patient AND
@@ -214,6 +215,14 @@ class _AppointmentScreenState extends State<AppointmentScreen> {
     }
   }
 
+  Future<void> _reschedule(Appointment appointment) async {
+    final moved = await showDialog<bool>(
+      context: context,
+      builder: (_) => RescheduleAppointmentDialog(appointment: appointment),
+    );
+    if (moved == true) _load();
+  }
+
   Future<void> _refund(Appointment appointment) async {
     if (appointment.paymentId == null) return;
 
@@ -401,7 +410,7 @@ class _AppointmentScreenState extends State<AppointmentScreen> {
               onRetry: _load,
               emptyTitle: 'Nema termina',
               emptyMessage: 'Nijedan termin ne odgovara odabranim filterima.',
-              actionsWidth: 160,
+              actionsWidth: 200,
               paging: AppTablePaging(page: _page - 1, pageSize: _pageSize, totalCount: _count),
               onPageChanged: (zeroBased) {
                 setState(() => _page = zeroBased + 1);
@@ -463,6 +472,11 @@ class _AppointmentScreenState extends State<AppointmentScreen> {
                   tooltip: a.canCancel ? 'Otkaži' : 'Otkazivanje nije moguće u ovom statusu',
                   destructive: true,
                   onPressed: a.canCancel ? () => _cancel(a) : null,
+                ),
+                AppRowAction(
+                  icon: Icons.edit_calendar_outlined,
+                  tooltip: a.canReschedule ? 'Premjesti' : 'Premještanje nije moguće u ovom statusu',
+                  onPressed: a.canReschedule ? () => _reschedule(a) : null,
                 ),
                 if (a.canRefund)
                   AppRowAction(

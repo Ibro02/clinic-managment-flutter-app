@@ -13,7 +13,8 @@ public class ScheduledAppointmentState : BaseAppointmentState
     {
     }
 
-    public override IReadOnlyList<AppointmentAction> AllowedActions() => [AppointmentAction.Confirm, AppointmentAction.Cancel];
+    public override IReadOnlyList<AppointmentAction> AllowedActions() =>
+        [AppointmentAction.Confirm, AppointmentAction.Cancel, AppointmentAction.Reschedule];
 
     public override async Task<Appointment> ConfirmAsync(Appointment appointment, int actingUserId, CancellationToken cancellationToken)
     {
@@ -37,4 +38,7 @@ public class ScheduledAppointmentState : BaseAppointmentState
         await Context.SaveChangesAsync(cancellationToken);
         return appointment;
     }
+
+    public override Task<Appointment> RescheduleAsync(Appointment appointment, int newDoctorId, DateTime newStartUtc, int actingUserId, bool enforceCutoff, CancellationToken cancellationToken) =>
+        RescheduleCoreAsync(appointment, newDoctorId, newStartUtc, actingUserId, enforceCutoff, cancellationToken);
 }

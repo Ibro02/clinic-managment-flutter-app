@@ -11,5 +11,6 @@ public enum AppointmentAction
 {
     Confirm,
     Complete,
-    Cancel
+    Cancel,
+    Reschedule
 }

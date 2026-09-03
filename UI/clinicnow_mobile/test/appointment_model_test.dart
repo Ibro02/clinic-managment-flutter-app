@@ -33,4 +33,25 @@ void main() {
     expect(result.resultList.single.paymentStatus, isNull);
     expect(result.resultList.single.paymentId, isNull);
   });
+
+  test('canReschedule reflects the server-computed allowedActions list (review item C6)', () {
+    final withReschedule = Appointment.fromJson(jsonDecode('''
+    {"id":1,"patientId":1,"patientName":"Hana Pacijentić","doctorId":1,
+    "doctorName":"Emir Doktorović","medicalServiceId":1,"medicalServiceName":"Opći pregled",
+    "locationId":1,"locationName":"Poliklinika Centar","startUtc":"2026-08-18T09:00:00Z",
+    "endUtc":"2026-08-18T09:30:00Z","status":0,"statusName":"Na čekanju",
+    "cancellationReason":null,"createdAtUtc":"2026-01-01T00:00:00Z",
+    "allowedActions":["Confirm","Cancel","Reschedule"]}
+    ''') as Map<String, dynamic>);
+    final withoutReschedule = Appointment.fromJson(jsonDecode('''
+    {"id":2,"patientId":1,"patientName":"Hana Pacijentić","doctorId":1,
+    "doctorName":"Emir Doktorović","medicalServiceId":1,"medicalServiceName":"Opći pregled",
+    "locationId":1,"locationName":"Poliklinika Centar","startUtc":"2026-08-18T09:00:00Z",
+    "endUtc":"2026-08-18T09:30:00Z","status":2,"statusName":"Završen",
+    "cancellationReason":null,"createdAtUtc":"2026-01-01T00:00:00Z","allowedActions":[]}
+    ''') as Map<String, dynamic>);
+
+    expect(withReschedule.canReschedule, isTrue);
+    expect(withoutReschedule.canReschedule, isFalse);
+  });
 }

@@ -21,6 +21,8 @@ public interface IAppointmentService : IService<AppointmentDto, AppointmentSearc
 
     Task<AppointmentDto> CancelAsync(int id, AppointmentCancelRequest request, CancellationToken cancellationToken = default);
 
+    Task<AppointmentDto> RescheduleAsync(int id, AppointmentRescheduleRequest request, CancellationToken cancellationToken = default);
+
     /// <summary>Real, currently-free start times for a doctor+service on a given day - never a client-computed guess (rulebook §7: "only real free slots offered").</summary>
     Task<List<DateTime>> GetAvailableSlotsAsync(int doctorId, int medicalServiceId, DateOnly date, CancellationToken cancellationToken = default);
 }

@@ -53,6 +53,7 @@ class Appointment {
   bool get canConfirm => allowedActions.contains('Confirm');
   bool get canComplete => allowedActions.contains('Complete');
   bool get canCancel => allowedActions.contains('Cancel');
+  bool get canReschedule => allowedActions.contains('Reschedule');
 
   factory Appointment.fromJson(Map<String, dynamic> json) => Appointment(
         id: json['id'] as int,

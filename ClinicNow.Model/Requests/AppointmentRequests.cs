@@ -29,3 +29,16 @@ public class AppointmentCancelRequest
 {
     public string Reason { get; set; } = string.Empty;
 }
+
+/// <summary>
+/// Moves an existing appointment to a new doctor and/or time (review item C6).
+/// The medical service is deliberately not changeable here - the reviewer's
+/// wording is "another date, time, or doctor", and switching service is closer
+/// to booking a different appointment than moving this one.
+/// </summary>
+public class AppointmentRescheduleRequest
+{
+    public int DoctorId { get; set; }
+
+    public DateTime StartUtc { get; set; }
+}
