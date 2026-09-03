@@ -29,4 +29,7 @@ public class PatientDto
 
     /// <summary>Every patient has one - convenience id so the UI can deep-link straight to the medical record without an extra lookup.</summary>
     public int? MedicalRecordId { get; set; }
+
+    /// <summary>Null unless the patient is archived - only ever populated when the search was <see cref="ClinicNow.Model.SearchObjects.PatientSearchObject.OnlyDeleted"/>.</summary>
+    public DateTime? DeletedAtUtc { get; set; }
 }

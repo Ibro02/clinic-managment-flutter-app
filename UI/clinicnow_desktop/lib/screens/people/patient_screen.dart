@@ -15,6 +15,7 @@ import '../../widgets/paged_codebook_table.dart';
 import '../../widgets/ui/app_badge.dart';
 import '../../widgets/ui/app_data_table.dart';
 import '../../widgets/ui/app_dialog.dart';
+import 'archived_patients_screen.dart';
 import 'medical_record_screen.dart';
 import 'patient_documents_screen.dart';
 
@@ -251,6 +252,17 @@ class _PatientScreenState extends State<PatientScreen> {
       provider: _provider,
       orderBy: 'LastName',
       canWrite: canWrite,
+      extraActions: [
+        if (canWrite)
+          OutlinedButton.icon(
+            onPressed: () async {
+              await Navigator.of(context).push(MaterialPageRoute(builder: (_) => const ArchivedPatientsScreen()));
+              _tableKey.currentState?.load();
+            },
+            icon: const Icon(Icons.inventory_2_outlined, size: 18),
+            label: const Text('Arhivirani pacijenti'),
+          ),
+      ],
       buildColumns: () => [
         AppColumn(
           label: 'Ime i prezime',

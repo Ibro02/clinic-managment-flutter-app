@@ -3,8 +3,8 @@ using ClinicNow.Model.Exceptions;
 using ClinicNow.Model.Requests;
 using ClinicNow.Model.SearchObjects;
 using ClinicNow.Model.Security;
-using ClinicNow.Services;
 using ClinicNow.Services.Database;
+using ClinicNow.Services.People;
 using MapsterMapper;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -20,15 +20,14 @@ namespace ClinicNow.API.Controllers;
 /// </summary>
 public class PatientController : BaseCRUDController<PatientDto, PatientSearchObject, PatientInsertRequest, PatientUpdateRequest>
 {
+    private readonly IPatientService _service;
     private readonly ClinicNowContext _context;
     private readonly IMapper _mapper;
 
-    public PatientController(
-        ICRUDService<PatientDto, PatientSearchObject, PatientInsertRequest, PatientUpdateRequest> service,
-        ClinicNowContext context,
-        IMapper mapper)
+    public PatientController(IPatientService service, ClinicNowContext context, IMapper mapper)
         : base(service)
     {
+        _service = service;
         _context = context;
         _mapper = mapper;
     }
@@ -72,4 +71,10 @@ public class PatientController : BaseCRUDController<PatientDto, PatientSearchObj
 
         return Ok(_mapper.Map<PatientDto>(patient));
     }
+
+    /// <summary>Un-archives a soft-deleted patient (and reactivates their linked login) - Administrator/Staff only, same gate as <see cref="Delete"/>.</summary>
+    [HttpPost("{id:int}/restore")]
+    [Authorize(Roles = $"{Roles.Administrator},{Roles.Staff}")]
+    public async Task<ActionResult<PatientDto>> Restore(int id, CancellationToken cancellationToken) =>
+        Ok(await _service.RestoreAsync(id, cancellationToken));
 }

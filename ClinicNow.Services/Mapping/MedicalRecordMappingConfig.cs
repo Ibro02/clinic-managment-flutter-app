@@ -8,19 +8,28 @@ namespace ClinicNow.Services.Mapping;
 /// Denormalizes <see cref="MedicalRecord.Patient"/>'s basic info onto the DTO
 /// header (rulebook Part II §K) and computes age from <c>DateOfBirth</c> -
 /// requires <c>Patient</c> to be <c>Include</c>-d, see <c>MedicalRecordService</c>.
+///
+/// <c>Patient</c> is null-guarded throughout: it comes back null once the
+/// patient has been archived (soft-deleted, review item C3) - the record
+/// itself is never deleted, so the karton and its treatment history must stay
+/// readable rather than throwing a NullReferenceException, the same reasoning
+/// <see cref="AppointmentMappingConfig"/> already applies to
+/// <c>Appointment.Patient</c>.
 /// </summary>
 public class MedicalRecordMappingConfig : IRegister
 {
+    private const string ArchivedPatientName = "Obrisani pacijent";
+
     public void Register(TypeAdapterConfig config)
     {
         config.NewConfig<MedicalRecord, MedicalRecordDto>()
-            .Map(dest => dest.PatientFirstName, src => src.Patient.FirstName)
-            .Map(dest => dest.PatientLastName, src => src.Patient.LastName)
-            .Map(dest => dest.PatientAge, src => CalculateAge(src.Patient.DateOfBirth))
-            .Map(dest => dest.PatientGender, src => src.Patient.Gender)
-            .Map(dest => dest.PatientAddress, src => src.Patient.Address)
-            .Map(dest => dest.PatientEmail, src => src.Patient.Email)
-            .Map(dest => dest.PatientPhoneNumber, src => src.Patient.PhoneNumber)
+            .Map(dest => dest.PatientFirstName, src => src.Patient == null ? ArchivedPatientName : src.Patient.FirstName)
+            .Map(dest => dest.PatientLastName, src => src.Patient == null ? string.Empty : src.Patient.LastName)
+            .Map(dest => dest.PatientAge, src => src.Patient == null ? null : CalculateAge(src.Patient.DateOfBirth))
+            .Map(dest => dest.PatientGender, src => src.Patient == null ? null : src.Patient.Gender)
+            .Map(dest => dest.PatientAddress, src => src.Patient == null ? null : src.Patient.Address)
+            .Map(dest => dest.PatientEmail, src => src.Patient == null ? null : src.Patient.Email)
+            .Map(dest => dest.PatientPhoneNumber, src => src.Patient == null ? null : src.Patient.PhoneNumber)
             .Map(dest => dest.Entries, src => src.Entries.OrderBy(e => e.EntryDate).ThenBy(e => e.CreatedAtUtc));
 
         config.NewConfig<MedicalRecordEntry, MedicalRecordEntryDto>()

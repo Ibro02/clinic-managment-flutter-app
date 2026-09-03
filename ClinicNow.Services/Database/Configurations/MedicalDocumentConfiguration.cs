@@ -32,9 +32,18 @@ public class MedicalDocumentConfiguration : IEntityTypeConfiguration<MedicalDocu
             .HasForeignKey(d => d.UploadedByUserId)
             .OnDelete(DeleteBehavior.Restrict);
 
+        // .IsRequired(false) on the navigation only - PatientId itself stays
+        // NOT NULL. Same root-cause fix as Appointment.Patient/MedicalRecord.Patient
+        // (review item C3): Patient carries a global soft-delete query filter, and
+        // EF treats a *required* navigation into a filtered entity as an inner
+        // join for Include() purposes - without this, an archived patient's
+        // documents would silently vanish from every query (worse than a null
+        // reference: not an error, just gone) instead of failing an ownership
+        // check while staying visible to staff who look them up directly.
         builder.HasOne(d => d.Patient)
             .WithMany()
             .HasForeignKey(d => d.PatientId)
+            .IsRequired(false)
             .OnDelete(DeleteBehavior.Restrict);
 
         // Patient Id=1 is the self-registered patient@clinicnow.test (see

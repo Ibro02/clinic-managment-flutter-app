@@ -410,7 +410,6 @@ class _AppointmentScreenState extends State<AppointmentScreen> {
               onRetry: _load,
               emptyTitle: 'Nema termina',
               emptyMessage: 'Nijedan termin ne odgovara odabranim filterima.',
-              actionsWidth: 200,
               paging: AppTablePaging(page: _page - 1, pageSize: _pageSize, totalCount: _count),
               onPageChanged: (zeroBased) {
                 setState(() => _page = zeroBased + 1);

@@ -116,9 +116,31 @@ class AppDataTable<T> extends StatelessWidget {
     this.rowHeight = AppSizes.tableRowHeight,
   });
 
+  /// The actions column's real width, computed from how many [AppRowAction]s
+  /// the current rows actually render rather than a per-screen guessed
+  /// constant. Every [AppRowAction] is a fixed [AppRowAction.width] regardless
+  /// of icon, so N actions always need exactly N × that width - a flat
+  /// default (previously 104, i.e. room for 3) silently overflowed as soon as
+  /// any screen's `extraRowActions` pushed a row past whatever count the
+  /// default happened to fit, on every grid that used it, not just one.
+  /// [actionsWidth] remains the fallback for the loading skeleton and the
+  /// empty state, where there are no real rows yet to measure.
+  double _resolveActionsWidth(BuildContext context) {
+    if (rowActions == null) return 0;
+    if (rows.isEmpty) return actionsWidth;
+
+    var maxActions = 0;
+    for (final row in rows) {
+      final count = rowActions!(context, row).length;
+      if (count > maxActions) maxActions = count;
+    }
+    return maxActions * AppRowAction.width;
+  }
+
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
+    final resolvedActionsWidth = _resolveActionsWidth(context);
 
     final Widget body;
     if (error != null) {
@@ -142,7 +164,7 @@ class AppDataTable<T> extends StatelessWidget {
           row: rows[index],
           columns: columns,
           rowActions: rowActions,
-          actionsWidth: actionsWidth,
+          actionsWidth: resolvedActionsWidth,
           onTap: onRowTap,
           height: rowHeight,
           isLast: index == rows.length - 1,
@@ -163,7 +185,7 @@ class AppDataTable<T> extends StatelessWidget {
           mainAxisSize: expand ? MainAxisSize.max : MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            _header(context),
+            _header(context, resolvedActionsWidth),
             if (expand) Expanded(child: body) else Flexible(child: body),
             if (paging != null) _footer(context, paging!),
           ],
@@ -174,7 +196,7 @@ class AppDataTable<T> extends StatelessWidget {
 
   // --- header ---------------------------------------------------------------
 
-  Widget _header(BuildContext context) {
+  Widget _header(BuildContext context, double resolvedActionsWidth) {
     final c = context.colors;
 
     return Container(
@@ -196,7 +218,7 @@ class AppDataTable<T> extends StatelessWidget {
                 onSort: onSort,
               ),
             ),
-          if (rowActions != null) SizedBox(width: actionsWidth),
+          if (rowActions != null) SizedBox(width: resolvedActionsWidth),
         ],
       ),
     );
@@ -521,6 +543,11 @@ class _TableRowState<T> extends State<_TableRow<T>> {
 /// A compact icon button sized for a table row. Kept here so every grid's
 /// actions look the same.
 class AppRowAction extends StatelessWidget {
+  /// Rendered width of one action (matches the tight [BoxConstraints] below).
+  /// [AppDataTable] reads this to size its actions column from the actual
+  /// number of actions a row renders, instead of a flat per-screen guess.
+  static const double width = 32.0;
+
   final IconData icon;
   final String tooltip;
   final VoidCallback? onPressed;

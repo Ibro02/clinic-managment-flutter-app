@@ -94,7 +94,10 @@ builder.Services.AddScoped<ICRUDService<LocationDto, LocationSearchObject, Locat
 builder.Services.AddScoped<ICRUDService<MedicalServiceDto, MedicalServiceSearchObject, MedicalServiceInsertRequest, MedicalServiceUpdateRequest>, MedicalServiceService>();
 
 // --- People: Patients & Doctors (Phase 3) -----------------------------------------
-builder.Services.AddScoped<ICRUDService<PatientDto, PatientSearchObject, PatientInsertRequest, PatientUpdateRequest>, PatientService>();
+// Patient is registered by its bespoke IPatientService (adds RestoreAsync on top of
+// the generic CRUD shape) rather than the plain ICRUDService<...>, same pattern as
+// IAppointmentService below.
+builder.Services.AddScoped<IPatientService, PatientService>();
 builder.Services.AddScoped<ICRUDService<DoctorDto, DoctorSearchObject, DoctorInsertRequest, DoctorUpdateRequest>, DoctorService>();
 builder.Services.AddScoped<ICRUDService<WorkingHoursDto, WorkingHoursSearchObject, WorkingHoursInsertRequest, WorkingHoursUpdateRequest>, WorkingHoursService>();
 builder.Services.AddScoped<ICRUDService<ScheduleBlockDto, ScheduleBlockSearchObject, ScheduleBlockInsertRequest, ScheduleBlockUpdateRequest>, ScheduleBlockService>();

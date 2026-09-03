@@ -1,3 +1,4 @@
+using ClinicNow.Model.Common;
 using ClinicNow.Model.Dto;
 using ClinicNow.Model.Exceptions;
 using ClinicNow.Model.Requests;
@@ -9,7 +10,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace ClinicNow.Services.People;
 
-public class PatientService : BaseCRUDService<PatientDto, PatientSearchObject, Patient, PatientInsertRequest, PatientUpdateRequest>
+public class PatientService : BaseCRUDService<PatientDto, PatientSearchObject, Patient, PatientInsertRequest, PatientUpdateRequest>, IPatientService
 {
     public PatientService(ClinicNowContext context, IMapper mapper) : base(context, mapper)
     {
@@ -21,6 +22,14 @@ public class PatientService : BaseCRUDService<PatientDto, PatientSearchObject, P
         // Part II §K: never show raw IDs / always give the UI a real link target) -
         // ApplyFilter runs on the GetPagedAsync path.
         query = query.Include(p => p.MedicalRecord);
+
+        // The dedicated "Arhivirani pacijenti" screen deliberately bypasses the
+        // global ISoftDelete query filter instead of ever mixing archived rows
+        // into the normal list - Administrator/Staff asked to see archived
+        // patients as their own view, not as noise in the everyday one.
+        query = search.OnlyDeleted
+            ? query.IgnoreQueryFilters().Where(p => p.IsDeleted)
+            : query;
 
         if (!string.IsNullOrWhiteSpace(search.Name))
         {
@@ -111,12 +120,73 @@ public class PatientService : BaseCRUDService<PatientDto, PatientSearchObject, P
 
     protected override async Task BeforeDeleteAsync(Patient entity, CancellationToken cancellationToken)
     {
-        var hasAppointments = await Context.Appointments.AnyAsync(a => a.PatientId == entity.Id, cancellationToken);
-        if (hasAppointments)
+        // Deleting a Patient is a soft-delete (ISoftDelete), i.e. archiving, not a
+        // physical removal - so unlike a hard-delete guard, this only needs to
+        // protect a *future* appointment from being silently orphaned. A patient
+        // whose appointment history is entirely Completed/Cancelled can be
+        // archived; AppointmentMappingConfig/MedicalRecordMappingConfig/
+        // MedicalDocumentMappingConfig keep that history readable afterwards
+        // (review item C3) instead of blocking archival altogether.
+        var hasActiveAppointment = await Context.Appointments.AnyAsync(
+            a => a.PatientId == entity.Id &&
+                (a.Status == AppointmentStatus.Pending || a.Status == AppointmentStatus.Confirmed),
+            cancellationToken);
+        if (hasActiveAppointment)
         {
             throw new BusinessException(
-                $"Pacijent '{entity.FirstName} {entity.LastName}' se ne može obrisati jer ima zakazane termine.");
+                $"Pacijent '{entity.FirstName} {entity.LastName}' se ne može obrisati jer ima zakazan ili potvrđen termin.");
         }
+
+        // Mirrors DoctorService.BeforeDeleteAsync: a login with no active patient
+        // profile behind it shouldn't stay usable. Patient.UserId is nullable (a
+        // walk-in patient staff created may have no login at all), unlike
+        // Doctor.UserId, so this is null-checked rather than assumed present -
+        // this is the fix for the reviewer's actual defect: deleting a patient
+        // used to leave User.IsActive untouched, so the login still worked via
+        // UserService.LoginAsync after the patient was "deleted".
+        if (entity.UserId is int userId)
+        {
+            var user = await Context.Users.FindAsync([userId], cancellationToken);
+            if (user is not null)
+            {
+                user.IsActive = false;
+            }
+        }
+    }
+
+    public async Task<PatientDto> RestoreAsync(int id, CancellationToken cancellationToken = default)
+    {
+        // The global ISoftDelete query filter excludes archived rows by default,
+        // so a plain FindAsync/Where here would never find the patient we're
+        // trying to restore - IgnoreQueryFilters() is required.
+        var entity = await Context.Patients
+            .IgnoreQueryFilters()
+            .Include(p => p.MedicalRecord)
+            .SingleOrDefaultAsync(p => p.Id == id, cancellationToken)
+            ?? throw new NotFoundException(nameof(Patient), id);
+
+        if (!entity.IsDeleted)
+        {
+            throw new BusinessException($"Pacijent '{entity.FirstName} {entity.LastName}' nije arhiviran.");
+        }
+
+        entity.IsDeleted = false;
+        entity.DeletedAtUtc = null;
+
+        // The exact reverse of BeforeDeleteAsync's deactivation - restoring a
+        // patient's record should restore their ability to log in too.
+        if (entity.UserId is int userId)
+        {
+            var user = await Context.Users.FindAsync([userId], cancellationToken);
+            if (user is not null)
+            {
+                user.IsActive = true;
+            }
+        }
+
+        await Context.SaveChangesAsync(cancellationToken);
+
+        return Mapper.Map<PatientDto>(entity);
     }
 
     private async Task EnsurePersonalIdIsUniqueAsync(string? personalIdNumber, int? excludeId, CancellationToken cancellationToken)

@@ -42,9 +42,14 @@ class PagedCodebookTable<T> extends StatefulWidget {
   /// to keep in the same order.
   final List<AppColumn<T>> Function() buildColumns;
 
-  final VoidCallback onAdd;
-  final void Function(T item) onEdit;
-  final Future<void> Function(T item) onDelete;
+  /// Null for a read-only table (e.g. the archived-patients view, which is
+  /// never writable regardless of role) - the buttons that would call these
+  /// are already hidden whenever [canWrite] is false, so leaving them unset
+  /// there is safe rather than requiring every read-only caller to pass a
+  /// dead no-op closure.
+  final VoidCallback? onAdd;
+  final void Function(T item)? onEdit;
+  final Future<void> Function(T item)? onDelete;
   final String Function(T item) itemLabel;
 
   /// Label for the primary action. Defaults to the generic "Dodaj"; screens
@@ -75,6 +80,10 @@ class PagedCodebookTable<T> extends StatefulWidget {
   /// schedule" on a Doctor row). Always shown, regardless of [canWrite].
   final List<Widget> Function(T item)? extraRowActions;
 
+  /// Additional buttons rendered in the toolbar after "Dodaj" (e.g. "Arhivirani
+  /// pacijenti"). Always shown, regardless of [canWrite] - the caller decides.
+  final List<Widget> extraActions;
+
   /// Hides the search box entirely for resources with no name-based filter
   /// on the backend (e.g. WorkingHours/ScheduleBlock, scoped by doctor
   /// instead via [extraSearchParams]).
@@ -90,9 +99,9 @@ class PagedCodebookTable<T> extends StatefulWidget {
     required this.searchHint,
     required this.provider,
     required this.buildColumns,
-    required this.onAdd,
-    required this.onEdit,
-    required this.onDelete,
+    this.onAdd,
+    this.onEdit,
+    this.onDelete,
     required this.itemLabel,
     this.subtitle,
     this.addLabel = 'Dodaj',
@@ -101,6 +110,7 @@ class PagedCodebookTable<T> extends StatefulWidget {
     this.extraSearchParams = const {},
     this.canWrite = true,
     this.extraRowActions,
+    this.extraActions = const [],
     this.showSearch = true,
     this.expand = true,
   });
@@ -183,7 +193,7 @@ class PagedCodebookTableState<T> extends State<PagedCodebookTable<T>> {
     if (!confirmed) return;
 
     try {
-      await widget.onDelete(item);
+      await widget.onDelete?.call(item);
       await load();
     } on ApiException catch (e) {
       if (!mounted) return;
@@ -223,7 +233,7 @@ class PagedCodebookTableState<T> extends State<PagedCodebookTable<T>> {
       rowActions: (context, item) => [
         ...?widget.extraRowActions?.call(item),
         if (widget.canWrite) ...[
-          AppRowAction(icon: Icons.edit_outlined, tooltip: 'Uredi', onPressed: () => widget.onEdit(item)),
+          AppRowAction(icon: Icons.edit_outlined, tooltip: 'Uredi', onPressed: () => widget.onEdit?.call(item)),
           AppRowAction(
             icon: Icons.delete_outline_rounded,
             tooltip: 'Obriši',
@@ -251,6 +261,7 @@ class PagedCodebookTableState<T> extends State<PagedCodebookTable<T>> {
                 ),
             ],
             actions: [
+              ...widget.extraActions,
               if (widget.canWrite)
                 FilledButton.icon(
                   onPressed: widget.onAdd,

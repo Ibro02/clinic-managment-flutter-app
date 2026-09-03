@@ -15,6 +15,10 @@ class Patient {
   final DateTime createdAtUtc;
   final int? medicalRecordId;
 
+  /// Null unless this patient was fetched from the archived-patients view
+  /// (`onlyDeleted: true`) - see `ArchivedPatientsScreen`.
+  final DateTime? deletedAtUtc;
+
   Patient({
     required this.id,
     this.userId,
@@ -28,6 +32,7 @@ class Patient {
     this.address,
     required this.createdAtUtc,
     this.medicalRecordId,
+    this.deletedAtUtc,
   });
 
   String get fullName => '$firstName $lastName';
@@ -45,5 +50,6 @@ class Patient {
         address: json['address'] as String?,
         createdAtUtc: DateTime.parse(json['createdAtUtc'] as String),
         medicalRecordId: json['medicalRecordId'] as int?,
+        deletedAtUtc: json['deletedAtUtc'] == null ? null : DateTime.parse(json['deletedAtUtc'] as String),
       );
 }
