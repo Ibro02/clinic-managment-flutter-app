@@ -88,7 +88,7 @@ public abstract class BaseAppointmentState
     /// every non-terminal state's <c>CancelAsync</c> override - one place to get
     /// the business rule right instead of duplicating it per state.
     /// </summary>
-    protected void ValidateAndApplyCancel(Appointment appointment, int actingUserId, string reason, bool enforceCutoff)
+    protected async Task ValidateAndApplyCancelAsync(Appointment appointment, int actingUserId, string reason, bool enforceCutoff, CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(reason))
         {
@@ -102,6 +102,29 @@ public abstract class BaseAppointmentState
 
         appointment.CancellationReason = reason.Trim();
         AddAuditLog(appointment, AppointmentStatus.Cancelled, actingUserId, reason.Trim());
+        await ArchiveResultingReferralIfAnyAsync(appointment, cancellationToken);
+    }
+
+    /// <summary>
+    /// Once an appointment reaches a terminal state that means "this
+    /// visit is done or moot" (Completed here, or Cancelled via
+    /// <see cref="ValidateAndApplyCancelAsync"/>), any <see cref="Referral"/>
+    /// it fulfilled - see <c>AppointmentService.ScheduleAsync</c>'s
+    /// <c>ReferralId</c> handling - has served its purpose and is archived
+    /// automatically (soft-deleted; never removed from the database, so
+    /// review item C5's "stays part of the medical history" still holds -
+    /// "Arhiva" in both Flutter clients is just a separate view over the
+    /// same data). A no-op when this appointment didn't result from a
+    /// referral.
+    /// </summary>
+    protected async Task ArchiveResultingReferralIfAnyAsync(Appointment appointment, CancellationToken cancellationToken)
+    {
+        var referral = await Context.Referrals.SingleOrDefaultAsync(r => r.ResultingAppointmentId == appointment.Id, cancellationToken);
+        if (referral is not null)
+        {
+            referral.IsDeleted = true;
+            referral.DeletedAtUtc = DateTime.UtcNow;
+        }
     }
 
     /// <summary>

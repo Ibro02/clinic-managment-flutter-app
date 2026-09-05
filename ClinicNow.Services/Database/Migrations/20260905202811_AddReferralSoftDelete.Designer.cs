@@ -4,6 +4,7 @@ using ClinicNow.Services.Database;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -11,9 +12,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace ClinicNow.Services.Database.Migrations
 {
     [DbContext(typeof(ClinicNowContext))]
-    partial class ClinicNowContextModelSnapshot : ModelSnapshot
+    [Migration("20260905202811_AddReferralSoftDelete")]
+    partial class AddReferralSoftDelete
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -1339,9 +1342,6 @@ namespace ClinicNow.Services.Database.Migrations
                     b.Property<int>("ReferringDoctorId")
                         .HasColumnType("int");
 
-                    b.Property<int?>("ResultingAppointmentId")
-                        .HasColumnType("int");
-
                     b.Property<int>("SourceAppointmentId")
                         .HasColumnType("int");
 
@@ -1355,8 +1355,6 @@ namespace ClinicNow.Services.Database.Migrations
                     b.HasIndex("PatientId");
 
                     b.HasIndex("ReferringDoctorId");
-
-                    b.HasIndex("ResultingAppointmentId");
 
                     b.HasIndex("SourceAppointmentId");
 
@@ -2109,11 +2107,6 @@ namespace ClinicNow.Services.Database.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
-                    b.HasOne("ClinicNow.Services.Database.Entities.Appointment", "ResultingAppointment")
-                        .WithMany()
-                        .HasForeignKey("ResultingAppointmentId")
-                        .OnDelete(DeleteBehavior.Restrict);
-
                     b.HasOne("ClinicNow.Services.Database.Entities.Appointment", "SourceAppointment")
                         .WithMany()
                         .HasForeignKey("SourceAppointmentId")
@@ -2131,8 +2124,6 @@ namespace ClinicNow.Services.Database.Migrations
                     b.Navigation("Patient");
 
                     b.Navigation("ReferringDoctor");
-
-                    b.Navigation("ResultingAppointment");
 
                     b.Navigation("SourceAppointment");
 

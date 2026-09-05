@@ -15,6 +15,8 @@ import '../../widgets/paged_codebook_table.dart';
 import '../../widgets/ui/app_badge.dart';
 import '../../widgets/ui/app_data_table.dart';
 import '../../widgets/ui/app_dialog.dart';
+import '../appointments/lab_findings_screen.dart';
+import '../appointments/referrals_screen.dart';
 import 'archived_patients_screen.dart';
 import 'medical_record_screen.dart';
 import 'patient_documents_screen.dart';
@@ -300,9 +302,11 @@ class _PatientScreenState extends State<PatientScreen> {
         AppRowAction(
           icon: Icons.folder_shared_outlined,
           tooltip: 'Medicinski karton',
-          onPressed: () => Navigator.of(
-            context,
-          ).push(MaterialPageRoute(builder: (_) => MedicalRecordScreen(patient: patient))),
+          onPressed: () => Navigator.of(context).push(
+            MaterialPageRoute(
+              builder: (_) => MedicalRecordScreen(patientId: patient.id, patientName: patient.fullName),
+            ),
+          ),
         ),
         AppRowAction(
           icon: Icons.folder_outlined,
@@ -310,6 +314,24 @@ class _PatientScreenState extends State<PatientScreen> {
           onPressed: () => Navigator.of(
             context,
           ).push(MaterialPageRoute(builder: (_) => PatientDocumentsScreen(patient: patient))),
+        ),
+        AppRowAction(
+          icon: Icons.biotech_outlined,
+          tooltip: 'Laboratorijski nalazi',
+          onPressed: () => Navigator.of(context).push(
+            MaterialPageRoute(
+              builder: (_) => LabFindingsScreen(patientId: patient.id, patientName: patient.fullName),
+            ),
+          ),
+        ),
+        AppRowAction(
+          icon: Icons.assignment_outlined,
+          tooltip: 'Uputnice',
+          onPressed: () => Navigator.of(context).push(
+            MaterialPageRoute(
+              builder: (_) => ReferralsScreen(patientId: patient.id, patientName: patient.fullName),
+            ),
+          ),
         ),
       ],
       onAdd: () => _openForm(),

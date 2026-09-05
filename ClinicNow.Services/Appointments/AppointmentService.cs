@@ -142,10 +142,40 @@ public class AppointmentService : IAppointmentService
             throw new ForbiddenException("Nemate dozvolu za zakazivanje termina.");
         }
 
+        // Validated before the booking itself so an invalid/already-used
+        // referral fails fast rather than after an appointment is already
+        // created (review item C5's "continue to booking" - the referral
+        // must belong to this patient, and IgnoreQueryFilters is deliberately
+        // NOT used here, so an archived referral simply doesn't match and is
+        // rejected the same as a nonexistent one - "make sure archived
+        // referrals can't be reused").
+        Referral? referral = null;
+        if (request.ReferralId.HasValue)
+        {
+            referral = await _context.Referrals.SingleOrDefaultAsync(r => r.Id == request.ReferralId.Value, cancellationToken)
+                ?? throw new ValidationException("referralId", "Odabrana uputnica ne postoji.");
+
+            if (referral.PatientId != patientId)
+            {
+                throw new ForbiddenException("Ne možete koristiti tuđu uputnicu.");
+            }
+
+            if (referral.ResultingAppointmentId is not null)
+            {
+                throw new BusinessException("Ova uputnica je već iskorištena za zakazivanje termina.");
+            }
+        }
+
         var initialState = _serviceProvider.GetRequiredService<InitialAppointmentState>();
         var appointment = await initialState.ScheduleAsync(
             patientId, request.DoctorId, request.MedicalServiceId,
             request.StartUtc, actingUserId, cancellationToken);
+
+        if (referral is not null)
+        {
+            referral.ResultingAppointmentId = appointment.Id;
+            await _context.SaveChangesAsync(cancellationToken);
+        }
 
         var reloaded = await ReloadAsync(appointment.Id, cancellationToken);
 

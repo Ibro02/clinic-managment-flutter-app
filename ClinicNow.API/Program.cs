@@ -20,6 +20,7 @@ using ClinicNow.Services.Payments;
 using ClinicNow.Services.People;
 using ClinicNow.Services.Records;
 using ClinicNow.Services.Recommender;
+using ClinicNow.Services.Referrals;
 using ClinicNow.Services.Reports;
 using ClinicNow.Services.Security;
 using ClinicNow.Services.Users;
@@ -119,6 +120,8 @@ builder.Services.AddHostedService<PreAppointmentReminderHostedService>();
 
 // --- Medical documentation (Phase 6) -----------------------------------------------
 builder.Services.AddScoped<IMedicalDocumentService, MedicalDocumentService>();
+builder.Services.AddScoped<ILabFindingService, LabFindingService>();
+builder.Services.AddScoped<IReferralService, ReferralService>();
 
 // --- Medical record ("medicinski karton") ---------------------------------------
 builder.Services.AddScoped<IMedicalRecordService, MedicalRecordService>();

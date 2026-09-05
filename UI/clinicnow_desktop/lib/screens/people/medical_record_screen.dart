@@ -8,7 +8,6 @@ import '../../core/api_exception.dart';
 import '../../core/auth_session.dart';
 import '../../core/roles.dart';
 import '../../models/medical_record.dart';
-import '../../models/patient.dart';
 import '../../providers/medical_record_provider.dart';
 import '../../core/design_tokens.dart';
 import '../../widgets/ui/app_badge.dart';
@@ -21,9 +20,10 @@ import '../../widgets/ui/app_states.dart';
 /// delete anything already applied to the file; an Administrator has full
 /// CRUD over the same content. Every other role sees a read-only view.
 class MedicalRecordScreen extends StatefulWidget {
-  final Patient patient;
+  final int patientId;
+  final String patientName;
 
-  const MedicalRecordScreen({super.key, required this.patient});
+  const MedicalRecordScreen({super.key, required this.patientId, required this.patientName});
 
   @override
   State<MedicalRecordScreen> createState() => _MedicalRecordScreenState();
@@ -46,7 +46,7 @@ class _MedicalRecordScreenState extends State<MedicalRecordScreen> {
   Future<void> _load() async {
     setState(() => _error = null);
     try {
-      final record = await _provider.getByPatientId(widget.patient.id);
+      final record = await _provider.getByPatientId(widget.patientId);
       if (mounted) setState(() => _record = record);
     } on ApiException catch (e) {
       if (mounted) setState(() => _error = e.message);
@@ -79,7 +79,7 @@ class _MedicalRecordScreenState extends State<MedicalRecordScreen> {
                       setDialogState(() => isSubmitting = true);
                       try {
                         final record = await _provider.appendNotes(
-                          widget.patient.id,
+                          widget.patientId,
                           allergiesToAppend: form.value['allergiesToAppend'] as String?,
                           medicalNotesToAppend: form.value['medicalNotesToAppend'] as String?,
                         );
@@ -155,7 +155,7 @@ class _MedicalRecordScreenState extends State<MedicalRecordScreen> {
                       setDialogState(() => isSubmitting = true);
                       try {
                         final record = await _provider.replaceNotes(
-                          widget.patient.id,
+                          widget.patientId,
                           allergies: form.value['allergies'] as String?,
                           medicalNotes: form.value['medicalNotes'] as String?,
                         );
@@ -209,7 +209,7 @@ class _MedicalRecordScreenState extends State<MedicalRecordScreen> {
       builder: (dialogContext) => StatefulBuilder(
         builder: (dialogContext, setDialogState) => AppDialog(
           title: initial == null ? 'Novi unos u historiju liječenja' : 'Uredi unos',
-          subtitle: widget.patient.fullName,
+          subtitle: widget.patientName,
           icon: Icons.medical_information_outlined,
           width: 560,
           actions: [
@@ -230,7 +230,7 @@ class _MedicalRecordScreenState extends State<MedicalRecordScreen> {
                       try {
                         final record = initial == null
                             ? await _provider.addEntry(
-                                widget.patient.id,
+                                widget.patientId,
                                 entryDate: form.value['entryDate'] as DateTime,
                                 diagnosis: form.value['diagnosis'] as String,
                                 treatment: form.value['treatment'] as String,

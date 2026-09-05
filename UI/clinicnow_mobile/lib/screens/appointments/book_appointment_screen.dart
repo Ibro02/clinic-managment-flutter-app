@@ -55,7 +55,29 @@ class BookAppointmentScreen extends StatefulWidget {
   final int? initialMedicalServiceId;
   final DateTime? initialDate;
 
-  const BookAppointmentScreen({super.key, this.initialDoctorId, this.initialMedicalServiceId, this.initialDate});
+  /// Narrows the doctor dropdown to doctors qualified in this specialization
+  /// (review item C5: "continue to booking with the appropriate specialist"
+  /// from a referral). Filtered client-side from each `Doctor.specializationIds`
+  /// already carried on the doctor list - no separate backend call needed.
+  final int? initialSpecializationId;
+
+  /// Set alongside [initialSpecializationId] when booking "from" a referral -
+  /// sent to the server so it can link the new appointment back to the
+  /// referral (`Referral.ResultingAppointmentId`) and archive the referral
+  /// once that appointment is completed or cancelled. The server
+  /// independently re-validates this referral is still usable (not archived,
+  /// not already used, belongs to this patient) - the client never assumes
+  /// it succeeded just because the button was shown.
+  final int? referralId;
+
+  const BookAppointmentScreen({
+    super.key,
+    this.initialDoctorId,
+    this.initialMedicalServiceId,
+    this.initialDate,
+    this.initialSpecializationId,
+    this.referralId,
+  });
 
   @override
   State<BookAppointmentScreen> createState() => _BookAppointmentScreenState();
@@ -113,7 +135,9 @@ class _BookAppointmentScreenState extends State<BookAppointmentScreen> {
     final services = await _fetchServices(widget.initialDoctorId);
     if (!mounted) return;
     setState(() {
-      _doctors = doctors.resultList;
+      _doctors = widget.initialSpecializationId == null
+          ? doctors.resultList
+          : doctors.resultList.where((d) => d.specializationIds.contains(widget.initialSpecializationId)).toList();
       _services = services;
       _isLoadingOptions = false;
     });
@@ -234,6 +258,7 @@ class _BookAppointmentScreenState extends State<BookAppointmentScreen> {
         'doctorId': _doctor!.id,
         'medicalServiceId': _service!.id,
         'startUtc': _selectedSlot!.toUtc().toIso8601String(),
+        if (widget.referralId != null) 'referralId': widget.referralId,
       });
       if (!mounted) return;
 
@@ -347,6 +372,13 @@ class _BookAppointmentScreenState extends State<BookAppointmentScreen> {
                   // the suggestion (rulebook §I: the recommender is explainable).
                   if (_topRecommendation != null) ...[
                     _recommendationCard(context),
+                    const SizedBox(height: AppSpacing.md),
+                  ],
+                  if (widget.initialSpecializationId != null) ...[
+                    const AppNotice(
+                      tone: AppTone.info,
+                      message: 'Lista je sužena na doktore prema vašoj uputnici.',
+                    ),
                     const SizedBox(height: AppSpacing.md),
                   ],
                   _step(context, 1, 'Odaberite doktora'),

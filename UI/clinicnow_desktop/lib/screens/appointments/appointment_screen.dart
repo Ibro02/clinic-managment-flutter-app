@@ -20,6 +20,8 @@ import '../../widgets/ui/app_data_table.dart';
 import '../../widgets/ui/app_dialog.dart';
 import '../../widgets/ui/app_fields.dart';
 import '../../widgets/ui/app_states.dart';
+import 'lab_findings_screen.dart';
+import 'referrals_screen.dart';
 import 'reschedule_appointment_dialog.dart';
 import 'schedule_appointment_dialog.dart';
 
@@ -213,6 +215,30 @@ class _AppointmentScreenState extends State<AppointmentScreen> {
     } on ApiException catch (e) {
       _showError(e.message);
     }
+  }
+
+  Future<void> _openLabFindings(Appointment appointment) async {
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => LabFindingsScreen(
+          patientId: appointment.patientId,
+          patientName: appointment.patientName,
+          initialAppointment: appointment,
+        ),
+      ),
+    );
+  }
+
+  Future<void> _openReferrals(Appointment appointment) async {
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => ReferralsScreen(
+          patientId: appointment.patientId,
+          patientName: appointment.patientName,
+          initialAppointment: appointment,
+        ),
+      ),
+    );
   }
 
   Future<void> _reschedule(Appointment appointment) async {
@@ -483,6 +509,16 @@ class _AppointmentScreenState extends State<AppointmentScreen> {
                     tooltip: 'Povrat sredstava',
                     onPressed: () => _refund(a),
                   ),
+                AppRowAction(
+                  icon: Icons.biotech_outlined,
+                  tooltip: 'Laboratorijski nalazi',
+                  onPressed: () => _openLabFindings(a),
+                ),
+                AppRowAction(
+                  icon: Icons.assignment_outlined,
+                  tooltip: 'Uputnice',
+                  onPressed: () => _openReferrals(a),
+                ),
               ],
             ),
           ),

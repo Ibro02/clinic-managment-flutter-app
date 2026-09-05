@@ -52,6 +52,8 @@ public class ClinicNowContext : DbContext
     public DbSet<NewsItem> NewsItems => Set<NewsItem>();
 
     public DbSet<MedicalDocument> MedicalDocuments => Set<MedicalDocument>();
+    public DbSet<LabFinding> LabFindings => Set<LabFinding>();
+    public DbSet<Referral> Referrals => Set<Referral>();
 
     public DbSet<MedicalRecord> MedicalRecords => Set<MedicalRecord>();
     public DbSet<MedicalRecordEntry> MedicalRecordEntries => Set<MedicalRecordEntry>();

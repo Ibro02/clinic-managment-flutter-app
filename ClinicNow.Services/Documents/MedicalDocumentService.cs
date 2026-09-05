@@ -15,19 +15,6 @@ namespace ClinicNow.Services.Documents;
 
 public class MedicalDocumentService : IMedicalDocumentService
 {
-    // 10 MB - generous for a scanned finding/report while still bounding request size.
-    private const int MaxFileBytes = 10 * 1024 * 1024;
-
-    // Every MIME type this endpoint accepts, and the magic bytes a genuine file of
-    // that type must start with (rulebook Part II §F: "MIME + magic bytes, ne samo
-    // ekstenzija" - the declared Content-Type alone is never trusted).
-    private static readonly Dictionary<string, byte[][]> AllowedSignatures = new()
-    {
-        ["application/pdf"] = [[0x25, 0x50, 0x44, 0x46]], // %PDF
-        ["image/png"] = [[0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]],
-        ["image/jpeg"] = [[0xFF, 0xD8, 0xFF]],
-    };
-
     private readonly ClinicNowContext _context;
     private readonly IMapper _mapper;
     private readonly IHttpContextAccessor _httpContextAccessor;
@@ -96,7 +83,7 @@ public class MedicalDocumentService : IMedicalDocumentService
             throw new ValidationException("patientId", "Odabrani pacijent ne postoji.");
         }
 
-        var bytes = DecodeAndValidateFile(request.FileBase64, request.ContentType);
+        var bytes = FileValidation.DecodeAndValidateFile(request.FileBase64, request.ContentType);
 
         var document = new MedicalDocument
         {
@@ -148,52 +135,6 @@ public class MedicalDocumentService : IMedicalDocumentService
         document.IsDeleted = true;
         document.DeletedAtUtc = DateTime.UtcNow;
         await _context.SaveChangesAsync(cancellationToken);
-    }
-
-    private static byte[] DecodeAndValidateFile(string base64, string declaredContentType)
-    {
-        if (string.IsNullOrWhiteSpace(base64))
-        {
-            throw new ValidationException("fileBase64", "Fajl je obavezan.");
-        }
-
-        byte[] bytes;
-        try
-        {
-            bytes = Convert.FromBase64String(base64);
-        }
-        catch (FormatException)
-        {
-            throw new ValidationException("fileBase64", "Fajl nije ispravno Base64 kodiran.");
-        }
-
-        if (bytes.Length == 0)
-        {
-            throw new ValidationException("fileBase64", "Fajl je prazan.");
-        }
-
-        if (bytes.Length > MaxFileBytes)
-        {
-            throw new ValidationException("fileBase64", "Fajl je prevelik (maksimalno 10 MB).");
-        }
-
-        if (!AllowedSignatures.TryGetValue(declaredContentType, out var signatures))
-        {
-            throw new ValidationException("contentType", "Dozvoljeni su samo PDF, PNG i JPEG fajlovi.");
-        }
-
-        // The declared Content-Type alone proves nothing - a renamed .exe with a
-        // "application/pdf" header would sail through that check alone. Confirm
-        // the file's actual leading bytes match a real file of that type.
-        var matchesSignature = signatures.Any(signature =>
-            bytes.Length >= signature.Length && bytes.Take(signature.Length).SequenceEqual(signature));
-
-        if (!matchesSignature)
-        {
-            throw new ValidationException("fileBase64", "Sadržaj fajla ne odgovara prijavljenom tipu (MIME provjera nije prošla).");
-        }
-
-        return bytes;
     }
 
     private async Task<int> GetOwnPatientIdAsync(int userId, CancellationToken cancellationToken)

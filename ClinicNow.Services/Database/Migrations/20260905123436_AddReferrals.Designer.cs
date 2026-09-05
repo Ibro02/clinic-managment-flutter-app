@@ -4,6 +4,7 @@ using ClinicNow.Services.Database;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -11,9 +12,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace ClinicNow.Services.Database.Migrations
 {
     [DbContext(typeof(ClinicNowContext))]
-    partial class ClinicNowContextModelSnapshot : ModelSnapshot
+    [Migration("20260905123436_AddReferrals")]
+    partial class AddReferrals
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -1322,12 +1325,6 @@ namespace ClinicNow.Services.Database.Migrations
                     b.Property<int>("CreatedByUserId")
                         .HasColumnType("int");
 
-                    b.Property<DateTime?>("DeletedAtUtc")
-                        .HasColumnType("datetime2");
-
-                    b.Property<bool>("IsDeleted")
-                        .HasColumnType("bit");
-
                     b.Property<int>("PatientId")
                         .HasColumnType("int");
 
@@ -1337,9 +1334,6 @@ namespace ClinicNow.Services.Database.Migrations
                         .HasColumnType("nvarchar(2000)");
 
                     b.Property<int>("ReferringDoctorId")
-                        .HasColumnType("int");
-
-                    b.Property<int?>("ResultingAppointmentId")
                         .HasColumnType("int");
 
                     b.Property<int>("SourceAppointmentId")
@@ -1356,8 +1350,6 @@ namespace ClinicNow.Services.Database.Migrations
 
                     b.HasIndex("ReferringDoctorId");
 
-                    b.HasIndex("ResultingAppointmentId");
-
                     b.HasIndex("SourceAppointmentId");
 
                     b.HasIndex("TargetSpecializationId");
@@ -1370,7 +1362,6 @@ namespace ClinicNow.Services.Database.Migrations
                             Id = 1,
                             CreatedAtUtc = new DateTime(2026, 8, 26, 9, 30, 0, 0, DateTimeKind.Utc),
                             CreatedByUserId = 5,
-                            IsDeleted = false,
                             PatientId = 1,
                             Reason = "Povišen krvni pritisak i nepravilan puls - potrebna kardiološka evaluacija.",
                             ReferringDoctorId = 2,
@@ -2109,11 +2100,6 @@ namespace ClinicNow.Services.Database.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
-                    b.HasOne("ClinicNow.Services.Database.Entities.Appointment", "ResultingAppointment")
-                        .WithMany()
-                        .HasForeignKey("ResultingAppointmentId")
-                        .OnDelete(DeleteBehavior.Restrict);
-
                     b.HasOne("ClinicNow.Services.Database.Entities.Appointment", "SourceAppointment")
                         .WithMany()
                         .HasForeignKey("SourceAppointmentId")
@@ -2131,8 +2117,6 @@ namespace ClinicNow.Services.Database.Migrations
                     b.Navigation("Patient");
 
                     b.Navigation("ReferringDoctor");
-
-                    b.Navigation("ResultingAppointment");
 
                     b.Navigation("SourceAppointment");
 

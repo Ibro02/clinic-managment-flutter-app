@@ -4,6 +4,7 @@ using ClinicNow.Services.Database;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -11,9 +12,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace ClinicNow.Services.Database.Migrations
 {
     [DbContext(typeof(ClinicNowContext))]
-    partial class ClinicNowContextModelSnapshot : ModelSnapshot
+    [Migration("20260905121837_AddLabFindings")]
+    partial class AddLabFindings
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -1308,77 +1311,6 @@ namespace ClinicNow.Services.Database.Migrations
                         });
                 });
 
-            modelBuilder.Entity("ClinicNow.Services.Database.Entities.Referral", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("int");
-
-                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
-
-                    b.Property<DateTime>("CreatedAtUtc")
-                        .HasColumnType("datetime2");
-
-                    b.Property<int>("CreatedByUserId")
-                        .HasColumnType("int");
-
-                    b.Property<DateTime?>("DeletedAtUtc")
-                        .HasColumnType("datetime2");
-
-                    b.Property<bool>("IsDeleted")
-                        .HasColumnType("bit");
-
-                    b.Property<int>("PatientId")
-                        .HasColumnType("int");
-
-                    b.Property<string>("Reason")
-                        .IsRequired()
-                        .HasMaxLength(2000)
-                        .HasColumnType("nvarchar(2000)");
-
-                    b.Property<int>("ReferringDoctorId")
-                        .HasColumnType("int");
-
-                    b.Property<int?>("ResultingAppointmentId")
-                        .HasColumnType("int");
-
-                    b.Property<int>("SourceAppointmentId")
-                        .HasColumnType("int");
-
-                    b.Property<int>("TargetSpecializationId")
-                        .HasColumnType("int");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("CreatedByUserId");
-
-                    b.HasIndex("PatientId");
-
-                    b.HasIndex("ReferringDoctorId");
-
-                    b.HasIndex("ResultingAppointmentId");
-
-                    b.HasIndex("SourceAppointmentId");
-
-                    b.HasIndex("TargetSpecializationId");
-
-                    b.ToTable("Referrals");
-
-                    b.HasData(
-                        new
-                        {
-                            Id = 1,
-                            CreatedAtUtc = new DateTime(2026, 8, 26, 9, 30, 0, 0, DateTimeKind.Utc),
-                            CreatedByUserId = 5,
-                            IsDeleted = false,
-                            PatientId = 1,
-                            Reason = "Povišen krvni pritisak i nepravilan puls - potrebna kardiološka evaluacija.",
-                            ReferringDoctorId = 2,
-                            SourceAppointmentId = 3,
-                            TargetSpecializationId = 4
-                        });
-                });
-
             modelBuilder.Entity("ClinicNow.Services.Database.Entities.RevokedToken", b =>
                 {
                     b.Property<int>("Id")
@@ -2088,55 +2020,6 @@ namespace ClinicNow.Services.Database.Migrations
                     b.Navigation("MedicalService");
 
                     b.Navigation("User");
-                });
-
-            modelBuilder.Entity("ClinicNow.Services.Database.Entities.Referral", b =>
-                {
-                    b.HasOne("ClinicNow.Services.Database.Entities.User", "CreatedByUser")
-                        .WithMany()
-                        .HasForeignKey("CreatedByUserId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.HasOne("ClinicNow.Services.Database.Entities.Patient", "Patient")
-                        .WithMany()
-                        .HasForeignKey("PatientId")
-                        .OnDelete(DeleteBehavior.Restrict);
-
-                    b.HasOne("ClinicNow.Services.Database.Entities.Doctor", "ReferringDoctor")
-                        .WithMany()
-                        .HasForeignKey("ReferringDoctorId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.HasOne("ClinicNow.Services.Database.Entities.Appointment", "ResultingAppointment")
-                        .WithMany()
-                        .HasForeignKey("ResultingAppointmentId")
-                        .OnDelete(DeleteBehavior.Restrict);
-
-                    b.HasOne("ClinicNow.Services.Database.Entities.Appointment", "SourceAppointment")
-                        .WithMany()
-                        .HasForeignKey("SourceAppointmentId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.HasOne("ClinicNow.Services.Database.Entities.Specialization", "TargetSpecialization")
-                        .WithMany()
-                        .HasForeignKey("TargetSpecializationId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.Navigation("CreatedByUser");
-
-                    b.Navigation("Patient");
-
-                    b.Navigation("ReferringDoctor");
-
-                    b.Navigation("ResultingAppointment");
-
-                    b.Navigation("SourceAppointment");
-
-                    b.Navigation("TargetSpecialization");
                 });
 
             modelBuilder.Entity("ClinicNow.Services.Database.Entities.ScheduleBlock", b =>

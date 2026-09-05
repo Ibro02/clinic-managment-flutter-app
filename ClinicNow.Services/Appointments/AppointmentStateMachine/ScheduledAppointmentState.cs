@@ -34,7 +34,7 @@ public class ScheduledAppointmentState : BaseAppointmentState
 
     public override async Task<Appointment> CancelAsync(Appointment appointment, int actingUserId, string reason, bool enforceCutoff, CancellationToken cancellationToken)
     {
-        ValidateAndApplyCancel(appointment, actingUserId, reason, enforceCutoff);
+        await ValidateAndApplyCancelAsync(appointment, actingUserId, reason, enforceCutoff, cancellationToken);
         await Context.SaveChangesAsync(cancellationToken);
         return appointment;
     }

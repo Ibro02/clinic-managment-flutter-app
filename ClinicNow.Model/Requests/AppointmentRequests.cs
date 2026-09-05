@@ -22,6 +22,16 @@ public class AppointmentInsertRequest
     public int MedicalServiceId { get; set; }
 
     public DateTime StartUtc { get; set; }
+
+    /// <summary>
+    /// Optional - set when this booking fulfills a specialist referral
+    /// (review item C5). The referral must belong to this patient, not
+    /// already be archived, and not already have a resulting appointment -
+    /// otherwise <c>AppointmentService.ScheduleAsync</c> rejects it, so an
+    /// archived or already-used referral can never be reused for a second
+    /// booking.
+    /// </summary>
+    public int? ReferralId { get; set; }
 }
 
 /// <summary>Cancellation always requires a reason (rulebook Part II §G).</summary>
