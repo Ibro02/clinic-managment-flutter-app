@@ -18,7 +18,17 @@ public class Payment
 
     public Appointment Appointment { get; set; } = null!;
 
+    /// <summary>What the clinic asked PayPal for, priced server-side from <c>MedicalService.Price</c>.</summary>
     public decimal AmountEur { get; set; }
+
+    /// <summary>
+    /// What PayPal reported it actually captured (review item C13a). Null until
+    /// a capture succeeds. Kept separate from <see cref="AmountEur"/> rather
+    /// than overwriting it, because the whole point is being able to see the
+    /// two disagree - and because refunds must be capped by what was really
+    /// taken, not by what was asked for.
+    /// </summary>
+    public decimal? CapturedAmountEur { get; set; }
 
     public PaymentStatus Status { get; set; }
 

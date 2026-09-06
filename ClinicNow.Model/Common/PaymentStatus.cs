@@ -21,7 +21,17 @@ public enum PaymentStatus
     Paid = 1,
     PartiallyRefunded = 2,
     Refunded = 3,
-    Cancelled = 4
+    Cancelled = 4,
+
+    /// <summary>
+    /// Money moved, but PayPal reported capturing an amount that disagrees with
+    /// what was ordered (review item C13a). Deliberately not `Paid`: the capture
+    /// is real and must never be retried, yet it isn't a clean success either
+    /// and needs a human to reconcile it. Counts as "already paid" everywhere
+    /// that guards against double-charging, and stays refundable - capped by
+    /// what was actually captured.
+    /// </summary>
+    RequiresReconciliation = 5
 }
 
 public static class PaymentStatusExtensions
@@ -33,6 +43,7 @@ public static class PaymentStatusExtensions
         PaymentStatus.PartiallyRefunded => "Djelomično vraćeno",
         PaymentStatus.Refunded => "Vraćeno",
         PaymentStatus.Cancelled => "Otkazano",
+        PaymentStatus.RequiresReconciliation => "Neusklađen iznos",
         _ => status.ToString()
     };
 }

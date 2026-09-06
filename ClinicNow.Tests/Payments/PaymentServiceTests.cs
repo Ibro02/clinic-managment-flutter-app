@@ -173,6 +173,85 @@ public class PaymentServiceTests
         Assert.Equal(0, payPal.CaptureOrderCalls);
     }
 
+    // --- capture reconciliation (C13a) -----------------------------------------
+
+    [Fact]
+    public async Task CaptureAsync_WhenPayPalCapturesTheOrderedAmount_RecordsItAndMarksPaid()
+    {
+        var (service, context, payPal) = Build();
+        var attempt = await SeedAttemptAsync(context, CleanAppointmentId, PaymentStatus.Pending, DateTime.UtcNow.AddMinutes(-1));
+        payPal.CapturedAmount = attempt.AmountEur;
+
+        var dto = await service.CaptureAsync(attempt.Id);
+
+        Assert.Equal(PaymentStatus.Paid, (PaymentStatus)dto.Status);
+        Assert.Equal(attempt.AmountEur, dto.CapturedAmountEur);
+    }
+
+    [Fact]
+    public async Task CaptureAsync_WhenPayPalCapturesADifferentAmount_FlagsForReconciliationRatherThanPaid()
+    {
+        var (service, context, payPal) = Build();
+        var attempt = await SeedAttemptAsync(context, CleanAppointmentId, PaymentStatus.Pending, DateTime.UtcNow.AddMinutes(-1));
+        payPal.CapturedAmount = attempt.AmountEur - 5.00m; // PayPal took less than was ordered
+
+        var dto = await service.CaptureAsync(attempt.Id);
+
+        // Never a clean success - that is the whole of C13a.
+        Assert.Equal(PaymentStatus.RequiresReconciliation, (PaymentStatus)dto.Status);
+
+        var reloaded = await context.Payments.SingleAsync(p => p.Id == attempt.Id);
+        // The real number is kept, and the ordered one is *not* overwritten -
+        // losing either would erase the evidence that they disagreed.
+        Assert.Equal(attempt.AmountEur - 5.00m, reloaded.CapturedAmountEur);
+        Assert.Equal(attempt.AmountEur, reloaded.AmountEur);
+        Assert.NotNull(reloaded.PayPalCaptureId);
+    }
+
+    [Fact]
+    public async Task CreateAsync_WhenAnEarlierCaptureNeedsReconciliation_StillRefusesASecondPayment()
+    {
+        // Money moved on that attempt, mismatch or not, so a second payment
+        // would double-charge.
+        var (service, context, payPal) = Build();
+        await SeedAttemptAsync(context, CleanAppointmentId, PaymentStatus.RequiresReconciliation, DateTime.UtcNow.AddMinutes(-30), captureId: "TEST-CAPTURE-MISMATCH");
+
+        await Assert.ThrowsAsync<BusinessException>(
+            () => service.CreateAsync(new PaymentCreateRequest { AppointmentId = CleanAppointmentId }));
+
+        Assert.Equal(0, payPal.CreateOrderCalls);
+    }
+
+    [Fact]
+    public async Task RefundAsync_OnAMismatchedCapture_IsCappedByWhatWasActuallyCaptured()
+    {
+        var (service, context, _) = Build();
+        var payment = new Payment
+        {
+            AppointmentId = CleanAppointmentId,
+            AmountEur = 20.45m,          // ordered
+            CapturedAmountEur = 10.00m,  // what PayPal actually took
+            Status = PaymentStatus.RequiresReconciliation,
+            PayPalOrderId = "TEST-ORDER-MISMATCH",
+            PayPalCaptureId = "TEST-CAPTURE-MISMATCH",
+            CreatedAtUtc = DateTime.UtcNow.AddMinutes(-10),
+            PaidAtUtc = DateTime.UtcNow.AddMinutes(-10)
+        };
+        context.Payments.Add(payment);
+        await context.SaveChangesAsync();
+
+        // Refunding against the *ordered* amount would ask PayPal to return
+        // more than it ever collected.
+        await Assert.ThrowsAsync<ValidationException>(
+            () => service.RefundAsync(payment.Id, new PaymentRefundRequest { Amount = 15.00m, Reason = "Test" }));
+
+        var dto = await service.RefundAsync(payment.Id, new PaymentRefundRequest { Amount = 10.00m, Reason = "Termin otkazan." });
+
+        // Everything captured is back with the patient, so there is nothing
+        // left to reconcile.
+        Assert.Equal(PaymentStatus.Refunded, (PaymentStatus)dto.Status);
+    }
+
     // --- abandon ---------------------------------------------------------------
 
     [Fact]
@@ -229,6 +308,9 @@ public class PaymentServiceTests
         /// <summary>False reproduces PayPal answering and refusing the capture (declined, expired, compliance hold).</summary>
         public bool CaptureSucceeds { get; set; } = true;
 
+        /// <summary>What PayPal claims it captured. Set it away from the ordered amount to exercise C13a's mismatch path.</summary>
+        public decimal CapturedAmount { get; set; } = 20.45m;
+
         public Task<(string OrderId, string ApproveUrl)> CreateOrderAsync(
             decimal amountEur, string returnUrl, string cancelUrl, CancellationToken cancellationToken = default)
         {
@@ -241,7 +323,7 @@ public class PaymentServiceTests
         {
             CaptureOrderCalls++;
             return CaptureSucceeds
-                ? Task.FromResult<(string?, decimal, bool)>(($"FAKE-CAPTURE-{CaptureOrderCalls}", 20.45m, true))
+                ? Task.FromResult<(string?, decimal, bool)>(($"FAKE-CAPTURE-{CaptureOrderCalls}", CapturedAmount, true))
                 : Task.FromResult<(string?, decimal, bool)>((null, 0m, false));
         }
 

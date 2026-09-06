@@ -385,17 +385,23 @@ class _AppointmentScreenState extends State<AppointmentScreen> {
     _ => AppTone.neutral,
   };
 
-  /// Backend `PaymentStatusExtensions.ToDisplayName(PartiallyRefunded)` - the
+  /// Backend `PaymentStatusExtensions.ToDisplayName(...)` values - the
   /// appointment DTO carries the payment status only as its display name, so
-  /// this is the one value the tone mapping below has to recognise by text.
+  /// these are the values the tone mapping below has to recognise by text.
   static const _partiallyRefundedLabel = 'Djelomično vraćeno';
+  static const _requiresReconciliationLabel = 'Neusklađen iznos';
 
   /// Neutral when the appointment has no payment at all, success while it is
   /// fully paid, warning once part of it has been refunded, danger when it has
   /// been refunded in full - `isPaid` is false again in that last case,
   /// matching the backend's own `AppointmentDto.IsPaid` definition.
+  ///
+  /// A payment PayPal captured for the wrong amount (review item C13a) is paid
+  /// as far as `isPaid` goes - the money did move - but it must never read as a
+  /// clean green success, because someone has to reconcile it.
   AppTone _paymentTone(Appointment appointment) {
     if (appointment.paymentStatus == null) return AppTone.neutral;
+    if (appointment.paymentStatus == _requiresReconciliationLabel) return AppTone.danger;
     if (!appointment.isPaid) return AppTone.danger;
     return appointment.paymentStatus == _partiallyRefundedLabel ? AppTone.warning : AppTone.success;
   }

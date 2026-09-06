@@ -651,8 +651,14 @@ public class AppointmentService : IAppointmentService
             dto.PaymentId = currentPayment.Id;
             dto.PaymentStatus = currentPayment.Status.ToDisplayName();
             dto.IsPaid = currentPayment.Status != Model.Common.PaymentStatus.Refunded;
-            var remaining = currentPayment.AmountEur - currentPayment.Refunds.Sum(r => r.AmountEur);
-            dto.CanRefund = (currentPayment.Status == Model.Common.PaymentStatus.Paid || currentPayment.Status == Model.Common.PaymentStatus.PartiallyRefunded) && remaining > 0;
+            // Captured, not ordered, and RequiresReconciliation is refundable
+            // too (review item C13a) - a mismatched capture is money that may
+            // well need giving back, so staff must not be locked out of it.
+            var remaining = (currentPayment.CapturedAmountEur ?? currentPayment.AmountEur) - currentPayment.Refunds.Sum(r => r.AmountEur);
+            dto.CanRefund = currentPayment.Status is Model.Common.PaymentStatus.Paid
+                    or Model.Common.PaymentStatus.PartiallyRefunded
+                    or Model.Common.PaymentStatus.RequiresReconciliation
+                && remaining > 0;
         }
 
         return dto;

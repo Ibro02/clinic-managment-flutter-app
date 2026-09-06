@@ -11,7 +11,16 @@ public class PaymentDto
 
     public int AppointmentId { get; set; }
 
+    /// <summary>What was ordered, priced server-side.</summary>
     public decimal AmountEur { get; set; }
+
+    /// <summary>
+    /// What PayPal reported it actually captured (review item C13a); null until
+    /// captured. Equal to <see cref="AmountEur"/> on every healthy payment - the
+    /// two differing is precisely the condition
+    /// <see cref="Common.PaymentStatus.RequiresReconciliation"/> flags.
+    /// </summary>
+    public decimal? CapturedAmountEur { get; set; }
 
     public Common.PaymentStatus Status { get; set; }
 

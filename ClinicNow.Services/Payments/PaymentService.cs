@@ -91,9 +91,13 @@ public class PaymentService : IPaymentService
         // refunded appointment is reported to the client as unpaid, so the
         // patient is offered a "Plati" button for it. Blocking Refunded here
         // too would make that button always fail with "već plaćen".
+        // RequiresReconciliation counts as paid here (C13a): the capture behind
+        // it is real money, so offering a second one would double-charge.
         var alreadyPaid = await _context.Payments
             .AnyAsync(p => p.AppointmentId == appointment.Id
-                && (p.Status == PaymentStatus.Paid || p.Status == PaymentStatus.PartiallyRefunded), cancellationToken);
+                && (p.Status == PaymentStatus.Paid
+                    || p.Status == PaymentStatus.PartiallyRefunded
+                    || p.Status == PaymentStatus.RequiresReconciliation), cancellationToken);
         if (alreadyPaid)
         {
             throw new BusinessException("Ovaj termin je već plaćen.");
@@ -184,7 +188,9 @@ public class PaymentService : IPaymentService
         var settledElsewhere = await _context.Payments.AnyAsync(
             p => p.AppointmentId == payment.AppointmentId
                 && p.Id != payment.Id
-                && (p.Status == PaymentStatus.Paid || p.Status == PaymentStatus.PartiallyRefunded),
+                && (p.Status == PaymentStatus.Paid
+                    || p.Status == PaymentStatus.PartiallyRefunded
+                    || p.Status == PaymentStatus.RequiresReconciliation),
             cancellationToken);
 
         if (settledElsewhere)
@@ -221,16 +227,20 @@ public class PaymentService : IPaymentService
             throw new BusinessException("Plaćanje nije odobreno na PayPal-u. Pokušajte ponovo.");
         }
 
-        if (Math.Abs(capturedAmountEur - payment.AmountEur) > 0.01m)
+        // C13a: what PayPal says it took is recorded as fact, separately from
+        // what was ordered. Overwriting AmountEur instead would erase the
+        // evidence that the two ever disagreed, and would quietly re-base every
+        // later refund on PayPal's number.
+        var amountMismatch = Math.Abs(capturedAmountEur - payment.AmountEur) > 0.01m;
+        if (amountMismatch)
         {
             // PayPal enforces the exact order amount for a plain CAPTURE
-            // intent, so this should never actually differ - but "never
-            // trust the client" extends to "never silently trust a third
-            // party either": log it loudly rather than ignore a captured
-            // variable, since a mismatch here would be exactly the kind of
-            // bug that's invisible until it costs real money.
-            _logger.LogWarning("PayPal captured {CapturedAmountEur} EUR for payment {PaymentId} but expected {ExpectedAmountEur} EUR.",
-                capturedAmountEur, payment.Id, payment.AmountEur);
+            // intent, so this should never actually differ - which is exactly
+            // why it must not be swallowed if it ever does. Logged at Error,
+            // not Warning: real money moved by an amount nobody authorised.
+            _logger.LogError(
+                "PayPal captured {CapturedAmountEur} EUR for payment {PaymentId} but {ExpectedAmountEur} EUR was ordered (capture {PayPalCaptureId}). Flagging for reconciliation.",
+                capturedAmountEur, payment.Id, payment.AmountEur, captureId);
         }
 
         // Real money has now moved, but the row recording it isn't persisted
@@ -245,15 +255,23 @@ public class PaymentService : IPaymentService
             captureId, capturedAmountEur, payment.Id);
 
         payment.PayPalCaptureId = captureId;
-        payment.Status = PaymentStatus.Paid;
+        payment.CapturedAmountEur = capturedAmountEur;
+        // A mismatch lands in its own state rather than being recorded as a
+        // clean success (review item C13a). It is deliberately *not* an
+        // exception: the charge already happened, so the only safe thing to do
+        // is persist it. Throwing here would leave the row unsettled and invite
+        // a retry against money that has already left the patient's account.
+        payment.Status = amountMismatch ? PaymentStatus.RequiresReconciliation : PaymentStatus.Paid;
         payment.PaidAtUtc = DateTime.UtcNow;
         await _context.SaveChangesAsync(cancellationToken);
 
         var appointment = await _context.Appointments.Include(a => a.Patient).SingleAsync(a => a.Id == payment.AppointmentId, cancellationToken);
         if (appointment.Patient?.UserId is int patientUserId)
         {
+            // Reports what was actually charged, not what was ordered - those
+            // are the same number except in exactly the case C13a exists for.
             await _notificationService.CreateAsync(patientUserId, "Plaćanje uspješno",
-                $"Vaša uplata od {payment.AmountEur:F2} EUR je uspješno evidentirana.", cancellationToken);
+                $"Vaša uplata od {capturedAmountEur:F2} EUR je uspješno evidentirana.", cancellationToken);
         }
 
         return _mapper.Map<PaymentDto>(payment);
@@ -329,7 +347,10 @@ public class PaymentService : IPaymentService
         {
             var payment = await _context.Payments
                 .Include(p => p.Refunds)
-                .Where(p => p.AppointmentId == appointmentId && (p.Status == PaymentStatus.Paid || p.Status == PaymentStatus.PartiallyRefunded))
+                .Where(p => p.AppointmentId == appointmentId
+                    && (p.Status == PaymentStatus.Paid
+                        || p.Status == PaymentStatus.PartiallyRefunded
+                        || p.Status == PaymentStatus.RequiresReconciliation))
                 .OrderByDescending(p => p.CreatedAtUtc)
                 .FirstOrDefaultAsync(cancellationToken);
 
@@ -340,7 +361,9 @@ public class PaymentService : IPaymentService
 
             paymentId = payment.Id;
 
-            var remaining = payment.AmountEur - payment.Refunds.Sum(r => r.AmountEur);
+            // Captured, not ordered (C13a) - a cancellation must return exactly
+            // what was taken.
+            var remaining = (payment.CapturedAmountEur ?? payment.AmountEur) - payment.Refunds.Sum(r => r.AmountEur);
             if (remaining <= 0)
             {
                 return;
@@ -381,10 +404,18 @@ public class PaymentService : IPaymentService
         await paymentLock.WaitAsync(cancellationToken);
         try
         {
-            if (payment.Status != PaymentStatus.Paid && payment.Status != PaymentStatus.PartiallyRefunded)
+            if (payment.Status != PaymentStatus.Paid
+                && payment.Status != PaymentStatus.PartiallyRefunded
+                && payment.Status != PaymentStatus.RequiresReconciliation)
             {
                 throw new ValidationException("paymentId", "Ova uplata se ne može vratiti u ovom statusu.");
             }
+
+            // C13a: the ceiling is what PayPal actually took, not what was
+            // ordered. Refunding against the ordered amount after a mismatched
+            // capture would either strand money PayPal is holding or ask PayPal
+            // to return more than it ever collected.
+            var settledAmount = payment.CapturedAmountEur ?? payment.AmountEur;
 
             // Rounded before validation so the amount checked against the
             // remaining balance is exactly the amount stored in the
@@ -400,7 +431,7 @@ public class PaymentService : IPaymentService
             var alreadyRefunded = await _context.PaymentRefunds
                 .Where(r => r.PaymentId == payment.Id)
                 .SumAsync(r => (decimal?)r.AmountEur, cancellationToken) ?? 0m;
-            var remaining = payment.AmountEur - alreadyRefunded;
+            var remaining = settledAmount - alreadyRefunded;
 
             if (amount <= 0 || amount > remaining)
             {
@@ -435,8 +466,11 @@ public class PaymentService : IPaymentService
                 RefundedAtUtc = DateTime.UtcNow
             });
 
+            // Refunding everything that was captured clears the reconciliation
+            // flag too - there is nothing left to reconcile once the money is
+            // back with the patient.
             var totalRefunded = alreadyRefunded + amount;
-            payment.Status = totalRefunded >= payment.AmountEur ? PaymentStatus.Refunded : PaymentStatus.PartiallyRefunded;
+            payment.Status = totalRefunded >= settledAmount ? PaymentStatus.Refunded : PaymentStatus.PartiallyRefunded;
 
             await _context.SaveChangesAsync(cancellationToken);
 
