@@ -240,23 +240,15 @@ class _BookAppointmentScreenState extends State<BookAppointmentScreen> {
     return result.resultList;
   }
 
-  /// Reloads the service list for the chosen doctor and re-resolves the current
-  /// selection against it. Re-resolving by id is required, not cosmetic: the
-  /// dropdown matches items by object identity, so keeping the old instance
-  /// after the list is replaced would throw even when the same service is still
-  /// on offer.
+  /// Reloads the service list for the chosen doctor. The caller is
+  /// responsible for having already cleared `_service` (and everything after
+  /// it) synchronously - a step-gated flow means switching doctors always
+  /// starts the rest of the form over, never silently keeps a still-valid
+  /// pick from the old doctor.
   Future<void> _reloadServicesForDoctor(int? doctorId) async {
     final services = await _fetchServices(doctorId);
     if (!mounted) return;
-    setState(() {
-      _services = services;
-      _service = _services.cast<MedicalService?>().firstWhere(
-            (s) => s?.id == _service?.id,
-            orElse: () => null,
-          );
-      _selectedSlot = null;
-      _slots = [];
-    });
+    setState(() => _services = services);
   }
 
   Future<void> _loadTopRecommendation() async {
@@ -482,6 +474,11 @@ class _BookAppointmentScreenState extends State<BookAppointmentScreen> {
                     onChanged: (value) {
                       setState(() {
                         _doctor = value;
+                        // Step-gated flow: switching doctors always starts the
+                        // rest of the form over, never silently keeps a pick
+                        // that happens to still be valid for the new doctor.
+                        _service = null;
+                        _services = [];
                         _date = null;
                         _selectedSlot = null;
                         _slots = [];
@@ -499,7 +496,10 @@ class _BookAppointmentScreenState extends State<BookAppointmentScreen> {
                   _step(context, 2, 'Odaberite uslugu'),
                   DropdownButtonFormField<MedicalService>(
                     initialValue: _service,
-                    decoration: const InputDecoration(hintText: 'Odaberite uslugu'),
+                    decoration: InputDecoration(
+                      hintText: 'Odaberite uslugu',
+                      helperText: _doctor == null ? 'Prvo odaberite doktora.' : null,
+                    ),
                     items: _services
                         .map(
                           (s) => DropdownMenuItem(
@@ -510,22 +510,24 @@ class _BookAppointmentScreenState extends State<BookAppointmentScreen> {
                           ),
                         )
                         .toList(),
-                    onChanged: (value) {
-                      setState(() {
-                        _service = value;
-                        _selectedSlot = null;
-                        _slots = [];
-                      });
-                      _loadSlots();
-                      if (value != null) {
-                        _recommendationProvider
-                            .logInteraction(
-                              type: InteractionType.medicalServiceView,
-                              medicalServiceId: value.id,
-                            )
-                            .catchError((_) {});
-                      }
-                    },
+                    onChanged: _doctor == null
+                        ? null
+                        : (value) {
+                            setState(() {
+                              _service = value;
+                              _selectedSlot = null;
+                              _slots = [];
+                            });
+                            _loadSlots();
+                            if (value != null) {
+                              _recommendationProvider
+                                  .logInteraction(
+                                    type: InteractionType.medicalServiceView,
+                                    medicalServiceId: value.id,
+                                  )
+                                  .catchError((_) {});
+                            }
+                          },
                   ),
                   if (_isMissingRequiredReferral) ...[
                     const SizedBox(height: AppSpacing.xs),
