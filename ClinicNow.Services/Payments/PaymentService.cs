@@ -374,9 +374,52 @@ public class PaymentService : IPaymentService
         catch (Exception ex)
         {
             // The cancellation itself must not fail because a refund attempt
-            // did - log it clearly so staff can retry the refund manually
-            // (design doc §4 item 4).
-            _logger.LogWarning(ex, "Automatic refund failed for cancelled appointment {AppointmentId}, payment {PaymentId} - staff must refund manually.", appointmentId, paymentId);
+            // did (design doc §4 item 4) - but it must not vanish either.
+            _logger.LogError(ex, "Automatic refund failed for cancelled appointment {AppointmentId}, payment {PaymentId} - recording it as owed.", appointmentId, paymentId);
+
+            if (paymentId is int failedPaymentId)
+            {
+                await RecordRefundFailureAsync(failedPaymentId, ex.Message, cancellationToken);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Persists "this payment still owes a refund" (review item C14) so the
+    /// debt survives the request that discovered it. Silent on failure for the
+    /// same reason its caller is: this runs on a cancellation that has already
+    /// succeeded, and nothing here may undo that. A failure to even record the
+    /// failure leaves the log as the last line of defence, which is where this
+    /// case used to end anyway.
+    /// </summary>
+    private async Task RecordRefundFailureAsync(int paymentId, string reason, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var payment = await _context.Payments.SingleOrDefaultAsync(p => p.Id == paymentId, cancellationToken);
+            if (payment is null) return;
+
+            payment.RefundFailedAtUtc = DateTime.UtcNow;
+            // Truncated to the column width - the full detail is in the log;
+            // this field exists to tell staff what they are retrying.
+            payment.RefundFailureReason = reason.Length > 500 ? reason[..500] : reason;
+            await _context.SaveChangesAsync(cancellationToken);
+
+            var appointment = await _context.Appointments.Include(a => a.Patient)
+                .SingleOrDefaultAsync(a => a.Id == payment.AppointmentId, cancellationToken);
+            if (appointment?.Patient?.UserId is int patientUserId)
+            {
+                // "Visible to both staff and patient" - without this the patient
+                // is told their appointment is cancelled and hears nothing at
+                // all about the money.
+                await _notificationService.CreateAsync(patientUserId, "Povrat sredstava u obradi",
+                    "Vaš termin je otkazan, ali automatski povrat sredstava nije uspio. Klinika će povrat izvršiti ručno u najkraćem roku.",
+                    cancellationToken);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Could not record the failed refund for payment {PaymentId}.", paymentId);
         }
     }
 
@@ -471,6 +514,12 @@ public class PaymentService : IPaymentService
             // back with the patient.
             var totalRefunded = alreadyRefunded + amount;
             payment.Status = totalRefunded >= settledAmount ? PaymentStatus.Refunded : PaymentStatus.PartiallyRefunded;
+
+            // A refund got through, so the outstanding debt recorded by a
+            // previous failure is settled (review item C14). This is what makes
+            // the staff "Refund" button double as the retry.
+            payment.RefundFailedAtUtc = null;
+            payment.RefundFailureReason = null;
 
             await _context.SaveChangesAsync(cancellationToken);
 

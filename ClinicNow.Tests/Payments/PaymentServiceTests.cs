@@ -252,6 +252,49 @@ public class PaymentServiceTests
         Assert.Equal(PaymentStatus.Refunded, (PaymentStatus)dto.Status);
     }
 
+    // --- refund failure is durable (C14) ---------------------------------------
+
+    [Fact]
+    public async Task RefundForCancelledAppointmentAsync_WhenTheRefundFails_RecordsTheDebtAndStillDoesNotThrow()
+    {
+        // Before C14 this case existed only as a log line: the patient was told
+        // "cancelled" while their money stayed with the clinic, and nothing
+        // anywhere recorded that it was owed.
+        var (service, context, payPal) = Build();
+        payPal.RefundThrows = true;
+        var payment = await SeedAttemptAsync(context, CleanAppointmentId, PaymentStatus.Paid, DateTime.UtcNow.AddMinutes(-30), captureId: "TEST-CAPTURE-REFUND");
+
+        // Must not throw - a cancellation that already succeeded cannot be undone
+        // by a refund failure.
+        await service.RefundForCancelledAppointmentAsync(CleanAppointmentId, actingUserId: 1);
+
+        var reloaded = await context.Payments.SingleAsync(p => p.Id == payment.Id);
+        Assert.NotNull(reloaded.RefundFailedAtUtc);
+        Assert.False(string.IsNullOrWhiteSpace(reloaded.RefundFailureReason));
+        // The money is still with the clinic, so the payment stays refundable.
+        Assert.Equal(PaymentStatus.Paid, reloaded.Status);
+    }
+
+    [Fact]
+    public async Task RefundAsync_AfterAFailedAutomaticRefund_ClearsTheRecordedDebt()
+    {
+        // The staff "Refund" action doubles as the retry - that is what makes
+        // the recorded failure actionable rather than just visible.
+        var (service, context, payPal) = Build();
+        payPal.RefundThrows = true;
+        var payment = await SeedAttemptAsync(context, CleanAppointmentId, PaymentStatus.Paid, DateTime.UtcNow.AddMinutes(-30), captureId: "TEST-CAPTURE-RETRY");
+        await service.RefundForCancelledAppointmentAsync(CleanAppointmentId, actingUserId: 1);
+        Assert.NotNull((await context.Payments.SingleAsync(p => p.Id == payment.Id)).RefundFailedAtUtc);
+
+        payPal.RefundThrows = false; // PayPal is healthy again; staff retry
+        await service.RefundAsync(payment.Id, new PaymentRefundRequest { Amount = payment.AmountEur, Reason = "Termin otkazan." });
+
+        var reloaded = await context.Payments.SingleAsync(p => p.Id == payment.Id);
+        Assert.Null(reloaded.RefundFailedAtUtc);
+        Assert.Null(reloaded.RefundFailureReason);
+        Assert.Equal(PaymentStatus.Refunded, reloaded.Status);
+    }
+
     // --- abandon ---------------------------------------------------------------
 
     [Fact]
@@ -327,8 +370,13 @@ public class PaymentServiceTests
                 : Task.FromResult<(string?, decimal, bool)>((null, 0m, false));
         }
 
+        /// <summary>True reproduces PayPal being unreachable or rejecting the refund.</summary>
+        public bool RefundThrows { get; set; }
+
         public Task<string> RefundCaptureAsync(string captureId, decimal amountEur, string reason, CancellationToken cancellationToken = default) =>
-            Task.FromResult("FAKE-REFUND");
+            RefundThrows
+                ? throw new BusinessException("Povrat sredstava trenutno nije moguć. Pokušajte ponovo kasnije.")
+                : Task.FromResult("FAKE-REFUND");
     }
 
     private sealed class NoOpNotificationService : INotificationService

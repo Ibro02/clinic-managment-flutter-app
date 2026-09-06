@@ -50,4 +50,12 @@ public class AppointmentDto
 
     /// <summary>True when there is a Paid/PartiallyRefunded payment with a remaining refundable balance &gt; 0.</summary>
     public bool CanRefund { get; set; }
+
+    /// <summary>
+    /// True while this appointment was cancelled but the automatic refund
+    /// failed, so money is still owed to the patient (review item C14). Carried
+    /// on the appointment - not just the payment - so both clients can show it
+    /// wherever a cancelled appointment appears, without a second call.
+    /// </summary>
+    public bool RefundFailed { get; set; }
 }

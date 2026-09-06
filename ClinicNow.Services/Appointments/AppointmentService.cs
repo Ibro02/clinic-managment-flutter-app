@@ -310,12 +310,17 @@ public class AppointmentService : IAppointmentService
         var state = BaseAppointmentState.CreateState(appointment.Status, _serviceProvider);
         await state.CancelAsync(appointment, actingUserId, request.Reason, enforceCutoff, cancellationToken);
 
-        var reloaded = await ReloadAsync(appointment.Id, cancellationToken);
-
         // Auto-refund the remaining balance on any cancellation of a paid
         // appointment (design doc §2/§4 item 4) - never throws, so a PayPal
         // failure here can't undo the cancellation that already succeeded.
         await _paymentService.RefundForCancelledAppointmentAsync(appointment.Id, actingUserId, cancellationToken);
+
+        // Reloaded *after* the refund attempt, deliberately (review item C14).
+        // Reading the appointment first meant the response described the money
+        // as it was before the refund ran - so a caller was told "cancelled"
+        // with no hint that the refund had failed and the money was stuck, and
+        // even a successful refund went unreflected until the next fetch.
+        var reloaded = await ReloadAsync(appointment.Id, cancellationToken);
 
         // Cancellation notifies both sides (rulebook Part II §G: rejection/
         // cancellation must trigger a notification with the reason).
@@ -659,6 +664,7 @@ public class AppointmentService : IAppointmentService
                     or Model.Common.PaymentStatus.PartiallyRefunded
                     or Model.Common.PaymentStatus.RequiresReconciliation
                 && remaining > 0;
+            dto.RefundFailed = currentPayment.RefundFailedAtUtc is not null;
         }
 
         return dto;

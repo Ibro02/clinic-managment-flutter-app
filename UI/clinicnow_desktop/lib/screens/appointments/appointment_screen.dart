@@ -481,8 +481,12 @@ class _AppointmentScreenState extends State<AppointmentScreen> {
                 AppColumn(
                   label: 'Plaćanje',
                   width: 150,
-                  cell: (context, a) =>
-                      AppStatusBadge(label: a.paymentStatus ?? 'Nije plaćeno', tone: _paymentTone(a)),
+                  // A refund the clinic still owes outranks the payment status
+                  // here (review item C14): it is the one state on this row
+                  // that needs somebody to actually do something.
+                  cell: (context, a) => a.refundFailed
+                      ? const AppStatusBadge(label: 'Povrat nije uspio', tone: AppTone.danger)
+                      : AppStatusBadge(label: a.paymentStatus ?? 'Nije plaćeno', tone: _paymentTone(a)),
                 ),
               ],
               // Rulebook §K: an action that is not currently legal stays visible

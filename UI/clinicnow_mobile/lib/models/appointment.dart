@@ -27,6 +27,10 @@ class Appointment {
   final int? paymentId;
   final bool canRefund;
 
+  /// Cancelled, but the automatic refund failed and the clinic still owes the
+  /// money (review item C14) - shown so the patient isn't left wondering.
+  final bool refundFailed;
+
   Appointment({
     required this.id,
     required this.patientId,
@@ -48,6 +52,7 @@ class Appointment {
     this.paymentStatus,
     this.paymentId,
     required this.canRefund,
+    this.refundFailed = false,
   });
 
   bool get canConfirm => allowedActions.contains('Confirm');
@@ -81,5 +86,6 @@ class Appointment {
         paymentStatus: json['paymentStatus'] as String?,
         paymentId: json['paymentId'] as int?,
         canRefund: json['canRefund'] as bool? ?? false,
+        refundFailed: json['refundFailed'] as bool? ?? false,
       );
 }

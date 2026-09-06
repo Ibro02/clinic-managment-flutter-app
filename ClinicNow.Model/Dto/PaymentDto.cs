@@ -34,6 +34,16 @@ public class PaymentDto
 
     public DateTime? PaidAtUtc { get; set; }
 
+    /// <summary>
+    /// Set while an automatic refund on cancellation has failed and the money
+    /// is still owed to the patient (review item C14). Cleared once any refund
+    /// succeeds - staff retry through the ordinary refund action.
+    /// </summary>
+    public DateTime? RefundFailedAtUtc { get; set; }
+
+    /// <summary>Why that refund failed, so staff know what they are retrying.</summary>
+    public string? RefundFailureReason { get; set; }
+
     /// <summary>The PayPal-hosted approval page URL - populated only on creation.</summary>
     public string? ApproveUrl { get; set; }
 }

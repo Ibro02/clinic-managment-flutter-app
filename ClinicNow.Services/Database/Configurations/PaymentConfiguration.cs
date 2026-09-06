@@ -17,6 +17,7 @@ public class PaymentConfiguration : IEntityTypeConfiguration<Payment>
         // never let EF's provider-default float precision silently apply.
         builder.Property(p => p.AmountEur).HasColumnType("decimal(8,2)");
         builder.Property(p => p.CapturedAmountEur).HasColumnType("decimal(8,2)");
+        builder.Property(p => p.RefundFailureReason).HasMaxLength(500);
 
         builder.HasOne(p => p.Appointment).WithMany(a => a.Payments).HasForeignKey(p => p.AppointmentId).OnDelete(DeleteBehavior.Restrict);
 

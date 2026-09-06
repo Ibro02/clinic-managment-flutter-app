@@ -40,6 +40,18 @@ public class Payment
 
     public DateTime? PaidAtUtc { get; set; }
 
+    /// <summary>
+    /// When the automatic refund triggered by a cancellation last failed
+    /// (review item C14). Durable on purpose: before this, a failed refund
+    /// existed only as a log line, so the patient was told "cancelled" while
+    /// their money sat with the clinic and nothing anywhere recorded that it
+    /// was owed. Cleared the moment a refund does succeed.
+    /// </summary>
+    public DateTime? RefundFailedAtUtc { get; set; }
+
+    /// <summary>Why the automatic refund failed - shown to staff so they know what they are retrying.</summary>
+    public string? RefundFailureReason { get; set; }
+
     public ICollection<PaymentItem> Items { get; set; } = [];
 
     public ICollection<PaymentRefund> Refunds { get; set; } = [];

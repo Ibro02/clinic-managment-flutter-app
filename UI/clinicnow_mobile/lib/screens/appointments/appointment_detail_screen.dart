@@ -203,9 +203,17 @@ class _AppointmentDetailScreenState extends State<AppointmentDetailScreen> {
             ),
           ),
           const SizedBox(height: AppSpacing.md),
+          // Money the clinic owes back is said first (review item C14) - being
+          // told only "otkazan" while a failed refund goes unmentioned is
+          // exactly the silence this item exists to remove.
+          if (_appointment.refundFailed)
+            const AppNotice(
+              tone: AppTone.warning,
+              message: 'Povrat sredstava nije uspio automatski. Klinika će ga izvršiti ručno u najkraćem roku.',
+            )
           // Rulebook §J: once paid, the UI states it plainly and the pay button
           // is gone - never a second chance to pay the same thing twice.
-          if (_appointment.isPaid)
+          else if (_appointment.isPaid)
             AppNotice(
               tone: AppTone.success,
               message: _appointment.paymentStatus ?? 'Plaćeno',
