@@ -126,6 +126,9 @@ public class AppointmentServiceReferralRequiredTests
         public Task<ClinicNow.Model.Dto.PaymentDto> CaptureAsync(int paymentId, CancellationToken cancellationToken = default) =>
             throw new InvalidOperationException("Not expected to be called on the rejection path.");
 
+        public Task<ClinicNow.Model.Dto.PaymentDto> AbandonAsync(int paymentId, CancellationToken cancellationToken = default) =>
+            throw new InvalidOperationException("Not expected to be called on the rejection path.");
+
         public Task<ClinicNow.Model.Dto.PaymentDto> RefundAsync(int paymentId, ClinicNow.Model.Requests.PaymentRefundRequest request, CancellationToken cancellationToken = default) =>
             throw new InvalidOperationException("Not expected to be called on the rejection path.");
 

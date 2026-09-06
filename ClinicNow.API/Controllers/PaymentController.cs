@@ -39,6 +39,15 @@ public class PaymentController : ControllerBase
     public async Task<ActionResult<PaymentDto>> Capture(int id, CancellationToken cancellationToken) =>
         Ok(await _service.CaptureAsync(id, cancellationToken));
 
+    /// <summary>
+    /// The patient closed the PayPal screen without approving. Retires that
+    /// attempt so the next one isn't refused as a duplicate (review item C12).
+    /// </summary>
+    [HttpPost("{id:int}/abandon")]
+    [Authorize(Roles = Roles.Patient)]
+    public async Task<ActionResult<PaymentDto>> Abandon(int id, CancellationToken cancellationToken) =>
+        Ok(await _service.AbandonAsync(id, cancellationToken));
+
     [HttpPost("{id:int}/refund")]
     [Authorize(Roles = $"{Roles.Administrator},{Roles.Staff}")]
     public async Task<ActionResult<PaymentDto>> Refund(int id, PaymentRefundRequest request, CancellationToken cancellationToken) =>

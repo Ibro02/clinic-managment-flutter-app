@@ -339,6 +339,20 @@ Management Studio.
 **`Building with plugins requires symlink support`**
 Enable Developer Mode (`start ms-settings:developers`), then restart the terminal.
 
+**Edited `.env`, but the API still behaves as if nothing changed**
+Compose passes `.env` values into the container when the container is **created**, so editing the
+file has no effect on an already-running one — restarting it isn't enough either. Recreate it:
+
+```bash
+docker-compose up -d clinicnow-api
+```
+
+Confirm the new value actually landed before debugging any further:
+
+```bash
+docker exec clinicnow-api printenv PAYPAL_CLIENT_ID
+```
+
 **`No supported devices connected` when running the mobile app**
 No emulator is running. Launch one with `flutter emulators --launch <emulator_id>` and confirm
 with `flutter devices` before running `flutter run`.
@@ -399,10 +413,29 @@ To demo a **real** refund end to end:
    appointment in "Termini", and use the orange Refund action on it. That payment has a real PayPal
    capture id behind it, so a full or partial refund goes through against the sandbox for real.
 
+> **The sandbox business account must be in a country that can *receive* payments.** PayPal treats
+> some countries as send-only — Bosnia and Herzegovina among them — and a sandbox account inherits
+> that restriction. With a send-only business account the order is created and the buyer can approve
+> it, but the **capture** fails with `422 UNPROCESSABLE_ENTITY / COMPLIANCE_VIOLATION`, which reads in
+> the app as "Plaćanje nije odobreno na PayPal-u". Nothing is wrong with the code — create the
+> sandbox business (and buyer) accounts with country **United States** and use that business
+> account's REST app credentials in `.env`.
+
+Starting a second payment for the same appointment while one is still in flight is refused on
+purpose ("Plaćanje za ovaj termin je već u toku"). Backing out of the PayPal screen retires that
+attempt immediately, so paying again works right away; if the app is killed mid-payment instead, the
+attempt expires on its own after five minutes.
+
 ## Testing
 
 ```bash
-dotnet test ClinicNow.sln          # backend (once test projects exist)
+dotnet test ClinicNow.Tests/ClinicNow.Tests.csproj     # backend
+```
+
+Note the solution file is `ClinicNow.slnx`, not `.sln`. To run a single test class:
+
+```bash
+dotnet test ClinicNow.Tests/ClinicNow.Tests.csproj --filter FullyQualifiedName~PaymentServiceTests
 ```
 
 ```bash

@@ -408,9 +408,20 @@ class _BookAppointmentScreenState extends State<BookAppointmentScreen> {
   }
 
   Future<_PaymentOutcome> _attemptPayment(int appointmentId) async {
+    // Tracked outside the try so *every* exit that isn't a completed payment
+    // can retire the attempt (review item C12). Any attempt left open blocks
+    // the next "Plati" until the server's staleness window expires, and by
+    // then the PayPal screen is closed - the patient has no way to clear it
+    // themselves, so the client has to.
+    int? attemptId;
     try {
       final payment = await _paymentProvider.create(appointmentId);
-      if (!mounted || payment.approveUrl == null) return _PaymentOutcome.failed;
+      attemptId = payment.id;
+
+      if (!mounted || payment.approveUrl == null) {
+        await _abandonAttempt(attemptId);
+        return _PaymentOutcome.failed;
+      }
 
       final approved = await Navigator.of(context).push<bool>(
         MaterialPageRoute(builder: (_) => PaymentWebViewScreen(approveUrl: payment.approveUrl!)),
@@ -419,7 +430,10 @@ class _BookAppointmentScreenState extends State<BookAppointmentScreen> {
       // Cancelling at PayPal isn't a failure - the patient chose not to pay, the
       // appointment stays booked and unpaid (design doc §2), and a "Plati"
       // button remains on the appointment detail screen for a retry.
-      if (approved != true) return _PaymentOutcome.cancelled;
+      if (approved != true) {
+        await _abandonAttempt(attemptId);
+        return _PaymentOutcome.cancelled;
+      }
 
       await _paymentProvider.capture(payment.id);
       return _PaymentOutcome.paid;
@@ -429,8 +443,18 @@ class _BookAppointmentScreenState extends State<BookAppointmentScreen> {
       // an ApiException, and not for a ClientException/TimeoutException/
       // FormatException from a dropped mobile connection mid-payment either.
       // The outcome is reported to the user by the caller rather than swallowed.
+      await _abandonAttempt(attemptId);
       return _PaymentOutcome.failed;
     }
+  }
+
+  /// Best-effort: the server retires a PayPal-refused attempt on its own and
+  /// expires anything else shortly after, so a failure here costs a short wait
+  /// rather than correctness. Harmless on an attempt that actually went
+  /// through - the server refuses to retire a settled payment.
+  Future<void> _abandonAttempt(int? paymentId) async {
+    if (paymentId == null) return;
+    await _paymentProvider.abandon(paymentId).catchError((_) {});
   }
 
   @override

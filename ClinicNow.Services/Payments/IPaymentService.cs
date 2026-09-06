@@ -16,6 +16,13 @@ public interface IPaymentService
     /// <summary>Captures a previously-created payment. Idempotent - already-Paid just returns the current state.</summary>
     Task<PaymentDto> CaptureAsync(int paymentId, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Retires a still-Pending attempt the payer backed out of, so the next
+    /// "Plati" isn't refused as a duplicate (review item C12). Idempotent on an
+    /// already-cancelled row; rejects anything already settled.
+    /// </summary>
+    Task<PaymentDto> AbandonAsync(int paymentId, CancellationToken cancellationToken = default);
+
     /// <summary>Manual staff/admin refund, full or partial.</summary>
     Task<PaymentDto> RefundAsync(int paymentId, PaymentRefundRequest request, CancellationToken cancellationToken = default);
 

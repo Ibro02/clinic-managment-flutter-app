@@ -19,6 +19,27 @@ public class PaymentService : IPaymentService
     private const string ReturnUrl = "https://clinicnow.local/payment-return";
     private const string CancelUrl = "https://clinicnow.local/payment-cancel";
 
+    /// <summary>
+    /// How long a created-but-uncaptured PayPal order is treated as still in
+    /// play. Inside this window a second order for the same appointment is
+    /// refused (review item C12); outside it the stale attempt is superseded
+    /// instead, so a patient whose app died mid-payment is never permanently
+    /// locked out of paying.
+    ///
+    /// Time-bounded on purpose: nothing clears a `Pending` row on its own. The
+    /// client reports the ordinary "closed the PayPal screen" case through
+    /// <see cref="AbandonAsync"/>, which is what makes an immediate retry work;
+    /// this window only has to cover the cases where that call never arrives
+    /// (app killed, connection dropped). Deliberately well under PayPal's own
+    /// order lifetime.
+    ///
+    /// Short on purpose. Someone sitting in a PayPal sheet finishes in a minute
+    /// or two, and a patient who hits this wall has no action available to clear
+    /// it - the PayPal screen they'd have to "finish" is already gone - so every
+    /// extra minute here is dead time on a paying customer.
+    /// </summary>
+    private static readonly TimeSpan ActivePendingWindow = TimeSpan.FromMinutes(5);
+
     private readonly ClinicNowContext _context;
     private readonly IMapper _mapper;
     private readonly IPayPalClient _payPalClient;
@@ -78,6 +99,34 @@ public class PaymentService : IPaymentService
             throw new BusinessException("Ovaj termin je već plaćen.");
         }
 
+        // C12: an attempt that is still in play must not be able to spawn a
+        // second PayPal order for the same appointment. Checked here, before
+        // CreateOrderAsync - the point of the item is that the guard sits ahead
+        // of the provider call, not at the DB write after it.
+        var pendingAttempts = await _context.Payments
+            .Where(p => p.AppointmentId == appointment.Id && p.Status == PaymentStatus.Pending)
+            .ToListAsync(cancellationToken);
+
+        var activeSince = DateTime.UtcNow - ActivePendingWindow;
+        if (pendingAttempts.Any(p => p.CreatedAtUtc >= activeSince))
+        {
+            // Deliberately does not tell the patient to "finish" the open
+            // attempt: by the time they see this the PayPal screen is usually
+            // already closed, so that would be advice they cannot act on.
+            throw new BusinessException(
+                "Plaćanje za ovaj termin je već u toku. Ako ste odustali, pokušajte ponovo za nekoliko minuta.");
+        }
+
+        // Anything older than the window is superseded rather than left
+        // Pending. A stale row that stays capturable is exactly how one
+        // appointment ends up charged twice: the patient's client may still
+        // hold its paymentId and call capture on it long after starting a
+        // newer attempt.
+        foreach (var stale in pendingAttempts)
+        {
+            stale.Status = PaymentStatus.Cancelled;
+        }
+
         var amountEur = CurrencyConverter.ConvertKmToEur(appointment.MedicalService.Price);
         var (orderId, approveUrl) = await _payPalClient.CreateOrderAsync(amountEur, ReturnUrl, CancelUrl, cancellationToken);
 
@@ -109,6 +158,14 @@ public class PaymentService : IPaymentService
         var payment = await LoadTrackedAsync(paymentId, cancellationToken);
         await EnsureOwnershipAsync(payment, cancellationToken);
 
+        if (payment.Status == PaymentStatus.Cancelled)
+        {
+            // Abandoned or superseded (C12) - deliberately an error rather than
+            // the idempotent no-op below, because returning "fine" here would
+            // tell a client its payment went through when nothing was charged.
+            throw new BusinessException("Ovaj pokušaj plaćanja je otkazan. Pokrenite novo plaćanje.");
+        }
+
         if (payment.Status != PaymentStatus.Pending)
         {
             // Idempotent: a repeated capture call on an already-Paid payment
@@ -116,12 +173,51 @@ public class PaymentService : IPaymentService
             return _mapper.Map<PaymentDto>(payment);
         }
 
+        // C12: re-verify that no *other* payment on this appointment has
+        // already succeeded, immediately before the capture call. The row's own
+        // status (checked above) only makes a repeat capture of the *same*
+        // attempt idempotent; without this, two attempts on one appointment can
+        // each be captured - PayPal charges twice, and only then does the
+        // second SaveChangesAsync trip the filtered unique index, by which point
+        // the money has already moved. This is the guard the item means by
+        // "before the external financial call, not at the later DB write".
+        var settledElsewhere = await _context.Payments.AnyAsync(
+            p => p.AppointmentId == payment.AppointmentId
+                && p.Id != payment.Id
+                && (p.Status == PaymentStatus.Paid || p.Status == PaymentStatus.PartiallyRefunded),
+            cancellationToken);
+
+        if (settledElsewhere)
+        {
+            // Retire this attempt as well as refusing it. Left Pending it would
+            // stay capturable, and a later full refund of the winning payment
+            // flips the appointment back to "unpaid" - at which point this stale
+            // order could still take money for an appointment that was just
+            // refunded.
+            payment.Status = PaymentStatus.Cancelled;
+            await _context.SaveChangesAsync(cancellationToken);
+
+            throw new BusinessException("Ovaj termin je već plaćen.");
+        }
+
         var (captureId, capturedAmountEur, success) = await _payPalClient.CaptureOrderAsync(payment.PayPalOrderId, cancellationToken);
 
         if (!success || captureId is null)
         {
-            // Expected outcome if the buyer never approved - the row simply
-            // stays Pending, so the client can offer a retry.
+            // PayPal answered and refused the capture (never approved, expired,
+            // declined, compliance hold...). Retire the attempt rather than
+            // leaving it Pending: this row can no longer produce a payment, and
+            // a dead row that still counts as "in play" is what made a failed
+            // capture block every later attempt for the whole staleness window -
+            // with no way for the patient to clear it, since the PayPal screen
+            // has already closed by then.
+            //
+            // Only refusals reach this branch. A transport failure (timeout,
+            // dropped connection) throws out of CaptureOrderAsync instead, so
+            // an attempt whose real outcome is unknown is never retired here.
+            payment.Status = PaymentStatus.Cancelled;
+            await _context.SaveChangesAsync(cancellationToken);
+
             throw new BusinessException("Plaćanje nije odobreno na PayPal-u. Pokušajte ponovo.");
         }
 
@@ -163,6 +259,29 @@ public class PaymentService : IPaymentService
         return _mapper.Map<PaymentDto>(payment);
     }
 
+    public async Task<PaymentDto> AbandonAsync(int paymentId, CancellationToken cancellationToken = default)
+    {
+        var payment = await LoadTrackedAsync(paymentId, cancellationToken);
+        await EnsureOwnershipAsync(payment, cancellationToken);
+
+        if (payment.Status == PaymentStatus.Cancelled)
+        {
+            // Idempotent: the client calls this from a "user closed the PayPal
+            // screen" handler, which can plausibly fire twice.
+            return _mapper.Map<PaymentDto>(payment);
+        }
+
+        if (payment.Status != PaymentStatus.Pending)
+        {
+            throw new BusinessException("Ova uplata je već obrađena i ne može se otkazati.");
+        }
+
+        payment.Status = PaymentStatus.Cancelled;
+        await _context.SaveChangesAsync(cancellationToken);
+
+        return _mapper.Map<PaymentDto>(payment);
+    }
+
     public async Task<PaymentDto?> GetByAppointmentIdAsync(int appointmentId, CancellationToken cancellationToken = default)
     {
         // Ownership first, *then* the payment lookup: this endpoint is open to
@@ -174,9 +293,14 @@ public class PaymentService : IPaymentService
         // their different response shapes.
         await EnsureAppointmentAccessAsync(appointmentId, cancellationToken);
 
+        // Neither an in-flight attempt (Pending) nor an abandoned one
+        // (Cancelled, C12) is "this appointment's payment" - only a settled row
+        // is, so an abandoned attempt can never be mistaken for one.
         var payment = await _context.Payments
             .Include(p => p.Refunds)
-            .Where(p => p.AppointmentId == appointmentId && p.Status != PaymentStatus.Pending)
+            .Where(p => p.AppointmentId == appointmentId
+                && p.Status != PaymentStatus.Pending
+                && p.Status != PaymentStatus.Cancelled)
             .OrderByDescending(p => p.CreatedAtUtc)
             .FirstOrDefaultAsync(cancellationToken);
 

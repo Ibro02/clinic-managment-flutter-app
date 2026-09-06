@@ -130,9 +130,20 @@ class _AppointmentDetailScreenState extends State<AppointmentDetailScreen> {
 
   Future<void> _pay() async {
     setState(() => _isPaying = true);
+    // Tracked outside the try so *every* exit that isn't a completed payment
+    // retires the attempt (review item C12) - including a capture PayPal
+    // refuses. An attempt left open blocks the next "Plati" until the server's
+    // staleness window expires, and by then the PayPal screen is gone, so the
+    // patient has no way to clear it themselves.
+    int? attemptId;
     try {
       final payment = await _paymentProvider.create(_appointment.id);
-      if (!mounted || payment.approveUrl == null) return;
+      attemptId = payment.id;
+
+      if (!mounted || payment.approveUrl == null) {
+        await _abandonAttempt(attemptId);
+        return;
+      }
 
       final approved = await Navigator.of(context).push<bool>(
         MaterialPageRoute(builder: (_) => PaymentWebViewScreen(approveUrl: payment.approveUrl!)),
@@ -145,12 +156,24 @@ class _AppointmentDetailScreenState extends State<AppointmentDetailScreen> {
         // Re-fetch to pick up the server's fresh isPaid/paymentStatus.
         final refreshed = await widget.provider.getById(_appointment.id);
         if (mounted) setState(() => _appointment = refreshed);
+      } else {
+        await _abandonAttempt(attemptId);
       }
     } on ApiException catch (e) {
+      await _abandonAttempt(attemptId);
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
     } finally {
       if (mounted) setState(() => _isPaying = false);
     }
+  }
+
+  /// Best-effort: the server retires a PayPal-refused attempt on its own and
+  /// expires anything else shortly after, so a failure here costs a short wait
+  /// rather than correctness. Harmless on an attempt that actually went
+  /// through - the server refuses to retire a settled payment.
+  Future<void> _abandonAttempt(int? paymentId) async {
+    if (paymentId == null) return;
+    await _paymentProvider.abandon(paymentId).catchError((_) {});
   }
 
   @override

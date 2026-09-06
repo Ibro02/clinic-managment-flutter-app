@@ -636,8 +636,13 @@ public class AppointmentService : IAppointmentService
             .Select(a => a.ToString())
             .ToList();
 
+        // Cancelled is excluded alongside Pending (review item C12): an
+        // abandoned attempt is not this appointment's payment, and since
+        // IsPaid below is "anything that isn't Refunded", letting one through
+        // here would report an appointment nobody paid for as paid.
         var currentPayment = appointment.Payments
-            .Where(p => p.Status != Model.Common.PaymentStatus.Pending)
+            .Where(p => p.Status != Model.Common.PaymentStatus.Pending
+                && p.Status != Model.Common.PaymentStatus.Cancelled)
             .OrderByDescending(p => p.CreatedAtUtc)
             .FirstOrDefault();
 

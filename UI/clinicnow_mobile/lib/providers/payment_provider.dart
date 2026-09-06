@@ -19,4 +19,13 @@ class PaymentProvider extends BaseProvider<Payment> {
     final response = await http.post(buildUri('api/Payment/$paymentId/capture'), headers: authHeaders());
     return fromJson(decode(response) as Map<String, dynamic>);
   }
+
+  /// Tells the server the patient closed the PayPal screen without approving,
+  /// so this attempt is retired and the next "Plati" isn't refused as a
+  /// duplicate (review item C12). Best-effort by design - if it never arrives
+  /// the server's own staleness window covers the same case, just later.
+  Future<void> abandon(int paymentId) async {
+    final response = await http.post(buildUri('api/Payment/$paymentId/abandon'), headers: authHeaders());
+    decode(response);
+  }
 }
