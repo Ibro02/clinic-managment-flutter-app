@@ -29,6 +29,6 @@ public class MedicalServiceConfiguration : IEntityTypeConfiguration<MedicalServi
             new MedicalService { Id = 2, Name = "Dermatološki pregled", Description = "Pregled kod dermatologa.", SpecializationId = 2, Price = 80.00m, DurationMinutes = 30 },
             new MedicalService { Id = 3, Name = "Ultrazvuk", Description = "Ultrazvučni pregled.", SpecializationId = 1, Price = 60.00m, DurationMinutes = 20 },
             new MedicalService { Id = 4, Name = "Laboratorijske analize", Description = "Osnovne laboratorijske pretrage krvi.", SpecializationId = 1, Price = 40.00m, DurationMinutes = 15 },
-            new MedicalService { Id = 5, Name = "Kardiološki pregled", Description = "Pregled kod kardiologa.", SpecializationId = 4, Price = 90.00m, DurationMinutes = 45 });
+            new MedicalService { Id = 5, Name = "Kardiološki pregled", Description = "Pregled kod kardiologa.", SpecializationId = 4, Price = 90.00m, DurationMinutes = 45, IsReferralRequired = true });
     }
 }

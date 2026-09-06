@@ -9,10 +9,12 @@ import '../../core/design_tokens.dart';
 import '../../models/doctor.dart';
 import '../../models/medical_service.dart';
 import '../../models/patient.dart';
+import '../../models/referral.dart';
 import '../../providers/appointment_provider.dart';
 import '../../providers/doctor_provider.dart';
 import '../../providers/medical_service_provider.dart';
 import '../../providers/patient_provider.dart';
+import '../../providers/referral_provider.dart';
 import '../../widgets/ui/app_badge.dart';
 import '../../widgets/ui/app_dialog.dart';
 import '../../widgets/ui/app_states.dart';
@@ -39,6 +41,7 @@ class _ScheduleAppointmentDialogState extends State<ScheduleAppointmentDialog> {
   late final PatientProvider _patientProvider;
   late final DoctorProvider _doctorProvider;
   late final MedicalServiceProvider _serviceProvider;
+  late final ReferralProvider _referralProvider;
 
   static final _dateFormat = DateFormat('dd.MM.yyyy');
   static final _timeFormat = DateFormat('HH:mm');
@@ -52,6 +55,10 @@ class _ScheduleAppointmentDialogState extends State<ScheduleAppointmentDialog> {
   Doctor? _doctor;
   int? _medicalServiceId;
   DateTime? _date;
+
+  bool _isLoadingReferrals = false;
+  List<Referral> _matchingReferrals = [];
+  int? _referralId;
 
   bool _isLoadingSlots = false;
   List<DateTime> _slots = [];
@@ -68,6 +75,7 @@ class _ScheduleAppointmentDialogState extends State<ScheduleAppointmentDialog> {
     _patientProvider = PatientProvider(authSession);
     _doctorProvider = DoctorProvider(authSession);
     _serviceProvider = MedicalServiceProvider(authSession);
+    _referralProvider = ReferralProvider(authSession);
     _loadOptions();
   }
 
@@ -106,6 +114,37 @@ class _ScheduleAppointmentDialogState extends State<ScheduleAppointmentDialog> {
         _selectedSlot = null;
         _slots = [];
       }
+    });
+    await _reloadReferralsIfNeeded();
+  }
+
+  MedicalService? get _selectedService =>
+      _services.cast<MedicalService?>().firstWhere((s) => s?.id == _medicalServiceId, orElse: () => null);
+
+  /// Fetches the chosen patient's active referrals matching the selected
+  /// service's required specialization, whenever both a patient and a
+  /// referral-required service are selected. Clears the previous selection
+  /// otherwise, so a stale referralId can never survive a patient/service
+  /// change onto a pairing it wasn't validated against.
+  Future<void> _reloadReferralsIfNeeded() async {
+    final service = _selectedService;
+    if (_patientId == null || service == null || !service.isReferralRequired) {
+      setState(() {
+        _matchingReferrals = [];
+        _referralId = null;
+      });
+      return;
+    }
+
+    setState(() => _isLoadingReferrals = true);
+    final referrals = await _referralProvider.getPaged(patientId: _patientId);
+    if (!mounted) return;
+    setState(() {
+      _matchingReferrals = referrals.where((r) => !r.isUsed && r.targetSpecializationId == service.specializationId).toList();
+      if (!_matchingReferrals.any((r) => r.id == _referralId)) {
+        _referralId = null;
+      }
+      _isLoadingReferrals = false;
     });
   }
 
@@ -150,6 +189,10 @@ class _ScheduleAppointmentDialogState extends State<ScheduleAppointmentDialog> {
       setState(() => _error = 'Popunite sva polja i odaberite termin.');
       return;
     }
+    if (_selectedService?.isReferralRequired == true && _referralId == null) {
+      setState(() => _error = 'Odaberite uputnicu za ovu uslugu.');
+      return;
+    }
 
     setState(() {
       _isSubmitting = true;
@@ -162,6 +205,7 @@ class _ScheduleAppointmentDialogState extends State<ScheduleAppointmentDialog> {
         'doctorId': _doctor!.id,
         'medicalServiceId': _medicalServiceId,
         'startUtc': _selectedSlot!.toUtc().toIso8601String(),
+        if (_referralId != null) 'referralId': _referralId,
       });
       if (mounted) Navigator.of(context).pop(true);
     } on ApiException catch (e) {
@@ -207,7 +251,10 @@ class _ScheduleAppointmentDialogState extends State<ScheduleAppointmentDialog> {
                         items: _patients
                             .map((p) => DropdownMenuItem(value: p.id, child: Text(p.fullName)))
                             .toList(),
-                        onChanged: (value) => setState(() => _patientId = value),
+                        onChanged: (value) {
+                          setState(() => _patientId = value);
+                          _reloadReferralsIfNeeded();
+                        },
                       ),
                     ),
                     AppField(
@@ -261,9 +308,32 @@ class _ScheduleAppointmentDialogState extends State<ScheduleAppointmentDialog> {
                             _slots = [];
                           });
                           _loadSlots();
+                          _reloadReferralsIfNeeded();
                         },
                       ),
                     ),
+                    if (_selectedService?.isReferralRequired == true)
+                      AppField(
+                        label: 'Uputnica',
+                        required: true,
+                        help: _patientId == null
+                            ? 'Prvo odaberite pacijenta.'
+                            : _isLoadingReferrals
+                            ? null
+                            : _matchingReferrals.isEmpty
+                            ? 'Pacijent nema aktivnu uputnicu za ovu specijalizaciju.'
+                            : null,
+                        child: _isLoadingReferrals
+                            ? const LinearProgressIndicator()
+                            : DropdownButtonFormField<int>(
+                                initialValue: _referralId,
+                                decoration: const InputDecoration(hintText: 'Odaberite uputnicu'),
+                                items: _matchingReferrals
+                                    .map((r) => DropdownMenuItem(value: r.id, child: Text(r.reason)))
+                                    .toList(),
+                                onChanged: (value) => setState(() => _referralId = value),
+                              ),
+                      ),
                     // Rulebook §K: an action whose preconditions aren't met is
                     // disabled *and* says why, rather than silently doing nothing.
                     AppField(
@@ -271,11 +341,18 @@ class _ScheduleAppointmentDialogState extends State<ScheduleAppointmentDialog> {
                       required: true,
                       help: (_doctor == null || _medicalServiceId == null)
                           ? 'Prvo odaberite doktora i uslugu.'
+                          : (_selectedService?.isReferralRequired == true && _referralId == null)
+                          ? 'Prvo odaberite uputnicu.'
                           : null,
                       child: SizedBox(
                         height: AppSizes.controlHeight,
                         child: OutlinedButton.icon(
-                          onPressed: (_doctor == null || _medicalServiceId == null) ? null : _pickDate,
+                          onPressed:
+                              (_doctor == null ||
+                                  _medicalServiceId == null ||
+                                  (_selectedService?.isReferralRequired == true && _referralId == null))
+                              ? null
+                              : _pickDate,
                           icon: const Icon(Icons.calendar_today_outlined, size: 16),
                           label: Text(_date == null ? 'Odaberite datum' : _dateFormat.format(_date!)),
                           style: OutlinedButton.styleFrom(alignment: Alignment.centerLeft),

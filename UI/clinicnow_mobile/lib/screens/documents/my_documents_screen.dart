@@ -344,7 +344,7 @@ class _MyReferralsTabState extends State<_MyReferralsTab> {
           icon: Icons.assignment_outlined,
           title: _showArchived ? 'Arhiva je prazna' : 'Nemate uputnica',
           message: _showArchived
-              ? 'Uputnice se ovdje pojavljuju nakon što se iskoriste za zakazivanje i taj termin bude završen ili otkazan.'
+              ? 'Uputnice se ovdje pojavljuju čim se iskoriste za zakazivanje termina, ili budu uklonjene.'
               : 'Uputnice koje vam doktor izda tokom pregleda pojavit će se ovdje.',
         ),
       );
@@ -358,24 +358,18 @@ class _MyReferralsTabState extends State<_MyReferralsTab> {
         separatorBuilder: (context, index) => const SizedBox(height: AppSpacing.xs),
         itemBuilder: (context, index) {
           final referral = _referrals![index];
-
+          // A referral moves to Arhiva the moment it's used (server-side
+          // filter, not just once its resulting appointment finishes) - so
+          // everything in the active list is guaranteed still bookable, and
+          // everything in Arhiva is inert. No per-item used/unused split
+          // needed here anymore.
           return AppListCard(
             icon: Icons.assignment_outlined,
             tone: AppTone.primary,
             title: 'Uputnica: ${referral.targetSpecializationName}',
             subtitle: referral.reason,
             meta: '${referral.referringDoctorName} · ${_dateFormat.format(referral.createdAtUtc.toLocal())}',
-            actions: [
-              // Archived or already-used referrals can't be re-booked - the
-              // server independently refuses it either way, but the button
-              // is hidden here too instead of offering an action that would fail.
-              if (!_showArchived && !referral.isUsed)
-                IconButton(
-                  tooltip: 'Zakaži termin kod specijaliste',
-                  icon: const Icon(Icons.event_available_outlined),
-                  onPressed: () => _bookWithSpecialist(referral),
-                ),
-            ],
+            onTap: _showArchived ? null : () => _bookWithSpecialist(referral),
           );
         },
       ),

@@ -125,6 +125,31 @@ public class ReferralServiceTests
     }
 
     [Fact]
+    public async Task GetPagedAsync_UsedReferral_ShowsUnderArchivedNotActive()
+    {
+        // Requested directly by Ibrahim: a used referral belongs in "Arhiva"
+        // immediately, not only once its resulting appointment reaches a
+        // terminal state - IsDeleted stays false here on purpose, to prove
+        // ResultingAppointmentId alone is what the archived/active split now
+        // keys off, independent of the soft-delete flag.
+        var context = TestContextFactory.CreateContext();
+        var created = await new ReferralService(context, TestContextFactory.CreateMapper(), TestContextFactory.CreateHttpContextAccessor(3, Roles.Doctor))
+            .CreateAsync(new ReferralInsertRequest { SourceAppointmentId = 4, TargetSpecializationId = 2, Reason = "Nalaz" });
+
+        var referral = await context.Referrals.SingleAsync(r => r.Id == created.Id);
+        referral.ResultingAppointmentId = 999_999;
+        await context.SaveChangesAsync();
+
+        var service = new ReferralService(context, TestContextFactory.CreateMapper(), TestContextFactory.CreateHttpContextAccessor(3, Roles.Doctor));
+
+        var active = await service.GetPagedAsync(new ReferralSearchObject { PatientId = 2, OnlyArchived = false });
+        Assert.DoesNotContain(active.ResultList, r => r.Id == created.Id);
+
+        var archived = await service.GetPagedAsync(new ReferralSearchObject { PatientId = 2, OnlyArchived = true });
+        Assert.Contains(archived.ResultList, r => r.Id == created.Id);
+    }
+
+    [Fact]
     public async Task DeleteAsync_SoftDeletes()
     {
         var context = TestContextFactory.CreateContext();

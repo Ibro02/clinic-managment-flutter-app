@@ -7,12 +7,14 @@ import '../../core/auth_session.dart';
 import '../../models/doctor.dart';
 import '../../models/medical_service.dart';
 import '../../models/recommendation.dart';
+import '../../models/referral.dart';
 import '../../core/design_tokens.dart';
 import '../../providers/appointment_provider.dart';
 import '../../providers/doctor_provider.dart';
 import '../../providers/medical_service_provider.dart';
 import '../../providers/payment_provider.dart';
 import '../../providers/recommendation_provider.dart';
+import '../../providers/referral_provider.dart';
 import '../../widgets/ui/app_badge.dart';
 import '../../widgets/ui/app_card.dart';
 import '../../widgets/ui/app_dialog.dart';
@@ -89,6 +91,7 @@ class _BookAppointmentScreenState extends State<BookAppointmentScreen> {
   late final MedicalServiceProvider _serviceProvider;
   late final RecommendationProvider _recommendationProvider;
   late final PaymentProvider _paymentProvider;
+  late final ReferralProvider _referralProvider;
 
   static final _dateFormat = DateFormat('dd.MM.yyyy');
   static final _timeFormat = DateFormat('HH:mm');
@@ -96,6 +99,11 @@ class _BookAppointmentScreenState extends State<BookAppointmentScreen> {
   bool _isLoadingOptions = true;
   List<Doctor> _doctors = [];
   List<MedicalService> _services = [];
+
+  /// The patient's own active (unused, non-archived) referrals - fetched once
+  /// so the general booking flow can tell them, per service, whether they
+  /// already have what a referral-required service needs.
+  List<Referral> _ownReferrals = [];
 
   Doctor? _doctor;
   MedicalService? _service;
@@ -119,6 +127,7 @@ class _BookAppointmentScreenState extends State<BookAppointmentScreen> {
     _serviceProvider = MedicalServiceProvider(authSession);
     _recommendationProvider = RecommendationProvider(authSession);
     _paymentProvider = PaymentProvider(authSession);
+    _referralProvider = ReferralProvider(authSession);
     _loadOptions();
     // The "Preporučeno" banner exists to surface a recommendation to someone
     // who arrived here without one. When the screen was pre-filled from a
@@ -133,12 +142,14 @@ class _BookAppointmentScreenState extends State<BookAppointmentScreen> {
   Future<void> _loadOptions() async {
     final doctors = await _doctorProvider.getPaged({'pageSize': 100, 'orderBy': 'LastName'});
     final services = await _fetchServices(widget.initialDoctorId);
+    final ownReferrals = await _loadOwnReferrals();
     if (!mounted) return;
     setState(() {
       _doctors = widget.initialSpecializationId == null
           ? doctors.resultList
           : doctors.resultList.where((d) => d.specializationIds.contains(widget.initialSpecializationId)).toList();
       _services = services;
+      _ownReferrals = ownReferrals;
       _isLoadingOptions = false;
     });
 
@@ -156,6 +167,62 @@ class _BookAppointmentScreenState extends State<BookAppointmentScreen> {
       });
       if (_doctor != null && _service != null && _date != null) {
         await _loadSlots();
+      }
+    } else if (widget.referralId != null) {
+      await _prefillFromReferral();
+    }
+  }
+
+  /// Best-effort - a failed fetch must never block booking, it just means the
+  /// "you already have a referral for this" notice can't be shown.
+  Future<List<Referral>> _loadOwnReferrals() async {
+    try {
+      return await _referralProvider.getPaged();
+    } catch (_) {
+      return [];
+    }
+  }
+
+  /// Auto-fill when arriving from a referral (review item C5 follow-up,
+  /// requested directly by Ibrahim): picks the first specialist and service
+  /// under the referral's specialization, then proposes the earliest open
+  /// slot within the next two weeks. Every field this touches
+  /// (doctor/service/date/slot) stays exactly as editable as it always was -
+  /// this only saves the patient the first few taps, it never locks anything.
+  Future<void> _prefillFromReferral() async {
+    if (_doctors.isEmpty) return;
+    final doctor = _doctors.first;
+
+    final services = await _fetchServices(doctor.id);
+    if (!mounted || services.isEmpty) return;
+    final service = services.first;
+
+    setState(() {
+      _doctor = doctor;
+      _services = services;
+      _service = service;
+    });
+
+    const searchWindowDays = 14;
+    for (var offset = 1; offset <= searchWindowDays; offset++) {
+      final date = DateTime.now().add(Duration(days: offset));
+      try {
+        final slots = await _appointmentProvider.availableSlots(
+          doctorId: doctor.id,
+          medicalServiceId: service.id,
+          date: date,
+        );
+        if (!mounted) return;
+        if (slots.isNotEmpty) {
+          setState(() {
+            _date = date;
+            _slots = slots;
+            _selectedSlot = slots.first;
+          });
+          return;
+        }
+      } on ApiException {
+        return;
       }
     }
   }
@@ -242,11 +309,38 @@ class _BookAppointmentScreenState extends State<BookAppointmentScreen> {
     }
   }
 
+  /// An active, unused referral of the patient's own that covers the
+  /// selected service's specialization - found automatically so the general
+  /// booking flow (review item, new feature request) can tell them they're
+  /// already covered without making them go find it themselves. Null when a
+  /// referral was already supplied explicitly (the Uputnice -> "Zakaži
+  /// termin" flow), since that one is used as-is.
+  Referral? get _matchingReferral {
+    if (widget.referralId != null) return null;
+    final service = _service;
+    if (service == null || !service.isReferralRequired) return null;
+    for (final referral in _ownReferrals) {
+      if (!referral.isUsed && referral.targetSpecializationId == service.specializationId) return referral;
+    }
+    return null;
+  }
+
+  /// True when the selected service needs a referral this booking doesn't
+  /// carry and none of the patient's own active referrals cover it either.
+  bool get _isMissingRequiredReferral =>
+      _service?.isReferralRequired == true && widget.referralId == null && _matchingReferral == null;
+
   Future<void> _submit() async {
     if (_doctor == null || _service == null || _selectedSlot == null) {
       setState(() => _error = 'Odaberite doktora, uslugu i termin.');
       return;
     }
+    if (_isMissingRequiredReferral) {
+      setState(() => _error = 'Ova usluga zahtijeva uputnicu. Zakažite je iz sekcije "Uputnice".');
+      return;
+    }
+
+    final effectiveReferralId = widget.referralId ?? _matchingReferral?.id;
 
     setState(() {
       _isSubmitting = true;
@@ -258,7 +352,7 @@ class _BookAppointmentScreenState extends State<BookAppointmentScreen> {
         'doctorId': _doctor!.id,
         'medicalServiceId': _service!.id,
         'startUtc': _selectedSlot!.toUtc().toIso8601String(),
-        if (widget.referralId != null) 'referralId': widget.referralId,
+        'referralId': ?effectiveReferralId,
       });
       if (!mounted) return;
 
@@ -433,6 +527,21 @@ class _BookAppointmentScreenState extends State<BookAppointmentScreen> {
                       }
                     },
                   ),
+                  if (_isMissingRequiredReferral) ...[
+                    const SizedBox(height: AppSpacing.xs),
+                    const AppNotice(
+                      tone: AppTone.warning,
+                      message: 'Ova usluga zahtijeva aktivnu uputnicu. Zakažite je iz sekcije "Uputnice".',
+                    ),
+                  ] else if (_matchingReferral != null) ...[
+                    const SizedBox(height: AppSpacing.xs),
+                    AppNotice(
+                      tone: AppTone.success,
+                      message:
+                          'Imate aktivnu uputnicu za ovu uslugu (${_matchingReferral!.targetSpecializationName}) - '
+                          'biće automatski iskorištena za ovaj termin.',
+                    ),
+                  ],
                   const SizedBox(height: AppSpacing.lg),
                   _step(context, 3, 'Odaberite datum'),
                   SizedBox(
@@ -461,7 +570,7 @@ class _BookAppointmentScreenState extends State<BookAppointmentScreen> {
                   ],
                   const SizedBox(height: AppSpacing.lg),
                   FilledButton(
-                    onPressed: _isSubmitting ? null : _submit,
+                    onPressed: (_isSubmitting || _isMissingRequiredReferral) ? null : _submit,
                     child: _isSubmitting
                         ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(strokeWidth: 2))
                         : const Text('Zakaži termin'),

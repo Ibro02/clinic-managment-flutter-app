@@ -36,12 +36,19 @@ public class ReferralService : IReferralService
             .Include(r => r.SourceAppointment)
             .Include(r => r.TargetSpecialization);
 
-        // The "Arhiva" view both Flutter clients show alongside the active
-        // list deliberately bypasses the global soft-delete filter, same
-        // pattern as PatientService's OnlyDeleted (review item C3).
+        // "Arhiva" means "no longer available to book with" - either a real
+        // soft-delete (Administrator's manual removal of a mistaken entry) or
+        // simply already used to book an appointment, regardless of that
+        // appointment's own status (requested directly by Ibrahim: waiting for
+        // the resulting appointment to complete/cancel before moving a used
+        // referral out of the active list just left two visually-identical
+        // "active" states with nothing to tell them apart). Bypasses the
+        // global soft-delete filter (same pattern as PatientService's
+        // OnlyDeleted, review item C3) precisely because a used-but-not-yet-
+        // soft-deleted referral must still surface here.
         query = search.OnlyArchived
-            ? query.IgnoreQueryFilters().Where(r => r.IsDeleted)
-            : query;
+            ? query.IgnoreQueryFilters().Where(r => r.IsDeleted || r.ResultingAppointmentId != null)
+            : query.Where(r => r.ResultingAppointmentId == null);
 
         if (principal.IsInRole(Roles.Patient))
         {

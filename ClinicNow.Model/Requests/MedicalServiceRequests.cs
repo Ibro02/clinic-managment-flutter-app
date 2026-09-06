@@ -12,6 +12,9 @@ public class MedicalServiceInsertRequest
     public decimal Price { get; set; }
 
     public int DurationMinutes { get; set; }
+
+    /// <summary>Booking this service will require an active referral targeting <see cref="SpecializationId"/>.</summary>
+    public bool IsReferralRequired { get; set; }
 }
 
 public class MedicalServiceUpdateRequest
@@ -26,4 +29,7 @@ public class MedicalServiceUpdateRequest
     public decimal Price { get; set; }
 
     public int DurationMinutes { get; set; }
+
+    /// <summary>Booking this service will require an active referral targeting <see cref="SpecializationId"/>.</summary>
+    public bool IsReferralRequired { get; set; }
 }

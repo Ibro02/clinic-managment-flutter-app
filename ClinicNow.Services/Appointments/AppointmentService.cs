@@ -166,6 +166,25 @@ public class AppointmentService : IAppointmentService
             }
         }
 
+        // Some services (e.g. a surgical consultation) can't be self-booked
+        // without first being referred to them. Checked here, before the
+        // transactional booking itself, alongside the referral validation
+        // above it depends on - a missing MedicalServiceId is left for
+        // EnsureAvailableAsync's own "usluga ne postoji" check further down.
+        var medicalService = await _context.MedicalServices.FindAsync([request.MedicalServiceId], cancellationToken);
+        if (medicalService is { IsReferralRequired: true })
+        {
+            if (referral is null)
+            {
+                throw new ValidationException("referralId", "Za zakazivanje ove usluge potrebna je aktivna uputnica.");
+            }
+
+            if (referral.TargetSpecializationId != medicalService.SpecializationId)
+            {
+                throw new ValidationException("referralId", "Uputnica ne odgovara specijalizaciji odabrane usluge.");
+            }
+        }
+
         var initialState = _serviceProvider.GetRequiredService<InitialAppointmentState>();
         var appointment = await initialState.ScheduleAsync(
             patientId, request.DoctorId, request.MedicalServiceId,

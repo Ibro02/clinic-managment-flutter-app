@@ -472,7 +472,7 @@ class _ReferralsScreenState extends State<ReferralsScreen> {
                       icon: Icons.assignment_outlined,
                       title: _showArchived ? 'Arhiva je prazna' : 'Nema uputnica',
                       message: _showArchived
-                          ? 'Uputnice se ovdje pojavljuju nakon što se iskoriste za zakazivanje i taj termin bude završen ili otkazan.'
+                          ? 'Uputnice se ovdje pojavljuju čim se iskoriste za zakazivanje termina, ili budu uklonjene.'
                           : 'Ovaj pacijent još nema izdatih uputnica specijalisti.',
                       action: canAdd
                           ? FilledButton.icon(

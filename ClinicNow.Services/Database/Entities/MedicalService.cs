@@ -28,4 +28,12 @@ public class MedicalService
     public decimal Price { get; set; }
 
     public int DurationMinutes { get; set; }
+
+    /// <summary>
+    /// When true, booking this service requires an active (unused, non-archived)
+    /// <see cref="Referral"/> targeting this service's <see cref="Specialization"/> -
+    /// e.g. a surgical consultation the patient must first be referred to. Enforced
+    /// server-side in <c>AppointmentService.ScheduleAsync</c>, never client-only.
+    /// </summary>
+    public bool IsReferralRequired { get; set; }
 }

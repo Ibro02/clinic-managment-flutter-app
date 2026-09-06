@@ -17,4 +17,7 @@ public class MedicalServiceDto
     public decimal Price { get; set; }
 
     public int DurationMinutes { get; set; }
+
+    /// <summary>Booking this service requires an active referral targeting <see cref="SpecializationId"/>.</summary>
+    public bool IsReferralRequired { get; set; }
 }

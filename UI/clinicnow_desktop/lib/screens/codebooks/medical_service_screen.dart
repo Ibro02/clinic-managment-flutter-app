@@ -59,6 +59,7 @@ class _MedicalServiceScreenState extends State<MedicalServiceScreen> {
     }
 
     var selectedSpecializationId = initial?.specializationId ?? specializations.first.id;
+    var isReferralRequired = initial?.isReferralRequired ?? false;
 
     await showAppDialog<void>(
       context: context,
@@ -90,6 +91,7 @@ class _MedicalServiceScreenState extends State<MedicalServiceScreen> {
                         'specializationId': selectedSpecializationId,
                         'price': double.parse(form.value['price'] as String),
                         'durationMinutes': int.parse(form.value['durationMinutes'] as String),
+                        'isReferralRequired': isReferralRequired,
                       };
                       try {
                         if (initial == null) {
@@ -155,6 +157,17 @@ class _MedicalServiceScreenState extends State<MedicalServiceScreen> {
                         .map((s) => DropdownMenuItem(value: s.id, child: Text(s.name)))
                         .toList(),
                     onChanged: (value) => setDialogState(() => selectedSpecializationId = value!),
+                  ),
+                ),
+                AppField(
+                  label: 'Zahtijeva uputnicu',
+                  help: 'Pacijent mora imati aktivnu uputnicu za ovu specijalizaciju da bi zakazao ovu uslugu.',
+                  child: CheckboxListTile(
+                    contentPadding: EdgeInsets.zero,
+                    controlAffinity: ListTileControlAffinity.leading,
+                    value: isReferralRequired,
+                    title: const Text('Da'),
+                    onChanged: (value) => setDialogState(() => isReferralRequired = value ?? false),
                   ),
                 ),
                 AppFieldRow(
@@ -225,6 +238,12 @@ class _MedicalServiceScreenState extends State<MedicalServiceScreen> {
           width: 110,
           numeric: true,
           cell: (context, service) => Text('${service.durationMinutes} min'),
+        ),
+        AppColumn(
+          label: 'Uputnica',
+          width: 90,
+          cell: (context, service) =>
+              service.isReferralRequired ? const Icon(Icons.check, size: 18) : const SizedBox.shrink(),
         ),
       ],
       onAdd: () => _openForm(),
