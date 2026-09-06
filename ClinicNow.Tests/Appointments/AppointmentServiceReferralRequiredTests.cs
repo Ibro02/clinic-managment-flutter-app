@@ -114,7 +114,7 @@ public class AppointmentServiceReferralRequiredTests
 
     private sealed class ThrowingEmailPublisher : IEmailPublisher
     {
-        public Task PublishAsync(EmailMessage message, CancellationToken cancellationToken) =>
+        public Task<bool> PublishAsync(EmailMessage message, CancellationToken cancellationToken) =>
             throw new InvalidOperationException("Not expected to be called on the rejection path.");
     }
 

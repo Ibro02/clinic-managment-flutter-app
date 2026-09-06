@@ -72,33 +72,59 @@ public class PreAppointmentReminderHostedService : BackgroundService
                         && a.StartUtc <= windowEnd)
             .ToListAsync(cancellationToken);
 
+        var sent = 0;
+        var deferred = 0;
+
         foreach (var appointment in upcoming)
         {
             var doctorName = $"{appointment.Doctor.User.FirstName} {appointment.Doctor.User.LastName}";
             var text = $"Podsjetnik: imate zakazan termin kod dr. {doctorName} za {appointment.StartUtc:dd.MM.yyyy HH:mm} UTC.";
+
+            // The email goes first, deliberately (review item C16). This
+            // appointment is only marked as reminded once the broker has
+            // confirmed the message, and an unmarked appointment is picked up
+            // again by the next scan - so creating the in-app notification
+            // first would post a duplicate notification on every retry.
+            // A patient with no account has no email either; nothing to publish
+            // is not a failure.
+            var published = appointment.Patient.User is null
+                || await emailPublisher.PublishAsync(new EmailMessage
+                {
+                    To = appointment.Patient.User.Email,
+                    Subject = "ClinicNow - podsjetnik za termin",
+                    Body = text
+                }, cancellationToken);
+
+            if (!published)
+            {
+                // Left unmarked on purpose: the next scan retries it. Writing
+                // ReminderSentAtUtc here - which is what used to happen
+                // unconditionally - would permanently retire a reminder that was
+                // never delivered, because the scan query only picks up rows
+                // where it is still null.
+                deferred++;
+                continue;
+            }
 
             if (appointment.Patient.UserId is int patientUserId)
             {
                 await notificationService.CreateAsync(patientUserId, "Podsjetnik za termin", text, cancellationToken);
             }
 
-            if (appointment.Patient.User is not null)
-            {
-                await emailPublisher.PublishAsync(new EmailMessage
-                {
-                    To = appointment.Patient.User.Email,
-                    Subject = "ClinicNow - podsjetnik za termin",
-                    Body = text
-                }, cancellationToken);
-            }
-
             appointment.ReminderSentAtUtc = now;
+            sent++;
         }
 
-        if (upcoming.Count > 0)
+        if (sent > 0)
         {
             await context.SaveChangesAsync(cancellationToken);
-            _logger.LogInformation("Sent {Count} pre-appointment reminder(s).", upcoming.Count);
+            _logger.LogInformation("Sent {Count} pre-appointment reminder(s).", sent);
+        }
+
+        if (deferred > 0)
+        {
+            _logger.LogWarning(
+                "{Count} pre-appointment reminder(s) could not be published and stay pending for the next scan.", deferred);
         }
     }
 }

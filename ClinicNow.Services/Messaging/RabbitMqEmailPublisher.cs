@@ -23,12 +23,22 @@ public class RabbitMqEmailPublisher : IEmailPublisher
         _logger = logger;
     }
 
-    public async Task PublishAsync(EmailMessage message, CancellationToken cancellationToken)
+    public async Task<bool> PublishAsync(EmailMessage message, CancellationToken cancellationToken)
     {
         try
         {
             var connection = await _connectionProvider.GetConnectionAsync(cancellationToken);
-            await using var channel = await connection.CreateChannelAsync(cancellationToken: cancellationToken);
+
+            // Publisher confirmations on (review item C16): without them
+            // BasicPublishAsync returns as soon as the bytes are written to the
+            // socket, which says nothing about whether RabbitMQ accepted the
+            // message. With tracking enabled the publish awaits the broker's ack
+            // and throws if it is nacked, so the `true` returned below means the
+            // broker really has it - the whole point of the item is that
+            // "sent" must not be recorded on weaker evidence than that.
+            await using var channel = await connection.CreateChannelAsync(
+                new CreateChannelOptions(publisherConfirmationsEnabled: true, publisherConfirmationTrackingEnabled: true),
+                cancellationToken);
 
             await channel.QueueDeclareAsync(
                 queue: MailQueueName,
@@ -47,6 +57,8 @@ public class RabbitMqEmailPublisher : IEmailPublisher
                 basicProperties: properties,
                 body: body,
                 cancellationToken: cancellationToken);
+
+            return true;
         }
         catch (Exception ex)
         {
@@ -55,6 +67,7 @@ public class RabbitMqEmailPublisher : IEmailPublisher
             // briefly unavailable) - log loudly instead of a silent catch
             // (rulebook Appendix A.1: no silent failures).
             _logger.LogError(ex, "Failed to publish email to '{To}'.", message.To);
+            return false;
         }
     }
 }
