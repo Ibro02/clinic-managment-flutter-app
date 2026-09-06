@@ -22,4 +22,14 @@ public interface IPatientService : ICRUDService<PatientDto, PatientSearchObject,
     /// it exists but isn't currently archived.
     /// </summary>
     Task<PatientDto> RestoreAsync(int id, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// The caller's own patient record, resolved from the JWT (review item C19 -
+    /// this used to be a `ClinicNowContext` query inside `PatientController`,
+    /// the last place besides `NewsItemController` where a controller talked to
+    /// the database directly). Throws
+    /// <see cref="Model.Exceptions.NotFoundException"/> when the signed-in user
+    /// has no patient record.
+    /// </summary>
+    Task<PatientDto> GetOwnAsync(CancellationToken cancellationToken = default);
 }

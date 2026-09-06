@@ -1,3 +1,4 @@
+using System.Security.Claims;
 using ClinicNow.Model.Common;
 using ClinicNow.Model.Dto;
 using ClinicNow.Model.Exceptions;
@@ -6,14 +7,39 @@ using ClinicNow.Model.SearchObjects;
 using ClinicNow.Services.Database;
 using ClinicNow.Services.Database.Entities;
 using MapsterMapper;
+using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 
 namespace ClinicNow.Services.People;
 
 public class PatientService : BaseCRUDService<PatientDto, PatientSearchObject, Patient, PatientInsertRequest, PatientUpdateRequest>, IPatientService
 {
-    public PatientService(ClinicNowContext context, IMapper mapper) : base(context, mapper)
+    private readonly IHttpContextAccessor _httpContextAccessor;
+
+    public PatientService(ClinicNowContext context, IMapper mapper, IHttpContextAccessor httpContextAccessor)
+        : base(context, mapper)
     {
+        _httpContextAccessor = httpContextAccessor;
+    }
+
+    /// <inheritdoc />
+    public async Task<PatientDto> GetOwnAsync(CancellationToken cancellationToken = default)
+    {
+        // Identity comes from the token via IHttpContextAccessor, never from a
+        // route or body value (rulebook Part II §D/§F) - the same shape every
+        // other "my own record" lookup in this codebase uses.
+        var principal = _httpContextAccessor.HttpContext?.User
+            ?? throw new AuthenticationException("Nema aktivne sesije.");
+        var userId = int.Parse(principal.FindFirst(ClaimTypes.NameIdentifier)!.Value);
+
+        // MedicalRecord has to be Include()-d for PatientDto.MedicalRecordId to
+        // populate, exactly as ApplyFilter/GetByIdAsync do it.
+        var patient = await Context.Patients
+            .Include(p => p.MedicalRecord)
+            .SingleOrDefaultAsync(p => p.UserId == userId, cancellationToken)
+            ?? throw new NotFoundException("Nije pronađen medicinski karton za ovaj nalog.");
+
+        return Mapper.Map<PatientDto>(patient);
     }
 
     protected override IQueryable<Patient> ApplyFilter(PatientSearchObject search, IQueryable<Patient> query)

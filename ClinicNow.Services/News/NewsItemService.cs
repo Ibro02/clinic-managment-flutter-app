@@ -5,21 +5,35 @@ using ClinicNow.Model.SearchObjects;
 using ClinicNow.Services.Database;
 using ClinicNow.Services.Database.Entities;
 using MapsterMapper;
+using Microsoft.EntityFrameworkCore;
 
 namespace ClinicNow.Services.News;
 
 /// <summary>
-/// Plain generic CRUD (no behaviour beyond validation + image decoding) - news
-/// items don't need a bespoke service interface (rulebook Part II §D: reuse the
-/// generic base classes wherever no extra behaviour is needed).
+/// Generic CRUD (validation + image decoding) plus one bespoke read: serving the
+/// stored image bytes, which stay off the list/detail DTO (rulebook Part II §D).
+/// That read lives here rather than in the controller - fetching it there was
+/// the layering violation review item C19 calls out.
 /// </summary>
-public class NewsItemService : BaseCRUDService<NewsItemDto, NewsItemSearchObject, NewsItem, NewsItemInsertRequest, NewsItemUpdateRequest>
+public class NewsItemService : BaseCRUDService<NewsItemDto, NewsItemSearchObject, NewsItem, NewsItemInsertRequest, NewsItemUpdateRequest>, INewsItemService
 {
     // 5 MB - generous for a small announcement image while still bounding request size.
     private const int MaxImageBytes = 5 * 1024 * 1024;
 
     public NewsItemService(ClinicNowContext context, IMapper mapper) : base(context, mapper)
     {
+    }
+
+    /// <inheritdoc />
+    public async Task<(byte[] Data, string ContentType)?> GetImageAsync(int id, CancellationToken cancellationToken = default)
+    {
+        var entity = await Context.NewsItems.AsNoTracking()
+            .SingleOrDefaultAsync(n => n.Id == id, cancellationToken)
+            ?? throw new NotFoundException(nameof(NewsItem), id);
+
+        return entity.ImageData is null || entity.ImageData.Length == 0
+            ? null
+            : (entity.ImageData, entity.ImageContentType ?? "application/octet-stream");
     }
 
     protected override IQueryable<NewsItem> ApplyFilter(NewsItemSearchObject search, IQueryable<NewsItem> query)

@@ -25,6 +25,14 @@ namespace ClinicNow.Tests.People;
 /// </summary>
 public class PatientServiceTests
 {
+    /// <summary>
+    /// The accessor is only consulted by `GetOwnAsync` (review item C19), which
+    /// none of these archive/restore tests call - it is here because the service
+    /// resolves the caller from the token rather than from a parameter.
+    /// </summary>
+    private static PatientService NewService(ClinicNow.Services.Database.ClinicNowContext context) =>
+        new(context, TestContextFactory.CreateMapper(), TestContextFactory.CreateHttpContextAccessor(1));
+
     private static Patient NewPatient(int id, int? userId = null) => new()
     {
         Id = id,
@@ -63,7 +71,7 @@ public class PatientServiceTests
         // No linked User (UserId: null) - a walk-in patient staff created with
         // no login must not throw looking one up.
         await using var context = await ContextWithPatientAsync(NewPatient(500));
-        var service = new PatientService(context, TestContextFactory.CreateMapper());
+        var service = NewService(context);
 
         await service.DeleteAsync(500);
 
@@ -78,7 +86,7 @@ public class PatientServiceTests
             NewPatient(501),
             AppointmentFor(501, AppointmentStatus.Completed, -TimeSpan.FromDays(10)),
             AppointmentFor(501, AppointmentStatus.Cancelled, -TimeSpan.FromDays(5)));
-        var service = new PatientService(context, TestContextFactory.CreateMapper());
+        var service = NewService(context);
 
         await service.DeleteAsync(501);
 
@@ -94,7 +102,7 @@ public class PatientServiceTests
         await using var context = await ContextWithPatientAsync(
             NewPatient(502),
             AppointmentFor(502, activeStatus, TimeSpan.FromDays(3)));
-        var service = new PatientService(context, TestContextFactory.CreateMapper());
+        var service = NewService(context);
 
         await Assert.ThrowsAsync<BusinessException>(() => service.DeleteAsync(502));
 
@@ -118,7 +126,7 @@ public class PatientServiceTests
         context.Users.Add(user);
         context.Patients.Add(NewPatient(503, userId: 500));
         await context.SaveChangesAsync();
-        var service = new PatientService(context, TestContextFactory.CreateMapper());
+        var service = NewService(context);
 
         await service.DeleteAsync(503);
 
@@ -138,7 +146,7 @@ public class PatientServiceTests
         patient.IsDeleted = true;
         patient.DeletedAtUtc = DateTime.UtcNow.AddDays(-1);
         await using var context = await ContextWithPatientAsync(patient);
-        var service = new PatientService(context, TestContextFactory.CreateMapper());
+        var service = NewService(context);
 
         await service.RestoreAsync(504);
 
@@ -162,7 +170,7 @@ public class PatientServiceTests
         patient.DeletedAtUtc = DateTime.UtcNow.AddDays(-1);
         context.Patients.Add(patient);
         await context.SaveChangesAsync();
-        var service = new PatientService(context, TestContextFactory.CreateMapper());
+        var service = NewService(context);
 
         await service.RestoreAsync(505);
 
@@ -174,7 +182,7 @@ public class PatientServiceTests
     public async Task RestoreAsync_PatientNotArchived_Throws()
     {
         await using var context = await ContextWithPatientAsync(NewPatient(506));
-        var service = new PatientService(context, TestContextFactory.CreateMapper());
+        var service = NewService(context);
 
         await Assert.ThrowsAsync<BusinessException>(() => service.RestoreAsync(506));
     }
@@ -183,7 +191,7 @@ public class PatientServiceTests
     public async Task RestoreAsync_UnknownId_Throws()
     {
         await using var context = TestContextFactory.CreateContext();
-        var service = new PatientService(context, TestContextFactory.CreateMapper());
+        var service = NewService(context);
 
         await Assert.ThrowsAsync<NotFoundException>(() => service.RestoreAsync(999_999));
     }
@@ -197,7 +205,7 @@ public class PatientServiceTests
         await using var context = await ContextWithPatientAsync(archived);
         context.Patients.Add(NewPatient(508)); // active, not archived
         await context.SaveChangesAsync();
-        var service = new PatientService(context, TestContextFactory.CreateMapper());
+        var service = NewService(context);
 
         var defaultResult = await service.GetPagedAsync(new PatientSearchObject());
         Assert.DoesNotContain(defaultResult.ResultList, p => p.Id == 507);

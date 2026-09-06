@@ -106,9 +106,35 @@ public class DashboardService : IDashboardService
         return payments.Sum(p => p.AmountEur - p.Refunds.Sum(r => r.AmountEur));
     }
 
-    /// <summary>7 sequential day-bucket counts (today back 6) - simple and correct across the local-midnight boundary; a single GroupBy can't express the per-day timezone shift as cleanly.</summary>
+    /// <summary>
+    /// Appointment counts per day for the last week (today back 6), in **one**
+    /// query instead of the seven sequential `CountAsync` round trips this used
+    /// to issue (review item C19).
+    ///
+    /// The grouping is done in memory, deliberately, and that is not the
+    /// "silently evaluates client-side" trap: the query is bounded to a
+    /// seven-day window and pulls a single column, so what comes back is tiny.
+    /// It cannot be a SQL `GROUP BY` without being *wrong* - the buckets are
+    /// clinic-local days while the column is UTC, and Sarajevo's offset changes
+    /// with DST, so any fixed-offset shift expressible in SQL would mis-bucket
+    /// every appointment on a week that straddles the switch. Converting
+    /// through <see cref="ClinicTimeZone"/> keeps the timezone rule in the one
+    /// place that owns it (review item C1).
+    /// </summary>
     private async Task<List<WeeklyTrendPointDto>> GetWeeklyTrendAsync(DateOnly today, CancellationToken cancellationToken)
     {
+        var windowStartUtc = ClinicTimeZone.LocalDateStartUtc(today.AddDays(-6));
+        var windowEndUtc = ClinicTimeZone.LocalDateEndExclusiveUtc(today);
+
+        var startsUtc = await _context.Appointments
+            .Where(a => a.StartUtc >= windowStartUtc && a.StartUtc < windowEndUtc)
+            .Select(a => a.StartUtc)
+            .ToListAsync(cancellationToken);
+
+        var countsByLocalDate = startsUtc
+            .GroupBy(ClinicTimeZone.LocalDateOf)
+            .ToDictionary(group => group.Key, group => group.Count());
+
         var trend = new List<WeeklyTrendPointDto>();
         for (var offset = 6; offset >= 0; offset--)
         {
@@ -116,7 +142,9 @@ public class DashboardService : IDashboardService
             trend.Add(new WeeklyTrendPointDto
             {
                 Date = date,
-                AppointmentCount = await CountAppointmentsOnAsync(date, cancellationToken)
+                // Days with no appointments are absent from the grouping and
+                // must still appear in the trend, as zero.
+                AppointmentCount = countsByLocalDate.GetValueOrDefault(date)
             });
         }
         return trend;

@@ -21,15 +21,10 @@ namespace ClinicNow.API.Controllers;
 public class PatientController : BaseCRUDController<PatientDto, PatientSearchObject, PatientInsertRequest, PatientUpdateRequest>
 {
     private readonly IPatientService _service;
-    private readonly ClinicNowContext _context;
-    private readonly IMapper _mapper;
 
-    public PatientController(IPatientService service, ClinicNowContext context, IMapper mapper)
-        : base(service)
+    public PatientController(IPatientService service) : base(service)
     {
         _service = service;
-        _context = context;
-        _mapper = mapper;
     }
 
     [Authorize(Roles = $"{Roles.Administrator},{Roles.Staff},{Roles.Doctor}")]
@@ -57,20 +52,8 @@ public class PatientController : BaseCRUDController<PatientDto, PatientSearchObj
     /// validated token's user ID - never a route/body parameter (rulebook §5).</summary>
     [HttpGet("me")]
     [Authorize(Roles = Roles.Patient)]
-    public async Task<ActionResult<PatientDto>> Me(CancellationToken cancellationToken)
-    {
-        var userId = int.Parse(User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)!.Value);
-
-        // MedicalRecord must be Include()-d for PatientDto.MedicalRecordId to
-        // populate (same reasoning as PatientService.GetByIdAsync/ApplyFilter -
-        // this endpoint bypasses the service entirely, so needs its own Include).
-        var patient = await _context.Patients
-            .Include(p => p.MedicalRecord)
-            .SingleOrDefaultAsync(p => p.UserId == userId, cancellationToken)
-            ?? throw new NotFoundException("Nije pronađen medicinski karton za ovaj nalog.");
-
-        return Ok(_mapper.Map<PatientDto>(patient));
-    }
+    public async Task<ActionResult<PatientDto>> Me(CancellationToken cancellationToken) =>
+        Ok(await _service.GetOwnAsync(cancellationToken));
 
     /// <summary>Un-archives a soft-deleted patient (and reactivates their linked login) - Administrator/Staff only, same gate as <see cref="Delete"/>.</summary>
     [HttpPost("{id:int}/restore")]

@@ -115,7 +115,8 @@ builder.Services.AddScoped<CancelledAppointmentState>();
 builder.Services.AddSingleton<RabbitMqPublisherConnectionProvider>();
 builder.Services.AddScoped<IEmailPublisher, RabbitMqEmailPublisher>();
 builder.Services.AddScoped<INotificationService, NotificationService>();
-builder.Services.AddScoped<ICRUDService<NewsItemDto, NewsItemSearchObject, NewsItemInsertRequest, NewsItemUpdateRequest>, NewsItemService>();
+builder.Services.AddScoped<INewsItemService, NewsItemService>();
+builder.Services.AddScoped<ICRUDService<NewsItemDto, NewsItemSearchObject, NewsItemInsertRequest, NewsItemUpdateRequest>>(sp => sp.GetRequiredService<INewsItemService>());
 builder.Services.AddHostedService<PreAppointmentReminderHostedService>();
 
 // --- Medical documentation (Phase 6) -----------------------------------------------

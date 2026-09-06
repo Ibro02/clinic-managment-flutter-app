@@ -1,13 +1,10 @@
 using ClinicNow.Model.Dto;
-using ClinicNow.Model.Exceptions;
 using ClinicNow.Model.Requests;
 using ClinicNow.Model.SearchObjects;
 using ClinicNow.Model.Security;
-using ClinicNow.Services;
-using ClinicNow.Services.Database;
+using ClinicNow.Services.News;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
 
 namespace ClinicNow.API.Controllers;
 
@@ -17,14 +14,11 @@ namespace ClinicNow.API.Controllers;
 /// </summary>
 public class NewsItemController : BaseCRUDController<NewsItemDto, NewsItemSearchObject, NewsItemInsertRequest, NewsItemUpdateRequest>
 {
-    private readonly ClinicNowContext _context;
+    private readonly INewsItemService _service;
 
-    public NewsItemController(
-        ICRUDService<NewsItemDto, NewsItemSearchObject, NewsItemInsertRequest, NewsItemUpdateRequest> service,
-        ClinicNowContext context)
-        : base(service)
+    public NewsItemController(INewsItemService service) : base(service)
     {
-        _context = context;
+        _service = service;
     }
 
     [Authorize(Roles = $"{Roles.Administrator},{Roles.Staff}")]
@@ -43,14 +37,7 @@ public class NewsItemController : BaseCRUDController<NewsItemDto, NewsItemSearch
     [HttpGet("{id:int}/image")]
     public async Task<IActionResult> GetImage(int id, CancellationToken cancellationToken)
     {
-        var entity = await _context.NewsItems.AsNoTracking().SingleOrDefaultAsync(n => n.Id == id, cancellationToken)
-            ?? throw new NotFoundException("NewsItem", id);
-
-        if (entity.ImageData is null || entity.ImageData.Length == 0)
-        {
-            return NotFound();
-        }
-
-        return File(entity.ImageData, entity.ImageContentType ?? "application/octet-stream");
+        var image = await _service.GetImageAsync(id, cancellationToken);
+        return image is null ? NotFound() : File(image.Value.Data, image.Value.ContentType);
     }
 }
