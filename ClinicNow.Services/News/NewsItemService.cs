@@ -4,6 +4,7 @@ using ClinicNow.Model.Requests;
 using ClinicNow.Model.SearchObjects;
 using ClinicNow.Services.Database;
 using ClinicNow.Services.Database.Entities;
+using ClinicNow.Services.Documents;
 using MapsterMapper;
 using Microsoft.EntityFrameworkCore;
 
@@ -17,9 +18,6 @@ namespace ClinicNow.Services.News;
 /// </summary>
 public class NewsItemService : BaseCRUDService<NewsItemDto, NewsItemSearchObject, NewsItem, NewsItemInsertRequest, NewsItemUpdateRequest>, INewsItemService
 {
-    // 5 MB - generous for a small announcement image while still bounding request size.
-    private const int MaxImageBytes = 5 * 1024 * 1024;
-
     public NewsItemService(ClinicNowContext context, IMapper mapper) : base(context, mapper)
     {
     }
@@ -98,6 +96,14 @@ public class NewsItemService : BaseCRUDService<NewsItemDto, NewsItemSearchObject
         }
     }
 
+    /// <summary>
+    /// The image is optional - a news item may carry none, and an update that
+    /// leaves it alone sends no base64 - so a blank value means "no image"
+    /// rather than a validation failure. Anything actually supplied goes through
+    /// the same MIME whitelist and magic-byte check patient documents use
+    /// (review item C17): this method previously stored the client's declared
+    /// content type unverified, defaulting a blank one to "image/png".
+    /// </summary>
     private static (byte[]? Data, string? ContentType) DecodeImage(string? base64, string? contentType)
     {
         if (string.IsNullOrWhiteSpace(base64))
@@ -105,21 +111,6 @@ public class NewsItemService : BaseCRUDService<NewsItemDto, NewsItemSearchObject
             return (null, null);
         }
 
-        byte[] bytes;
-        try
-        {
-            bytes = Convert.FromBase64String(base64);
-        }
-        catch (FormatException)
-        {
-            throw new ValidationException("imageBase64", "Slika nije ispravno Base64 kodirana.");
-        }
-
-        if (bytes.Length > MaxImageBytes)
-        {
-            throw new ValidationException("imageBase64", "Slika je prevelika (maksimalno 5 MB).");
-        }
-
-        return (bytes, string.IsNullOrWhiteSpace(contentType) ? "image/png" : contentType);
+        return (FileValidation.DecodeAndValidateImage(base64, contentType), contentType);
     }
 }
