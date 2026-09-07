@@ -6,6 +6,7 @@ import 'package:provider/provider.dart';
 
 import '../../core/api_exception.dart';
 import '../../core/auth_session.dart';
+import '../../core/contact_rules.dart';
 import '../../core/roles.dart';
 import '../../models/gender.dart';
 import '../../models/patient.dart';
@@ -158,6 +159,11 @@ class _PatientScreenState extends State<PatientScreen> {
                               hintText: '13 cifara',
                               errorText: fieldErrors['personalIdNumber']?.first,
                             ),
+                            validator: (value) => ContactRules.text(
+                              value,
+                              maxLength: ContactRules.maxPersonalIdLength,
+                              label: 'Matični broj',
+                            ),
                           ),
                         ),
                         AppField(
@@ -201,8 +207,14 @@ class _PatientScreenState extends State<PatientScreen> {
                           help: 'Opcionalno.',
                           child: FormBuilderTextField(
                             name: 'phoneNumber',
-                            decoration: const InputDecoration(hintText: '+387 …'),
+                            decoration: InputDecoration(
+                              hintText: '+387 …',
+                              errorText: fieldErrors['phoneNumber']?.first,
+                            ),
                             keyboardType: TextInputType.phone,
+                            // Previously a phone keyboard with no validation at
+                            // all (review item C17).
+                            validator: ContactRules.phone,
                           ),
                         ),
                         AppField(
@@ -215,9 +227,9 @@ class _PatientScreenState extends State<PatientScreen> {
                               errorText: fieldErrors['email']?.first,
                             ),
                             keyboardType: TextInputType.emailAddress,
-                            validator: FormBuilderValidators.email(
-                              errorText: 'Unesite ispravnu email adresu (npr. ime@domena.com).',
-                            ),
+                            // Same rule and wording as the server and the mobile
+                            // registration form now use.
+                            validator: (value) => ContactRules.email(value),
                           ),
                         ),
                       ],
@@ -227,7 +239,18 @@ class _PatientScreenState extends State<PatientScreen> {
                       help: 'Opcionalno.',
                       child: FormBuilderTextField(
                         name: 'address',
-                        decoration: const InputDecoration(hintText: 'Ulica i broj, grad'),
+                        decoration: InputDecoration(
+                          hintText: 'Ulica i broj, grad',
+                          errorText: fieldErrors['address']?.first,
+                        ),
+                        // Length checked here as well as server-side: the column
+                        // is capped, and an over-long value used to surface as a
+                        // SQL truncation error (review item C17).
+                        validator: (value) => ContactRules.text(
+                          value,
+                          maxLength: ContactRules.maxAddressLength,
+                          label: 'Adresa',
+                        ),
                       ),
                     ),
                   ],

@@ -6,6 +6,7 @@ using ClinicNow.Model.Requests;
 using ClinicNow.Model.SearchObjects;
 using ClinicNow.Services.Database;
 using ClinicNow.Services.Database.Entities;
+using ClinicNow.Services.Validation;
 using MapsterMapper;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
@@ -82,7 +83,7 @@ public class PatientService : BaseCRUDService<PatientDto, PatientSearchObject, P
 
     protected override async Task BeforeInsertAsync(PatientInsertRequest request, Patient entity, CancellationToken cancellationToken)
     {
-        ValidatePatient(request.FirstName, request.LastName, request.Gender, request.Email);
+        ValidatePatient(request.FirstName, request.LastName, request.Gender, request.Email, request.PhoneNumber, request.PersonalIdNumber, request.Address);
         await EnsurePersonalIdIsUniqueAsync(request.PersonalIdNumber, excludeId: null, cancellationToken);
 
         entity.FirstName = request.FirstName.Trim();
@@ -92,7 +93,7 @@ public class PatientService : BaseCRUDService<PatientDto, PatientSearchObject, P
 
     protected override async Task BeforeUpdateAsync(PatientUpdateRequest request, Patient entity, CancellationToken cancellationToken)
     {
-        ValidatePatient(request.FirstName, request.LastName, request.Gender, request.Email);
+        ValidatePatient(request.FirstName, request.LastName, request.Gender, request.Email, request.PhoneNumber, request.PersonalIdNumber, request.Address);
         await EnsurePersonalIdIsUniqueAsync(request.PersonalIdNumber, excludeId: entity.Id, cancellationToken);
     }
 
@@ -114,29 +115,29 @@ public class PatientService : BaseCRUDService<PatientDto, PatientSearchObject, P
         await Context.Entry(entity).Reference(p => p.MedicalRecord).LoadAsync(cancellationToken);
     }
 
-    private static void ValidatePatient(string firstName, string lastName, ClinicNow.Model.Common.Gender? gender, string? email)
+    private static void ValidatePatient(
+        string firstName, string lastName, ClinicNow.Model.Common.Gender? gender,
+        string? email, string? phoneNumber, string? personalIdNumber, string? address)
     {
         var errors = new Dictionary<string, string[]>();
 
-        if (string.IsNullOrWhiteSpace(firstName))
-        {
-            errors["firstName"] = ["Ime je obavezno."];
-        }
-
-        if (string.IsNullOrWhiteSpace(lastName))
-        {
-            errors["lastName"] = ["Prezime je obavezno."];
-        }
+        ContactRules.RequireText(errors, "firstName", firstName, ContactRules.MaxNameLength, "Ime");
+        ContactRules.RequireText(errors, "lastName", lastName, ContactRules.MaxNameLength, "Prezime");
 
         if (gender is null)
         {
             errors["gender"] = ["Spol je obavezan."];
         }
 
-        if (!string.IsNullOrWhiteSpace(email) && !email.Contains('@'))
-        {
-            errors["email"] = ["Email adresa nije ispravnog formata."];
-        }
+        // Review item C17: this accepted anything containing an "@" and never
+        // looked at the phone number, the ID number or the address at all -
+        // weaker than the registration path that fills the very same columns,
+        // and over-long values reached SQL as a truncation error rather than a
+        // message under the field.
+        ContactRules.OptionalEmail(errors, "email", email);
+        ContactRules.OptionalPhone(errors, "phoneNumber", phoneNumber);
+        ContactRules.OptionalText(errors, "personalIdNumber", personalIdNumber, ContactRules.MaxPersonalIdLength, "Matični broj");
+        ContactRules.OptionalText(errors, "address", address, ContactRules.MaxAddressLength, "Adresa");
 
         if (errors.Count > 0)
         {

@@ -1,6 +1,5 @@
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
-using System.Text.RegularExpressions;
 using ClinicNow.Model.Dto;
 using ClinicNow.Model.Exceptions;
 using ClinicNow.Model.Requests;
@@ -8,6 +7,7 @@ using ClinicNow.Model.Security;
 using ClinicNow.Services.Database;
 using ClinicNow.Services.Database.Entities;
 using ClinicNow.Services.Security;
+using ClinicNow.Services.Validation;
 using MapsterMapper;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
@@ -19,10 +19,8 @@ namespace ClinicNow.Services.Users;
 /// rulebook Part II §D. Uses <see cref="IHttpContextAccessor"/> to read the current
 /// user's claims rather than any controller parsing a token manually (rulebook §D).
 /// </summary>
-public partial class UserService : IUserService
+public class UserService : IUserService
 {
-    private const int MinPasswordLength = 8;
-
     private readonly ClinicNowContext _context;
     private readonly IMapper _mapper;
     private readonly IPasswordHasher _passwordHasher;
@@ -194,42 +192,20 @@ public partial class UserService : IUserService
 
     private static void ValidateRegistration(RegisterRequest request)
     {
+        // These rules used to live here as private regexes - the strongest of the
+        // three flows that fill these columns. They now live in ContactRules so
+        // DoctorService and PatientService enforce the same thing (review item C17).
         var errors = new Dictionary<string, string[]>();
 
-        if (string.IsNullOrWhiteSpace(request.Email) || !EmailPattern().IsMatch(request.Email))
-        {
-            errors["email"] = ["Unesite ispravnu email adresu (npr. ime@primjer.com)."];
-        }
-
-        if (string.IsNullOrWhiteSpace(request.Password) || request.Password.Length < MinPasswordLength)
-        {
-            errors["password"] = [$"Lozinka mora imati najmanje {MinPasswordLength} karaktera."];
-        }
-
-        if (string.IsNullOrWhiteSpace(request.FirstName))
-        {
-            errors["firstName"] = ["Ime je obavezno."];
-        }
-
-        if (string.IsNullOrWhiteSpace(request.LastName))
-        {
-            errors["lastName"] = ["Prezime je obavezno."];
-        }
-
-        if (!string.IsNullOrWhiteSpace(request.PhoneNumber) && !PhonePattern().IsMatch(request.PhoneNumber))
-        {
-            errors["phoneNumber"] = ["Unesite ispravan broj telefona (npr. +38761123456)."];
-        }
+        ContactRules.RequireEmail(errors, "email", request.Email);
+        ContactRules.RequirePassword(errors, "password", request.Password);
+        ContactRules.RequireText(errors, "firstName", request.FirstName, ContactRules.MaxNameLength, "Ime");
+        ContactRules.RequireText(errors, "lastName", request.LastName, ContactRules.MaxNameLength, "Prezime");
+        ContactRules.OptionalPhone(errors, "phoneNumber", request.PhoneNumber);
 
         if (errors.Count > 0)
         {
             throw new ValidationException(errors);
         }
     }
-
-    [GeneratedRegex(@"^[^@\s]+@[^@\s]+\.[^@\s]+$")]
-    private static partial Regex EmailPattern();
-
-    [GeneratedRegex(@"^\+?[0-9 ]{6,20}$")]
-    private static partial Regex PhonePattern();
 }

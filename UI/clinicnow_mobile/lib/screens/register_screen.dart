@@ -6,6 +6,7 @@ import 'package:provider/provider.dart';
 import '../core/api_exception.dart';
 import '../core/auth_api.dart';
 import '../core/auth_session.dart';
+import '../core/contact_rules.dart';
 
 /// Patient self-registration. Always creates a `Patient`-role account - there
 /// is no role field on this form at all, matching the backend's
@@ -111,14 +112,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
                     errorText: _serverError('email'),
                   ),
                   keyboardType: TextInputType.emailAddress,
-                  validator: FormBuilderValidators.compose([
-                    FormBuilderValidators.required(
-                      errorText: 'Email je obavezan.',
-                    ),
-                    FormBuilderValidators.email(
-                      errorText: 'Unesite ispravnu email adresu.',
-                    ),
-                  ]),
+                  // ContactRules mirrors the server's rule and message exactly,
+                  // so the client can't reject what the API accepts or vice
+                  // versa (review item C17).
+                  validator: (value) => ContactRules.email(value, required: true),
                   enabled: !_isSubmitting,
                 ),
                 const SizedBox(height: 16),
@@ -130,6 +127,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
                     hintText: '+38761123456',
                   ),
                   keyboardType: TextInputType.phone,
+                  // Previously set a phone keyboard but never validated the
+                  // format - the exact gap review item C17 names.
+                  validator: ContactRules.phone,
                   enabled: !_isSubmitting,
                 ),
                 const SizedBox(height: 16),

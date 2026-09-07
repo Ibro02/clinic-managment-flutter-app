@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 
 import '../../core/api_exception.dart';
 import '../../core/auth_session.dart';
+import '../../core/contact_rules.dart';
 import '../../core/roles.dart';
 import '../../models/doctor.dart';
 import '../../models/location.dart';
@@ -159,10 +160,10 @@ class _DoctorScreenState extends State<DoctorScreen> {
                             errorText: fieldErrors['email']?.first,
                           ),
                           keyboardType: TextInputType.emailAddress,
-                          validator: FormBuilderValidators.compose([
-                            FormBuilderValidators.required(errorText: 'Email je obavezan.'),
-                            FormBuilderValidators.email(errorText: 'Unesite ispravnu email adresu.'),
-                          ]),
+                          // The server-side counterpart used to check only that
+                          // this address was unique, never that it was an
+                          // address at all (review item C17).
+                          validator: (value) => ContactRules.email(value, required: true),
                         ),
                       ),
                       AppField(
@@ -215,14 +216,28 @@ class _DoctorScreenState extends State<DoctorScreen> {
                           help: 'Opcionalno.',
                           child: FormBuilderTextField(
                             name: 'phoneNumber',
-                            decoration: const InputDecoration(hintText: '+387 …'),
+                            decoration: InputDecoration(
+                              hintText: '+387 …',
+                              errorText: fieldErrors['phoneNumber']?.first,
+                            ),
                             keyboardType: TextInputType.phone,
+                            validator: ContactRules.phone,
                           ),
                         ),
                         AppField(
                           label: 'Broj licence',
                           help: 'Opcionalno.',
-                          child: FormBuilderTextField(name: 'licenseNumber'),
+                          child: FormBuilderTextField(
+                            name: 'licenseNumber',
+                            decoration: InputDecoration(
+                              errorText: fieldErrors['licenseNumber']?.first,
+                            ),
+                            validator: (value) => ContactRules.text(
+                              value,
+                              maxLength: ContactRules.maxLicenseNumberLength,
+                              label: 'Broj licence',
+                            ),
+                          ),
                         ),
                       ],
                     ),
@@ -252,8 +267,16 @@ class _DoctorScreenState extends State<DoctorScreen> {
                       help: 'Opcionalno. Prikazuje se pacijentu pri odabiru doktora.',
                       child: FormBuilderTextField(
                         name: 'bio',
-                        decoration: const InputDecoration(hintText: 'Kratka biografija'),
+                        decoration: InputDecoration(
+                          hintText: 'Kratka biografija',
+                          errorText: fieldErrors['bio']?.first,
+                        ),
                         maxLines: 3,
+                        validator: (value) => ContactRules.text(
+                          value,
+                          maxLength: ContactRules.maxBioLength,
+                          label: 'Biografija',
+                        ),
                       ),
                     ),
                     AppField(

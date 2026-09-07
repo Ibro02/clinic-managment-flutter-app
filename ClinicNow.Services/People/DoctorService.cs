@@ -5,6 +5,7 @@ using ClinicNow.Model.Security;
 using ClinicNow.Model.SearchObjects;
 using ClinicNow.Services.Database;
 using ClinicNow.Services.Database.Entities;
+using ClinicNow.Services.Validation;
 using ClinicNow.Services.Security;
 using MapsterMapper;
 using Microsoft.EntityFrameworkCore;
@@ -60,7 +61,7 @@ public class DoctorService : BaseCRUDService<DoctorDto, DoctorSearchObject, Doct
     public override async Task<DoctorDto> InsertAsync(DoctorInsertRequest request, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
-        ValidateProfile(request.FirstName, request.LastName, request.Password);
+        ValidateProfile(request.FirstName, request.LastName, request.Password, request.Email, request.PhoneNumber, request.LicenseNumber, request.Bio);
 
         var normalizedEmail = request.Email.Trim().ToLowerInvariant();
         var emailTaken = await Context.Users.AnyAsync(u => u.Email == normalizedEmail, cancellationToken);
@@ -108,7 +109,7 @@ public class DoctorService : BaseCRUDService<DoctorDto, DoctorSearchObject, Doct
     public override async Task<DoctorDto> UpdateAsync(int id, DoctorUpdateRequest request, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
-        ValidateProfile(request.FirstName, request.LastName, password: null);
+        ValidateProfile(request.FirstName, request.LastName, password: null, email: null, request.PhoneNumber, request.LicenseNumber, request.Bio);
         await EnsureSpecializationsExistAsync(request.SpecializationIds, cancellationToken);
         await EnsureLocationExistsAsync(request.LocationId, cancellationToken);
 
@@ -150,23 +151,39 @@ public class DoctorService : BaseCRUDService<DoctorDto, DoctorSearchObject, Doct
         }
     }
 
-    private static void ValidateProfile(string firstName, string lastName, string? password)
+    /// <summary>
+    /// Review item C17: this checked names and password only. The email was
+    /// checked for *uniqueness* but never for format, and the phone number not
+    /// at all - so an administrator could create a doctor login with an address
+    /// the registration screen would have rejected. Both now go through the same
+    /// <see cref="ContactRules"/> every other flow uses.
+    /// <paramref name="email"/> is null on the update path, where the login
+    /// address is not editable.
+    /// </summary>
+    private static void ValidateProfile(
+        string firstName, string lastName, string? password, string? email, string? phoneNumber,
+        string? licenseNumber, string? bio)
     {
         var errors = new Dictionary<string, string[]>();
 
-        if (string.IsNullOrWhiteSpace(firstName))
+        ContactRules.RequireText(errors, "firstName", firstName, ContactRules.MaxNameLength, "Ime");
+        ContactRules.RequireText(errors, "lastName", lastName, ContactRules.MaxNameLength, "Prezime");
+        ContactRules.OptionalPhone(errors, "phoneNumber", phoneNumber);
+
+        // Both columns are length-capped in EF but were never checked here, so an
+        // over-long value reached SQL and came back as a 500 DbUpdateException
+        // rather than a message under the field (review item C17).
+        ContactRules.OptionalText(errors, "licenseNumber", licenseNumber, ContactRules.MaxLicenseNumberLength, "Broj licence");
+        ContactRules.OptionalText(errors, "bio", bio, ContactRules.MaxBioLength, "Biografija");
+
+        if (email is not null)
         {
-            errors["firstName"] = ["Ime je obavezno."];
+            ContactRules.RequireEmail(errors, "email", email);
         }
 
-        if (string.IsNullOrWhiteSpace(lastName))
+        if (password is not null)
         {
-            errors["lastName"] = ["Prezime je obavezno."];
-        }
-
-        if (password is not null && password.Length < 8)
-        {
-            errors["password"] = ["Lozinka mora imati najmanje 8 karaktera."];
+            ContactRules.RequirePassword(errors, "password", password);
         }
 
         if (errors.Count > 0)
