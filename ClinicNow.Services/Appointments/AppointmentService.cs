@@ -73,6 +73,17 @@ public class AppointmentService : IAppointmentService
 
         if (!string.IsNullOrWhiteSpace(search.OrderBy))
         {
+            // Same closed allowlist BaseService enforces. Without it, OrderBy(string)
+            // accepts any navigation path on the entity - `Doctor.User.PasswordHash`
+            // included - and the resulting row order leaks that column's value one
+            // comparison at a time. A rejected column is refused loudly rather than
+            // silently ignored, so an invalid probe cannot be mistaken for a valid one.
+            if (!search.IsSortable(search.OrderBy))
+            {
+                throw new ValidationException("orderBy",
+                    $"Sortiranje po koloni '{search.OrderBy}' nije dozvoljeno.");
+            }
+
             var direction = (search.SortDirection ?? string.Empty).Trim().ToLowerInvariant() switch
             {
                 "desc" or "descending" => "descending",
@@ -83,21 +94,23 @@ public class AppointmentService : IAppointmentService
             // independently - so a non-unique ORDER BY (several appointments
             // share a StartUtc) could hand the collection queries a different
             // slice than the principal query got.
-            try
-            {
-                query = query.OrderBy($"{search.OrderBy} {direction}, Id");
-            }
-            catch (Exception)
-            {
-                query = query.OrderByDescending(a => a.StartUtc).ThenBy(a => a.Id);
-            }
+            query = query.OrderBy($"{search.OrderBy} {direction}, Id");
         }
         else
         {
             query = query.OrderByDescending(a => a.StartUtc).ThenBy(a => a.Id);
         }
 
-        var entities = await query.Skip((search.Page - 1) * search.PageSize).Take(search.PageSize).ToListAsync(cancellationToken);
+        // AsNoTrackingWithIdentityResolution, not plain AsNoTracking: IncludeAll is
+        // a split query, and without identity resolution the same Doctor/User row
+        // arriving in two different result sets materializes as two distinct
+        // instances. This is a read path, so tracking earns nothing - a 100-row page
+        // otherwise snapshots ~700 entities into the change tracker for no reason.
+        var entities = await query
+            .AsNoTrackingWithIdentityResolution()
+            .Skip((search.Page - 1) * search.PageSize)
+            .Take(search.PageSize)
+            .ToListAsync(cancellationToken);
 
         return new ClinicNow.Model.Common.PagedResult<AppointmentDto>
         {
@@ -186,15 +199,13 @@ public class AppointmentService : IAppointmentService
         }
 
         var initialState = _serviceProvider.GetRequiredService<InitialAppointmentState>();
+        // The referral goes in with the booking rather than being linked afterwards,
+        // so both land in the state machine's single Serializable transaction. A
+        // second SaveChanges out here could fail after the appointment committed,
+        // leaving the referral unused and therefore redeemable a second time.
         var appointment = await initialState.ScheduleAsync(
             patientId, request.DoctorId, request.MedicalServiceId,
-            request.StartUtc, actingUserId, cancellationToken);
-
-        if (referral is not null)
-        {
-            referral.ResultingAppointmentId = appointment.Id;
-            await _context.SaveChangesAsync(cancellationToken);
-        }
+            request.StartUtc, actingUserId, cancellationToken, referral);
 
         var reloaded = await ReloadAsync(appointment.Id, cancellationToken);
 
@@ -611,12 +622,80 @@ public class AppointmentService : IAppointmentService
         return doctor.Id;
     }
 
+    /// <summary>
+    /// Loads the appointment tracked, with every navigation <see cref="MapToDto"/>
+    /// will need already attached.
+    ///
+    /// Pulling the includes in here rather than re-querying afterwards is what lets
+    /// <see cref="ReloadAsync"/> become a no-op on the second call: a mutation used
+    /// to run this query and then the full IncludeAll split query again, six
+    /// round-trips to read one appointment twice.
+    /// </summary>
     private async Task<Appointment> LoadTrackedAsync(int id, CancellationToken cancellationToken) =>
-        await _context.Appointments.Include(a => a.AuditLogs).SingleOrDefaultAsync(a => a.Id == id, cancellationToken)
+        await IncludeAll(_context.Appointments.AsQueryable())
+            .Include(a => a.AuditLogs)
+            .SingleOrDefaultAsync(a => a.Id == id, cancellationToken)
             ?? throw new NotFoundException(nameof(Appointment), id);
 
-    private async Task<Appointment> ReloadAsync(int id, CancellationToken cancellationToken) =>
-        await IncludeAll(_context.Appointments.AsQueryable()).SingleAsync(a => a.Id == id, cancellationToken);
+    /// <summary>
+    /// Returns the appointment with all navigations loaded, reusing the tracked
+    /// instance when the change tracker already holds one.
+    ///
+    /// After a state transition the tracked entity is already current - it *is* what
+    /// was just written - so the only work needed is making sure the navigations are
+    /// populated. Callers that reach here without a tracked instance (the
+    /// post-Schedule path, where the appointment was inserted by the state machine)
+    /// still get the full query.
+    /// </summary>
+    private async Task<Appointment> ReloadAsync(int id, CancellationToken cancellationToken)
+    {
+        var tracked = _context.ChangeTracker.Entries<Appointment>()
+            .Select(entry => entry.Entity)
+            .FirstOrDefault(a => a.Id == id);
+
+        if (tracked is null || tracked.Patient is null || tracked.Doctor is null
+            || tracked.MedicalService is null || tracked.Location is null)
+        {
+            return await IncludeAll(_context.Appointments.AsQueryable()).SingleAsync(a => a.Id == id, cancellationToken);
+        }
+
+        // The people/service/location navigations cannot have changed under a state
+        // transition, but the money can: CancelAsync deliberately reloads *after*
+        // attempting a refund (review item C14) so the response reflects what
+        // actually happened to the payment. Re-reading just that collection keeps
+        // that guarantee while still skipping the rest of the split query.
+        await _context.Entry(tracked)
+            .Collection(a => a.Payments)
+            .Query()
+            .Include(p => p.Refunds)
+            .LoadAsync(cancellationToken);
+
+        return tracked;
+    }
+
+    /// <summary>
+    /// Per-request memo of "which actions are structurally legal from this status".
+    /// <see cref="MapToDto"/> runs once per row, and resolving a state class out of
+    /// <see cref="IServiceProvider"/> for every row means up to <c>PageSize</c>
+    /// service-locator lookups per request to answer at most five distinct
+    /// questions. The service is registered <c>Scoped</c>, so an instance field is
+    /// scoped to one request and needs no further synchronization.
+    /// </summary>
+    private readonly Dictionary<AppointmentStatus, List<AppointmentAction>> _structurallyAllowedByStatus = [];
+
+    /// <summary>Cached for the same reason and with the same lifetime as <see cref="_structurallyAllowedByStatus"/>.</summary>
+    private ClaimsPrincipal? _currentUserForRequest;
+
+    private List<AppointmentAction> StructurallyAllowed(AppointmentStatus status)
+    {
+        if (!_structurallyAllowedByStatus.TryGetValue(status, out var actions))
+        {
+            actions = BaseAppointmentState.CreateState(status, _serviceProvider).AllowedActions().ToList();
+            _structurallyAllowedByStatus[status] = actions;
+        }
+
+        return actions;
+    }
 
     private AppointmentDto MapToDto(Appointment appointment)
     {
@@ -632,7 +711,7 @@ public class AppointmentService : IAppointmentService
         // appointments, so no further ownership check is needed here - only role
         // and timing.
         var principal = CurrentUser();
-        var structurallyAllowed = BaseAppointmentState.CreateState(appointment.Status, _serviceProvider).AllowedActions();
+        var structurallyAllowed = StructurallyAllowed(appointment.Status);
         dto.AllowedActions = structurallyAllowed
             .Where(action => IsActuallyAllowed(action, appointment, principal))
             .Select(a => a.ToString())
@@ -677,7 +756,8 @@ public class AppointmentService : IAppointmentService
     }
 
     private ClaimsPrincipal CurrentUser() =>
-        _httpContextAccessor.HttpContext?.User ?? throw new AuthenticationException("Nema aktivne sesije.");
+        _currentUserForRequest ??= _httpContextAccessor.HttpContext?.User
+            ?? throw new AuthenticationException("Nema aktivne sesije.");
 
     private static int CurrentUserId(ClaimsPrincipal principal) =>
         int.Parse(principal.FindFirst(ClaimTypes.NameIdentifier)!.Value);

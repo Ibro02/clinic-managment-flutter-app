@@ -58,13 +58,19 @@ class _ChangePasswordDialogState extends State<ChangePasswordDialog> {
     });
 
     try {
-      await _authApi.changePassword(
+      final refreshed = await _authApi.changePassword(
         token: token,
         currentPassword: _currentPassword.text,
         newPassword: _newPassword.text,
         confirmNewPassword: _confirmPassword.text,
       );
       if (!mounted) return;
+
+      // The change invalidated every token issued before it, this one included,
+      // so the replacement has to be stored or the next call 401s and drops the
+      // user at the login screen right after a successful password change.
+      refreshed.applyTo(context.read<AuthSession>());
+
       Navigator.of(context).pop();
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Lozinka je promijenjena.')),

@@ -322,17 +322,44 @@ public class RecommenderService : IRecommenderService
             .ToArray();
     }
 
-    private static double CosineSimilarity(float[] a, float[] b)
+    /// <summary>
+    /// Euclidean norm of every vector in <paramref name="vectors"/>, computed once.
+    ///
+    /// A vector's norm depends only on that vector, but the candidate x history
+    /// scoring loop asks for cosine similarity C*H times - so computing both norms
+    /// inside the similarity function recomputed each candidate's norm H times and
+    /// each history item's C times. Precomputing turns that O(C*H*d) of the work
+    /// into O((C+H)*d) and leaves only the dot product in the inner loop, roughly a
+    /// third of the original float operations.
+    /// </summary>
+    private static double[] Norms(float[][] vectors)
     {
-        double dot = 0, normA = 0, normB = 0;
+        var norms = new double[vectors.Length];
+        for (var i = 0; i < vectors.Length; i++)
+        {
+            double sum = 0;
+            var vector = vectors[i];
+            for (var j = 0; j < vector.Length; j++)
+            {
+                sum += (double)vector[j] * vector[j];
+            }
+            norms[i] = Math.Sqrt(sum);
+        }
+
+        return norms;
+    }
+
+    /// <summary>Dot product only - the norms come from <see cref="Norms"/>.</summary>
+    private static double Dot(float[] a, float[] b)
+    {
+        double dot = 0;
         var length = Math.Min(a.Length, b.Length);
         for (var i = 0; i < length; i++)
         {
-            dot += a[i] * b[i];
-            normA += a[i] * a[i];
-            normB += b[i] * b[i];
+            dot += (double)a[i] * b[i];
         }
-        return normA == 0 || normB == 0 ? 0 : dot / (Math.Sqrt(normA) * Math.Sqrt(normB));
+
+        return dot;
     }
 
     /// <summary>One weighted item in the patient's "taste profile" (doc §5.2's `H`) - either a past completed/confirmed appointment or a logged interaction.</summary>
@@ -685,19 +712,28 @@ public class RecommenderService : IRecommenderService
         var historyVectors = Featurize(mlContext, model, historyRows);
         var candidateVectors = Featurize(mlContext, model, candidateRows);
 
+        // Hoisted out of the scoring loop below: both are invariant across
+        // candidates, and recomputing them per (candidate, history) pair was the
+        // bulk of this method's arithmetic.
+        var candidateNorms = Norms(candidateVectors);
+        var historyNorms = Norms(historyVectors);
+        var weightTotal = history.Sum(h => h.Weight);
+
         var scored = new List<AppointmentRecommendationDto>();
         for (var c = 0; c < candidates.Count; c++)
         {
-            double weightedSum = 0, weightTotal = 0;
+            double weightedSum = 0;
             var dominantIndex = 0;
             var dominantContribution = double.NegativeInfinity;
 
             for (var h = 0; h < history.Count; h++)
             {
-                var similarity = CosineSimilarity(candidateVectors[c], historyVectors[h]);
+                var denominator = candidateNorms[c] * historyNorms[h];
+                var similarity = denominator == 0
+                    ? 0
+                    : Dot(candidateVectors[c], historyVectors[h]) / denominator;
                 var contribution = history[h].Weight * similarity;
                 weightedSum += contribution;
-                weightTotal += history[h].Weight;
                 if (contribution > dominantContribution)
                 {
                     dominantContribution = contribution;

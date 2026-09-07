@@ -3,6 +3,7 @@ using ClinicNow.Model.Messaging;
 using ClinicNow.Services.Database;
 using ClinicNow.Services.Messaging;
 using ClinicNow.Services.Notifications;
+using ClinicNow.Services.Security;
 using Microsoft.EntityFrameworkCore;
 
 namespace ClinicNow.API;
@@ -49,7 +50,38 @@ public class PreAppointmentReminderHostedService : BackgroundService
                 _logger.LogError(ex, "Pre-appointment reminder scan failed.");
             }
 
+            try
+            {
+                await PurgeExpiredRevokedTokensAsync(stoppingToken);
+            }
+            catch (Exception ex)
+            {
+                // Housekeeping: isolated from the reminder scan so neither can stop
+                // the other, and never fatal.
+                _logger.LogError(ex, "Revoked-token purge failed.");
+            }
+
             await Task.Delay(ScanInterval, stoppingToken);
+        }
+    }
+
+    /// <summary>
+    /// Deletes blocklist rows for tokens that have expired on their own.
+    ///
+    /// A logout writes one row per token and nothing ever removed it, so the table
+    /// grew without bound - and it is read on every authenticated request. Once the
+    /// token's own <c>exp</c> has passed the row proves nothing the JWT lifetime
+    /// check does not already enforce, so it is safe to drop.
+    /// </summary>
+    private async Task PurgeExpiredRevokedTokensAsync(CancellationToken cancellationToken)
+    {
+        using var scope = _scopeFactory.CreateScope();
+        var blocklist = scope.ServiceProvider.GetRequiredService<ITokenBlocklistService>();
+
+        var removed = await blocklist.PurgeExpiredAsync(cancellationToken);
+        if (removed > 0)
+        {
+            _logger.LogInformation("Purged {Count} expired revoked-token rows.", removed);
         }
     }
 

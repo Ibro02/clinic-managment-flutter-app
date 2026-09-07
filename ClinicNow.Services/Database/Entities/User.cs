@@ -45,6 +45,19 @@ public class User
 
     public DateTime? PasswordResetTokenExpiresAtUtc { get; set; }
 
+    /// <summary>
+    /// Access tokens issued before this instant are rejected, regardless of their
+    /// own expiry. Stamped whenever the password changes - by the owner or through
+    /// a reset - so that changing the password actually ends every other session.
+    ///
+    /// The <see cref="RevokedToken"/> blocklist alone cannot do this: it is keyed by
+    /// <c>jti</c> and only ever populated by an explicit logout, so before this
+    /// existed an attacker's stolen token kept working right through the password
+    /// reset the victim performed to lock them out. Null means "no cutoff", the
+    /// state of every account that has never changed its password.
+    /// </summary>
+    public DateTime? TokensValidFromUtc { get; set; }
+
     public DateTime CreatedAtUtc { get; set; }
 
     public ICollection<UserRole> UserRoles { get; set; } = [];

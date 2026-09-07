@@ -38,6 +38,17 @@ public class NewsItemController : BaseCRUDController<NewsItemDto, NewsItemSearch
     public async Task<IActionResult> GetImage(int id, CancellationToken cancellationToken)
     {
         var image = await _service.GetImageAsync(id, cancellationToken);
-        return image is null ? NotFound() : File(image.Value.Data, image.Value.ContentType);
+        if (image is null)
+        {
+            return NotFound();
+        }
+
+        // A news image is immutable for a given version, and the news list re-renders
+        // constantly - so without a validator every render re-downloaded every
+        // picture in full, which on a metered phone connection is bytes the patient
+        // pays for repeatedly. The ETag is the stored content hash, so serving it
+        // costs nothing; ASP.NET Core turns a matching If-None-Match into a 304 and
+        // skips the body entirely.
+        return this.CacheableFile(image.Value.Data, image.Value.ContentType, image.Value.ContentHash, fileName: null);
     }
 }

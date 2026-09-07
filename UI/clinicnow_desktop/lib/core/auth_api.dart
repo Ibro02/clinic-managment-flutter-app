@@ -9,6 +9,19 @@ import 'base_provider.dart';
 /// Thin client for the backend's `api/auth` endpoints. Kept separate from
 /// `BaseProvider<T>` since none of these calls return a paged/CRUD entity.
 class AuthApi {
+  /// Every auth call goes through the one shared, connection-reusing client
+  /// and is bounded by a timeout - see BaseProvider.send. Without the timeout a
+  /// login on a dying mobile connection hangs forever on the spinner instead of
+  /// surfacing an error the user can act on.
+  Future<http.Response> _post(Uri url, {Map<String, String>? headers, Object? body}) =>
+      BaseProvider.send(() => BaseProvider.client.post(url, headers: headers, body: body));
+
+  Future<http.Response> _get(Uri url, {Map<String, String>? headers}) =>
+      BaseProvider.send(() => BaseProvider.client.get(url, headers: headers));
+
+  Future<http.Response> _put(Uri url, {Map<String, String>? headers, Object? body}) =>
+      BaseProvider.send(() => BaseProvider.client.put(url, headers: headers, body: body));
+
   Uri _uri(String path) {
     final normalizedBase =
         BaseProvider.baseUrl.endsWith('/') ? BaseProvider.baseUrl : '${BaseProvider.baseUrl}/';
@@ -20,7 +33,7 @@ class AuthApi {
     required String password,
   }) async {
     // Credentials go in the POST body, never the query string (rulebook §5).
-    final response = await http.post(
+    final response = await _post(
       _uri('api/auth/login'),
       headers: {'Content-Type': 'application/json'},
       body: jsonEncode({'email': email, 'password': password}),
@@ -35,7 +48,7 @@ class AuthApi {
     required String lastName,
     String? phoneNumber,
   }) async {
-    final response = await http.post(
+    final response = await _post(
       _uri('api/auth/register'),
       headers: {'Content-Type': 'application/json'},
       body: jsonEncode({
@@ -63,7 +76,7 @@ class AuthApi {
   /// unreachable server must never trap the user in a logged-in UI state.
   Future<void> logout(String token) async {
     try {
-      await http.post(
+      await _post(
         _uri('api/auth/logout'),
         headers: {'Authorization': 'Bearer $token'},
       );
@@ -78,7 +91,7 @@ class AuthApi {
   /// current `emailRemindersEnabled` value, which this app must preserve
   /// without showing (see [updateProfile]).
   Future<UserProfile> me(String token) async {
-    final response = await http.get(_uri('api/auth/me'), headers: {'Authorization': 'Bearer $token'});
+    final response = await _get(_uri('api/auth/me'), headers: {'Authorization': 'Bearer $token'});
 
     if (response.statusCode >= 200 && response.statusCode < 300) {
       return UserProfile.fromJson(jsonDecode(response.body) as Map<String, dynamic>);
@@ -102,7 +115,7 @@ class AuthApi {
     String? phoneNumber,
     required bool emailRemindersEnabled,
   }) async {
-    final response = await http.put(
+    final response = await _put(
       _uri('api/auth/me'),
       headers: _authorizedJsonHeaders(token),
       body: jsonEncode({
@@ -119,13 +132,20 @@ class AuthApi {
     throw _parseError(response, fallbackMessage: 'Profil nije sačuvan.');
   }
 
-  Future<void> changePassword({
+  /// Changes the password and returns the replacement session.
+  ///
+  /// The server invalidates every token issued before the change - that is how a
+  /// password change ends any other session someone else might be holding - so
+  /// the token used to make this call stops working the moment it succeeds. The
+  /// caller must store the [AuthResult] returned here, or the next request will
+  /// come back 401 and bounce the user to the login screen.
+  Future<AuthResult> changePassword({
     required String token,
     required String currentPassword,
     required String newPassword,
     required String confirmNewPassword,
   }) async {
-    final response = await http.post(
+    final response = await _post(
       _uri('api/auth/change-password'),
       headers: _authorizedJsonHeaders(token),
       body: jsonEncode({
@@ -135,8 +155,7 @@ class AuthApi {
       }),
     );
 
-    if (response.statusCode >= 200 && response.statusCode < 300) return;
-    throw _parseError(response, fallbackMessage: 'Lozinka nije promijenjena.');
+    return _parseAuthResult(response, fallbackMessage: 'Lozinka nije promijenjena.');
   }
 
   Map<String, String> _authorizedJsonHeaders(String token) => {

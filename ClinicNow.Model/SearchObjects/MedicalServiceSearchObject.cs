@@ -14,4 +14,9 @@ public class MedicalServiceSearchObject : BaseSearchObject
     /// so the dropdown offers exactly what the server would accept (review item C2).
     /// </summary>
     public int? DoctorId { get; set; }
+
+    /// <inheritdoc />
+    protected override ISet<string> SortableColumns { get; } =
+        new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        { "Id", "Name", "Price", "DurationMinutes" };
 }

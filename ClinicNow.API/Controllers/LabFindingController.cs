@@ -47,7 +47,7 @@ public class LabFindingController : ControllerBase
     public async Task<IActionResult> Download(int id, CancellationToken cancellationToken)
     {
         var finding = await _service.GetFileForDownloadAsync(id, cancellationToken);
-        return File(finding.FileData, finding.ContentType, finding.FileName);
+        return this.CacheableFile(finding.FileData, finding.ContentType, finding.ContentHash, finding.FileName);
     }
 
     [HttpDelete("{id:int}")]

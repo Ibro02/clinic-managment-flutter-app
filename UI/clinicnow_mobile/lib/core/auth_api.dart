@@ -9,6 +9,17 @@ import 'base_provider.dart';
 /// Thin client for the backend's `api/auth` endpoints. Kept separate from
 /// `BaseProvider<T>` since none of these calls return a paged/CRUD entity.
 class AuthApi {
+  /// Every auth call goes through the one shared, connection-reusing client
+  /// and is bounded by a timeout - see BaseProvider.send. Without the timeout a
+  /// login on a dying mobile connection hangs forever on the spinner instead of
+  /// surfacing an error the user can act on.
+  Future<http.Response> _post(Uri url, {Map<String, String>? headers, Object? body}) =>
+      BaseProvider.send(() => BaseProvider.client.post(url, headers: headers, body: body));
+
+
+  Future<http.Response> _put(Uri url, {Map<String, String>? headers, Object? body}) =>
+      BaseProvider.send(() => BaseProvider.client.put(url, headers: headers, body: body));
+
   Uri _uri(String path) {
     final normalizedBase =
         BaseProvider.baseUrl.endsWith('/') ? BaseProvider.baseUrl : '${BaseProvider.baseUrl}/';
@@ -20,7 +31,7 @@ class AuthApi {
     required String password,
   }) async {
     // Credentials go in the POST body, never the query string (rulebook §5).
-    final response = await http.post(
+    final response = await _post(
       _uri('api/auth/login'),
       headers: {'Content-Type': 'application/json'},
       body: jsonEncode({'email': email, 'password': password}),
@@ -35,7 +46,7 @@ class AuthApi {
     required String lastName,
     String? phoneNumber,
   }) async {
-    final response = await http.post(
+    final response = await _post(
       _uri('api/auth/register'),
       headers: {'Content-Type': 'application/json'},
       body: jsonEncode({
@@ -63,7 +74,7 @@ class AuthApi {
   /// unreachable server must never trap the user in a logged-in UI state.
   Future<void> logout(String token) async {
     try {
-      await http.post(
+      await _post(
         _uri('api/auth/logout'),
         headers: {'Authorization': 'Bearer $token'},
       );
@@ -82,7 +93,7 @@ class AuthApi {
     String? phoneNumber,
     required bool emailRemindersEnabled,
   }) async {
-    final response = await http.put(
+    final response = await _put(
       _uri('api/auth/me'),
       headers: _authorizedJsonHeaders(token),
       body: jsonEncode({
@@ -99,13 +110,20 @@ class AuthApi {
     throw _parseError(response, fallbackMessage: 'Profil nije sačuvan.');
   }
 
-  Future<void> changePassword({
+  /// Changes the password and returns the replacement session.
+  ///
+  /// The server invalidates every token issued before the change - that is how a
+  /// password change ends any other session someone else might be holding - so
+  /// the token used to make this call stops working the moment it succeeds. The
+  /// caller must store the [AuthResult] returned here, or the next request will
+  /// come back 401 and bounce the user to the login screen.
+  Future<AuthResult> changePassword({
     required String token,
     required String currentPassword,
     required String newPassword,
     required String confirmNewPassword,
   }) async {
-    final response = await http.post(
+    final response = await _post(
       _uri('api/auth/change-password'),
       headers: _authorizedJsonHeaders(token),
       body: jsonEncode({
@@ -114,14 +132,14 @@ class AuthApi {
         'confirmNewPassword': confirmNewPassword,
       }),
     );
-    _expectSuccess(response, fallbackMessage: 'Lozinka nije promijenjena.');
+    return _parseAuthResult(response, fallbackMessage: 'Lozinka nije promijenjena.');
   }
 
   /// Asks for a reset code by email. Succeeds whether or not the address has an
   /// account - the server deliberately does not say, so the app must not
   /// pretend to know either.
   Future<void> forgotPassword({required String email}) async {
-    final response = await http.post(
+    final response = await _post(
       _uri('api/auth/forgot-password'),
       headers: {'Content-Type': 'application/json'},
       body: jsonEncode({'email': email}),
@@ -135,7 +153,7 @@ class AuthApi {
     required String newPassword,
     required String confirmNewPassword,
   }) async {
-    final response = await http.post(
+    final response = await _post(
       _uri('api/auth/reset-password'),
       headers: {'Content-Type': 'application/json'},
       body: jsonEncode({
@@ -156,7 +174,7 @@ class AuthApi {
     required String deviceToken,
     required String platform,
   }) async {
-    final response = await http.post(
+    final response = await _post(
       _uri('api/DeviceToken/register'),
       headers: _authorizedJsonHeaders(token),
       body: jsonEncode({'token': deviceToken, 'platform': platform}),
@@ -170,7 +188,7 @@ class AuthApi {
     required String token,
     required String deviceToken,
   }) async {
-    final response = await http.post(
+    final response = await _post(
       _uri('api/DeviceToken/unregister'),
       headers: _authorizedJsonHeaders(token),
       body: jsonEncode({'token': deviceToken}),

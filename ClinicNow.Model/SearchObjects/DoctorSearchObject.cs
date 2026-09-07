@@ -7,4 +7,9 @@ public class DoctorSearchObject : BaseSearchObject
 
     /// <summary>Only doctors with this specialization.</summary>
     public int? SpecializationId { get; set; }
+
+    /// <inheritdoc />
+    protected override ISet<string> SortableColumns { get; } =
+        new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        { "Id", "LicenseNumber", "CreatedAtUtc" };
 }

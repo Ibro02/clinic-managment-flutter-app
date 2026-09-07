@@ -14,4 +14,9 @@ public class PatientSearchObject : BaseSearchObject
     /// dedicated "Arhivirani pacijenti" screen (Administrator/Staff only).
     /// </summary>
     public bool OnlyDeleted { get; set; }
+
+    /// <inheritdoc />
+    protected override ISet<string> SortableColumns { get; } =
+        new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        { "Id", "FirstName", "LastName", "DateOfBirth", "CreatedAtUtc" };
 }

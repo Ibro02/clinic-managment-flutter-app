@@ -30,10 +30,11 @@ public class LabFindingService : ILabFindingService
     {
         var principal = CurrentUser();
 
-        IQueryable<LabFinding> query = _context.LabFindings
-            .Include(f => f.Patient)
-            .Include(f => f.Appointment).ThenInclude(a => a.MedicalService)
-            .Include(f => f.EnteredByUser);
+        // No Include: the projection at the end of this method selects exactly the
+        // DTO's columns and EF derives the joins from it. Materializing entities
+        // instead would read FileData - up to 10 MB of PDF per row that this
+        // endpoint never returns (rulebook Part II §D).
+        IQueryable<LabFinding> query = _context.LabFindings;
 
         if (principal.IsInRole(Roles.Patient))
         {
@@ -59,15 +60,42 @@ public class LabFindingService : ILabFindingService
         query = query.OrderByDescending(f => f.CreatedAtUtc);
 
         var count = await query.CountAsync(cancellationToken);
-        var entities = await query
+
+        // Spelled out rather than reusing LabFindingMappingConfig for the same
+        // reason as MedicalDocumentService: that config builds DownloadUrl by
+        // string interpolation, which has no SQL translation. The Patient null-guard
+        // mirrors it deliberately (archived patient, review item C3).
+        var rows = await query
             .Skip((search.Page - 1) * search.PageSize)
             .Take(search.PageSize)
+            .Select(f => new LabFindingDto
+            {
+                Id = f.Id,
+                PatientId = f.PatientId,
+                PatientName = f.Patient == null
+                    ? "Obrisani pacijent"
+                    : f.Patient.FirstName + " " + f.Patient.LastName,
+                AppointmentId = f.AppointmentId,
+                AppointmentStartUtc = f.Appointment.StartUtc,
+                MedicalServiceName = f.Appointment.MedicalService.Name,
+                Result = f.Result,
+                FileName = f.FileName,
+                ContentType = f.ContentType,
+                FileSizeBytes = f.FileSizeBytes,
+                EnteredByName = f.EnteredByUser.FirstName + " " + f.EnteredByUser.LastName,
+                CreatedAtUtc = f.CreatedAtUtc
+            })
             .ToListAsync(cancellationToken);
+
+        foreach (var row in rows)
+        {
+            row.DownloadUrl = $"/api/LabFinding/{row.Id}/download";
+        }
 
         return new PagedResult<LabFindingDto>
         {
             Count = count,
-            ResultList = _mapper.Map<List<LabFindingDto>>(entities)
+            ResultList = rows
         };
     }
 
@@ -103,6 +131,7 @@ public class LabFindingService : ILabFindingService
             FileName = request.FileName.Trim(),
             ContentType = request.ContentType,
             FileData = bytes,
+            ContentHash = Documents.ContentHash.Compute(bytes),
             FileSizeBytes = bytes.LongLength,
             EnteredByUserId = actingUserId,
             CreatedAtUtc = DateTime.UtcNow
@@ -133,6 +162,29 @@ public class LabFindingService : ILabFindingService
             if (finding.PatientId != ownPatientId)
             {
                 throw new ForbiddenException("Ne možete preuzeti tuđi nalaz.");
+            }
+        }
+        else if (principal.IsInRole(Roles.Doctor)
+            && !principal.IsInRole(Roles.Administrator)
+            && !principal.IsInRole(Roles.Staff))
+        {
+            // Minimum-necessary access, same rule MedicalDocumentService enforces: a
+            // lab finding is as sensitive as any other record, so being a doctor is
+            // not on its own a reason to read one for a patient never treated.
+            var doctorId = await _context.Doctors
+                .Where(d => d.UserId == CurrentUserId(principal))
+                .Select(d => (int?)d.Id)
+                .SingleOrDefaultAsync(cancellationToken)
+                ?? throw new NotFoundException("Nije pronađen doktorski profil za ovaj nalog.");
+
+            var hasTreated = await _context.Appointments.AnyAsync(a =>
+                a.DoctorId == doctorId
+                && a.PatientId == finding.PatientId
+                && a.Status != AppointmentStatus.Cancelled, cancellationToken);
+
+            if (!hasTreated)
+            {
+                throw new ForbiddenException("Nemate pristup nalazima pacijenta kojeg niste liječili.");
             }
         }
 

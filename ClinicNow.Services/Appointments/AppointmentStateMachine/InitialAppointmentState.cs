@@ -27,34 +27,52 @@ public class InitialAppointmentState : BaseAppointmentState
     /// even under concurrent requests" - a plain read-then-write at the default
     /// isolation level cannot guarantee that; range locks under Serializable can).
     /// </summary>
+    /// <param name="referral">
+    /// The referral this booking consumes, if any. Linked here rather than by the
+    /// caller after the fact so that "appointment created" and "referral marked
+    /// used" are one atomic unit. Persisting them separately leaves a window in
+    /// which the appointment exists but the referral still looks unused - and an
+    /// unused referral is redeemable again, so a failure between the two saves
+    /// hands the patient a second free booking.
+    /// </param>
     public async Task<Appointment> ScheduleAsync(
         int patientId, int doctorId, int medicalServiceId,
-        DateTime startUtc, int actingUserId, CancellationToken cancellationToken)
+        DateTime startUtc, int actingUserId, CancellationToken cancellationToken,
+        Referral? referral = null)
     {
-        await using var transaction = await Context.Database.BeginTransactionAsync(IsolationLevel.Serializable, cancellationToken);
-
-        // Shared with RescheduleCoreAsync (review item C6) - one definition of
-        // "is this slot actually available" for both a new booking and a move.
-        var (endUtc, locationId) = await EnsureAvailableAsync(
-            patientId, doctorId, medicalServiceId, startUtc, excludeAppointmentId: null, cancellationToken);
-
-        var appointment = new Appointment
+        return await InSerializableTransactionAsync(async ct =>
         {
-            PatientId = patientId,
-            DoctorId = doctorId,
-            MedicalServiceId = medicalServiceId,
-            LocationId = locationId,
-            StartUtc = startUtc,
-            EndUtc = endUtc,
-            CreatedByUserId = actingUserId,
-            CreatedAtUtc = DateTime.UtcNow
-        };
-        AddAuditLog(appointment, AppointmentStatus.Pending, actingUserId, "Termin zakazan.");
+            // Shared with RescheduleCoreAsync (review item C6) - one definition of
+            // "is this slot actually available" for both a new booking and a move.
+            var (endUtc, locationId) = await EnsureAvailableAsync(
+                patientId, doctorId, medicalServiceId, startUtc, excludeAppointmentId: null, ct);
 
-        Context.Appointments.Add(appointment);
-        await Context.SaveChangesAsync(cancellationToken);
-        await transaction.CommitAsync(cancellationToken);
+            var appointment = new Appointment
+            {
+                PatientId = patientId,
+                DoctorId = doctorId,
+                MedicalServiceId = medicalServiceId,
+                LocationId = locationId,
+                StartUtc = startUtc,
+                EndUtc = endUtc,
+                CreatedByUserId = actingUserId,
+                CreatedAtUtc = DateTime.UtcNow
+            };
+            AddAuditLog(appointment, AppointmentStatus.Pending, actingUserId, "Termin zakazan.");
 
-        return appointment;
+            Context.Appointments.Add(appointment);
+
+            // Set through the navigation, not the FK: the appointment has no Id until
+            // it is inserted, and EF resolves the reference during the same
+            // SaveChanges. One save, one transaction, no window where the appointment
+            // exists but the referral still looks unused.
+            if (referral is not null)
+            {
+                referral.ResultingAppointment = appointment;
+            }
+
+            await Context.SaveChangesAsync(ct);
+            return appointment;
+        }, cancellationToken);
     }
 }

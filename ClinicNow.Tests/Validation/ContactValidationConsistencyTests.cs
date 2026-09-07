@@ -218,5 +218,14 @@ public class ContactValidationConsistencyTests
 
         public Task<bool> IsRevokedAsync(string jti, CancellationToken cancellationToken = default) =>
             throw new InvalidOperationException("Registration must not check the blocklist.");
+
+        public Task<DateTime?> GetTokensValidFromUtcAsync(int userId, CancellationToken cancellationToken = default) =>
+            throw new InvalidOperationException("Registration must not read the token cutoff.");
+
+        public void InvalidateTokensValidFrom(int userId) =>
+            throw new InvalidOperationException("Registration must not invalidate sessions - there are none yet.");
+
+        public Task<int> PurgeExpiredAsync(CancellationToken cancellationToken = default) =>
+            throw new InvalidOperationException("Registration must not purge the blocklist.");
     }
 }

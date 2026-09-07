@@ -14,6 +14,9 @@ public class NewsItemConfiguration : IEntityTypeConfiguration<NewsItem>
 
     public void Configure(EntityTypeBuilder<NewsItem> builder)
     {
+        // Fixed-width hex from ContentHash.Compute - without this EF picks nvarchar(max).
+        builder.Property(n => n.ContentHash).HasMaxLength(32);
+
         builder.Property(n => n.Title).IsRequired().HasMaxLength(200);
         builder.Property(n => n.Text).IsRequired().HasMaxLength(4000);
         builder.Property(n => n.ImageContentType).HasMaxLength(100);
@@ -25,6 +28,7 @@ public class NewsItemConfiguration : IEntityTypeConfiguration<NewsItem>
                 Title = "Nove ordinacije od septembra",
                 Text = "Poliklinika Sunce proširuje radno vrijeme kardiologije od 1. septembra.",
                 ImageData = SeedImageBytes,
+                ContentHash = Documents.ContentHash.Compute(SeedImageBytes),
                 ImageContentType = "image/png",
                 CreatedAtUtc = new DateTime(2026, 8, 15, 8, 0, 0, DateTimeKind.Utc)
             },
@@ -43,6 +47,7 @@ public class NewsItemConfiguration : IEntityTypeConfiguration<NewsItem>
                 Title = "Sezonski pregledi",
                 Text = "Preporučujemo redovne godišnje preglede - zakažite svoj termin na vrijeme.",
                 ImageData = SeedImageBytes,
+                ContentHash = Documents.ContentHash.Compute(SeedImageBytes),
                 ImageContentType = "image/png",
                 CreatedAtUtc = new DateTime(2026, 8, 23, 15, 0, 0, DateTimeKind.Utc)
             }

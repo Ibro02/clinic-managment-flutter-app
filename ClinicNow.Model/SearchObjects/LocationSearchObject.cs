@@ -7,4 +7,9 @@ public class LocationSearchObject : BaseSearchObject
 
     /// <summary>Exact filter - locations in this city only.</summary>
     public int? CityId { get; set; }
+
+    /// <inheritdoc />
+    protected override ISet<string> SortableColumns { get; } =
+        new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        { "Id", "Name", "Address" };
 }

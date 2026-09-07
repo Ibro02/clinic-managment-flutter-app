@@ -5,6 +5,7 @@ using ClinicNow.Model.Security;
 using ClinicNow.Services.Appointments;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 
 namespace ClinicNow.API.Controllers;
 
@@ -26,6 +27,7 @@ public class AppointmentController : BaseController<AppointmentDto, AppointmentS
     }
 
     [HttpPost]
+    [EnableRateLimiting(RateLimiterPolicies.Write)]
     [Authorize(Roles = $"{Roles.Administrator},{Roles.Staff},{Roles.Patient}")]
     public async Task<ActionResult<AppointmentDto>> Schedule(AppointmentInsertRequest request, CancellationToken cancellationToken)
     {
@@ -34,22 +36,26 @@ public class AppointmentController : BaseController<AppointmentDto, AppointmentS
     }
 
     [HttpPost("{id:int}/confirm")]
+    [EnableRateLimiting(RateLimiterPolicies.Write)]
     [Authorize(Roles = $"{Roles.Administrator},{Roles.Staff},{Roles.Doctor}")]
     public async Task<ActionResult<AppointmentDto>> Confirm(int id, CancellationToken cancellationToken) =>
         Ok(await _appointmentService.ConfirmAsync(id, cancellationToken));
 
     [HttpPost("{id:int}/complete")]
+    [EnableRateLimiting(RateLimiterPolicies.Write)]
     [Authorize(Roles = $"{Roles.Administrator},{Roles.Staff},{Roles.Doctor}")]
     public async Task<ActionResult<AppointmentDto>> Complete(int id, CancellationToken cancellationToken) =>
         Ok(await _appointmentService.CompleteAsync(id, cancellationToken));
 
     /// <summary>Open to every authenticated role - ownership (a Patient may only cancel their own) is enforced in the service, not here.</summary>
     [HttpPost("{id:int}/cancel")]
+    [EnableRateLimiting(RateLimiterPolicies.Write)]
     public async Task<ActionResult<AppointmentDto>> Cancel(int id, AppointmentCancelRequest request, CancellationToken cancellationToken) =>
         Ok(await _appointmentService.CancelAsync(id, request, cancellationToken));
 
     /// <summary>Moves an appointment to a new doctor/time (review item C6) - open to every authenticated role, ownership and the 48h patient cutoff are enforced in the service, same shape as <see cref="Cancel"/>.</summary>
     [HttpPost("{id:int}/reschedule")]
+    [EnableRateLimiting(RateLimiterPolicies.Write)]
     public async Task<ActionResult<AppointmentDto>> Reschedule(int id, AppointmentRescheduleRequest request, CancellationToken cancellationToken) =>
         Ok(await _appointmentService.RescheduleAsync(id, request, cancellationToken));
 

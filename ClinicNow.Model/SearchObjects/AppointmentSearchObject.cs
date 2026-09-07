@@ -15,4 +15,9 @@ public class AppointmentSearchObject : BaseSearchObject
 
     /// <summary>Only appointments starting at or before this instant (UTC).</summary>
     public DateTime? ToUtc { get; set; }
+
+    /// <inheritdoc />
+    protected override ISet<string> SortableColumns { get; } =
+        new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        { "Id", "StartUtc", "EndUtc", "Status", "CreatedAtUtc" };
 }

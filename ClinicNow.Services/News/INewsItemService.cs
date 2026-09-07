@@ -19,5 +19,5 @@ public interface INewsItemService : ICRUDService<NewsItemDto, NewsItemSearchObje
     /// when there is no such news item at all - the caller turns that into a
     /// 404, and cannot tell the two apart, which is fine for public content.
     /// </summary>
-    Task<(byte[] Data, string ContentType)?> GetImageAsync(int id, CancellationToken cancellationToken = default);
+    Task<(byte[] Data, string ContentType, string? ContentHash)?> GetImageAsync(int id, CancellationToken cancellationToken = default);
 }

@@ -36,9 +36,28 @@ public class AppointmentConfiguration : IEntityTypeConfiguration<Appointment>
         builder.HasOne(a => a.Location).WithMany().HasForeignKey(a => a.LocationId).OnDelete(DeleteBehavior.Restrict);
         builder.HasOne(a => a.CreatedByUser).WithMany().HasForeignKey(a => a.CreatedByUserId).OnDelete(DeleteBehavior.Restrict);
 
-        builder.HasIndex(a => a.DoctorId);
-        builder.HasIndex(a => a.PatientId);
         builder.HasIndex(a => a.Status);
+
+        // Composite, equality column first then the range column, and covering the
+        // rest of the overlap predicate.
+        //
+        // These exist for InitialAppointmentState.ScheduleAsync, which runs its
+        // availability check under SERIALIZABLE isolation. SQL Server takes
+        // key-range locks over whatever the index seek touches, so with only a
+        // single-column index on DoctorId the seek matched every appointment that
+        // doctor has *ever* had and locked the lot - two patients booking the same
+        // doctor for different months blocked each other, and the locked range grew
+        // with the doctor's history forever. Including StartUtc narrows the lock to
+        // the requested window; the included columns let the overlap test finish
+        // from the index instead of a key lookup per row.
+        //
+        // These replace the plain DoctorId/PatientId indexes: each has the old
+        // single-column index as its prefix, so the FK lookups they served are still
+        // covered and a separate index would be redundant.
+        builder.HasIndex(a => new { a.DoctorId, a.StartUtc })
+            .IncludeProperties(a => new { a.EndUtc, a.Status });
+        builder.HasIndex(a => new { a.PatientId, a.StartUtc })
+            .IncludeProperties(a => new { a.EndUtc, a.Status });
 
         // Seed data spans Completed/Cancelled (past) and Pending/Confirmed
         // (future, relative to this seed's fixed "today" of 2026-08-25) so every

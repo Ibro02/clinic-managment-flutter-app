@@ -17,6 +17,9 @@ public class LabFindingConfiguration : IEntityTypeConfiguration<LabFinding>
 
     public void Configure(EntityTypeBuilder<LabFinding> builder)
     {
+        // Fixed-width hex from ContentHash.Compute - without this EF picks nvarchar(max).
+        builder.Property(f => f.ContentHash).HasMaxLength(32);
+
         builder.Property(f => f.Result).IsRequired().HasMaxLength(2000);
         builder.Property(f => f.FileName).IsRequired().HasMaxLength(260);
         builder.Property(f => f.ContentType).IsRequired().HasMaxLength(100);
@@ -64,6 +67,7 @@ public class LabFindingConfiguration : IEntityTypeConfiguration<LabFinding>
             ContentType = "application/pdf",
             FileData = SeedPdfBytes,
             FileSizeBytes = SeedPdfBytes.LongLength,
+            ContentHash = Documents.ContentHash.Compute(SeedPdfBytes),
             EnteredByUserId = 3,
             CreatedAtUtc = new DateTime(2026, 8, 18, 9, 30, 0, DateTimeKind.Utc),
             IsDeleted = false

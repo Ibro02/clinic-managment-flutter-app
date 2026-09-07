@@ -6,6 +6,7 @@ using ClinicNow.Model.Security;
 using ClinicNow.Services.Documents;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 
 namespace ClinicNow.API.Controllers;
 
@@ -35,6 +36,7 @@ public class MedicalDocumentController : ControllerBase
 
     [HttpPost]
     [Authorize(Roles = $"{Roles.Administrator},{Roles.Staff},{Roles.Doctor}")]
+    [EnableRateLimiting(RateLimiterPolicies.Write)]
     public async Task<ActionResult<MedicalDocumentDto>> Upload(MedicalDocumentInsertRequest request, CancellationToken cancellationToken)
     {
         var created = await _service.UploadAsync(request, cancellationToken);
@@ -45,10 +47,11 @@ public class MedicalDocumentController : ControllerBase
     public async Task<IActionResult> Download(int id, CancellationToken cancellationToken)
     {
         var document = await _service.GetFileForDownloadAsync(id, cancellationToken);
-        return File(document.FileData, document.ContentType, document.FileName);
+        return this.CacheableFile(document.FileData, document.ContentType, document.ContentHash, document.FileName);
     }
 
     [HttpDelete("{id:int}")]
+    [EnableRateLimiting(RateLimiterPolicies.Write)]
     [Authorize(Roles = $"{Roles.Administrator},{Roles.Staff}")]
     public async Task<IActionResult> Delete(int id, CancellationToken cancellationToken)
     {

@@ -19,5 +19,12 @@ public class NewsItem
     public byte[]? ImageData { get; set; }
     public string? ImageContentType { get; set; }
 
+    /// <summary>
+    /// SHA-256 of <see cref="ImageData"/>, served as the image endpoint's ETag so a
+    /// client re-rendering the news list gets a 304 instead of the picture again.
+    /// Null when there is no image, or for rows written before this column existed.
+    /// </summary>
+    public string? ContentHash { get; set; }
+
     public DateTime CreatedAtUtc { get; set; }
 }

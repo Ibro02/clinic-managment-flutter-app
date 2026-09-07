@@ -1,5 +1,6 @@
 using System.Security.Claims;
 using System.Text;
+using System.Threading.RateLimiting;
 using ClinicNow.API;
 using ClinicNow.API.Filters;
 using ClinicNow.Model.Configuration;
@@ -28,6 +29,7 @@ using Mapster;
 using MapsterMapper;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.RateLimiting;
+using Microsoft.AspNetCore.ResponseCompression;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
@@ -68,7 +70,22 @@ builder.Services.AddSingleton(recommenderOptions);
 // ClinicNowContext (and every service built on top of it) is Scoped by default via
 // AddDbContext - never Transient/Singleton, per rulebook Part II §D.
 builder.Services.AddDbContext<ClinicNowContext>(options =>
-    options.UseSqlServer(databaseOptions.ConnectionString));
+    options.UseSqlServer(databaseOptions.ConnectionString, sqlOptions =>
+        // Booking runs under SERIALIZABLE isolation (InitialAppointmentState), which
+        // makes deadlock victims and serialization conflicts an expected outcome
+        // rather than an exceptional one - and every one of them surfaced to the
+        // patient as a 500. Retrying transient SQL errors turns those into a
+        // successful second attempt.
+        //
+        // Note for anyone adding a manual BeginTransactionAsync: with a retrying
+        // execution strategy EF requires it to be wrapped in
+        // context.Database.CreateExecutionStrategy().ExecuteAsync(...), otherwise it
+        // throws at runtime. The existing state-machine transactions are wrapped for
+        // exactly this reason.
+        sqlOptions.EnableRetryOnFailure(
+            maxRetryCount: 3,
+            maxRetryDelay: TimeSpan.FromSeconds(2),
+            errorNumbersToAdd: null)));
 
 // --- Mapster (entity <-> DTO mapping) ------------------------------------------
 var mapperConfig = TypeAdapterConfig.GlobalSettings;
@@ -255,6 +272,29 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
                 if (await blocklist.IsRevokedAsync(jti, context.HttpContext.RequestAborted))
                 {
                     context.Fail("Token je opozvan (izvršena je odjava).");
+                    return;
+                }
+
+                // Second, coarser revocation check: the jti blocklist can only reject
+                // tokens someone explicitly logged out, but a password change has to
+                // end *every* session at once - including the attacker's, which is
+                // usually the whole reason the password is being changed. Tokens
+                // issued before the account's cutoff are refused regardless of their
+                // own expiry.
+                var subject = context.Principal?.FindFirstValue(ClaimTypes.NameIdentifier);
+                var issuedAt = context.Principal?.FindFirstValue(System.IdentityModel.Tokens.Jwt.JwtRegisteredClaimNames.Iat);
+
+                if (int.TryParse(subject, out var userId)
+                    && long.TryParse(issuedAt, out var issuedAtUnixSeconds))
+                {
+                    var validFrom = await blocklist.GetTokensValidFromUtcAsync(
+                        userId, context.HttpContext.RequestAborted);
+
+                    var issuedAtUtc = DateTimeOffset.FromUnixTimeSeconds(issuedAtUnixSeconds).UtcDateTime;
+                    if (validFrom is DateTime cutoffUtc && issuedAtUtc < cutoffUtc)
+                    {
+                        context.Fail("Lozinka je promijenjena - potrebna je ponovna prijava.");
+                    }
                 }
             }
         };
@@ -264,15 +304,64 @@ builder.Services.AddAuthorization();
 // --- Rate limiting on auth endpoints (global rule: "Add rate limiting on auth and
 // write operations") - a fixed window keeps this simple while still meaningfully
 // slowing down credential-stuffing/brute-force attempts against /api/auth/login.
+// slowing down credential-stuffing/brute-force attempts against /api/auth/login.
+//
+// Every policy here is PARTITIONED. AddFixedWindowLimiter without a partition key
+// builds a single bucket shared by every caller in the world, which is worse than
+// no limit at all: it barely inconveniences an attacker (still 10 tries a minute)
+// while letting that one attacker spend the whole clinic's budget and lock every
+// legitimate user out of login - a denial of service opened by the control meant to
+// prevent one. Partitioning by client address gives each caller its own budget.
 builder.Services.AddRateLimiter(options =>
 {
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
-    options.AddFixedWindowLimiter(RateLimiterPolicies.Auth, limiterOptions =>
-    {
-        limiterOptions.PermitLimit = 10;
-        limiterOptions.Window = TimeSpan.FromMinutes(1);
-        limiterOptions.QueueLimit = 0;
-    });
+
+    // Behind a reverse proxy RemoteIpAddress is the proxy unless UseForwardedHeaders
+    // runs first, which would collapse every client into one partition. Deployment
+    // here is direct (docker-compose publishes the API port), so this is the real
+    // client address.
+    static string PartitionKey(HttpContext httpContext) =>
+        httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+
+    options.AddPolicy(RateLimiterPolicies.Auth, httpContext =>
+        RateLimitPartition.GetFixedWindowLimiter(PartitionKey(httpContext), _ =>
+            new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = 10,
+                Window = TimeSpan.FromMinutes(1),
+                QueueLimit = 0
+            }));
+
+    // The global rule is "rate limiting on auth *and write operations*". Writes were
+    // previously unlimited, which let any authenticated patient hammer
+    // POST /api/Appointment - and every one of those attempts opens a SERIALIZABLE
+    // transaction, so it was a cheap way to put the booking table under sustained
+    // lock contention. Limited per user where there is one, per address otherwise,
+    // so one noisy account cannot spend another's budget.
+    options.AddPolicy(RateLimiterPolicies.Write, httpContext =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            httpContext.User.FindFirstValue(ClaimTypes.NameIdentifier) ?? PartitionKey(httpContext),
+            _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = 60,
+                Window = TimeSpan.FromMinutes(1),
+                QueueLimit = 0
+            }));
+});
+
+// --- Response compression -------------------------------------------------------
+// The clients are a Windows desktop app and an Android phone, and the phone is the
+// one that matters here: list payloads are JSON, which compresses roughly 6-10x, and
+// a patient on a metered or 3G connection pays for every uncompressed byte.
+builder.Services.AddResponseCompression(options =>
+{
+    // Compression over TLS reintroduces BREACH-style oracles; this API is
+    // deliberately plain HTTP end-to-end (CLAUDE.md §3), so the usual objection
+    // does not apply. Left explicit rather than implied.
+    options.EnableForHttps = false;
+    options.Providers.Add<BrotliCompressionProvider>();
+    options.Providers.Add<GzipCompressionProvider>();
+    options.MimeTypes = ResponseCompressionDefaults.MimeTypes.Concat(["application/json"]);
 });
 
 // --- Cross-cutting infrastructure ------------------------------------------------
@@ -295,6 +384,20 @@ if (app.Environment.IsDevelopment())
             .WithOpenApiRoutePattern("/swagger/{documentName}/swagger.json");
     });
 }
+
+// Before CORS/auth so it also covers responses those short-circuit.
+app.UseResponseCompression();
+
+// Downloads serve stored bytes under a stored Content-Type. That type comes from a
+// validated allowlist (FileValidation checks MIME *and* magic bytes), so this is
+// defence in depth rather than the primary control - but it costs one header and
+// removes content-sniffing as a way to turn a stored file into something the
+// browser will execute, which matters for the Flutter web build.
+app.Use(async (context, next) =>
+{
+    context.Response.Headers["X-Content-Type-Options"] = "nosniff";
+    await next();
+});
 
 app.UseCors(CorsPolicyName);
 

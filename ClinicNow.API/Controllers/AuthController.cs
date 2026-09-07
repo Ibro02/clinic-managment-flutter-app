@@ -69,12 +69,16 @@ public class AuthController : ControllerBase
         return Ok(await _userService.UpdateCurrentUserAsync(request, cancellationToken));
     }
 
+    /// <summary>
+    /// Changes the caller's own password. Returns a replacement access token:
+    /// the change ends every session that existed beforehand, so without a fresh
+    /// token the user would be signed out by the very action they just authorized.
+    /// </summary>
     [HttpPost("change-password")]
     [EnableRateLimiting(RateLimiterPolicies.Auth)]
-    public async Task<IActionResult> ChangePassword(ChangePasswordRequest request, CancellationToken cancellationToken)
+    public async Task<ActionResult<LoginResponseDto>> ChangePassword(ChangePasswordRequest request, CancellationToken cancellationToken)
     {
-        await _userService.ChangeCurrentUserPasswordAsync(request, cancellationToken);
-        return NoContent();
+        return Ok(await _userService.ChangeCurrentUserPasswordAsync(request, cancellationToken));
     }
 
     /// <summary>

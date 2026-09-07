@@ -30,9 +30,13 @@ public class MedicalDocumentService : IMedicalDocumentService
     {
         var principal = CurrentUser();
 
-        IQueryable<MedicalDocument> query = _context.MedicalDocuments
-            .Include(d => d.Patient)
-            .Include(d => d.UploadedByUser);
+        // No Include here on purpose: the projection below pulls exactly the columns
+        // the DTO needs, and EF generates the joins from it. Including the
+        // navigations instead would materialize whole entities - and a whole
+        // MedicalDocument entity carries FileData, a blob of up to 10 MB per row
+        // that this endpoint never returns (rulebook Part II §D: list endpoints
+        // return display data only, never file blobs).
+        IQueryable<MedicalDocument> query = _context.MedicalDocuments;
 
         if (principal.IsInRole(Roles.Patient))
         {
@@ -42,9 +46,25 @@ public class MedicalDocumentService : IMedicalDocumentService
             var ownPatientId = await GetOwnPatientIdAsync(CurrentUserId(principal), cancellationToken);
             query = query.Where(d => d.PatientId == ownPatientId);
         }
-        else if (search.PatientId.HasValue)
+        else
         {
-            query = query.Where(d => d.PatientId == search.PatientId.Value);
+            if (IsDoctorWithoutClinicWideAccess(principal))
+            {
+                // Same minimum-necessary rule the download enforces, applied as a
+                // filter so the list can never advertise a document the doctor
+                // would be refused on click. Expressed as a subquery rather than a
+                // pre-fetched id list so it stays one round-trip and one plan.
+                var doctorId = await GetOwnDoctorIdAsync(CurrentUserId(principal), cancellationToken);
+                query = query.Where(d => _context.Appointments.Any(a =>
+                    a.DoctorId == doctorId
+                    && a.PatientId == d.PatientId
+                    && a.Status != Model.Common.AppointmentStatus.Cancelled));
+            }
+
+            if (search.PatientId.HasValue)
+            {
+                query = query.Where(d => d.PatientId == search.PatientId.Value);
+            }
         }
 
         if (!string.IsNullOrWhiteSpace(search.FileName))
@@ -55,15 +75,44 @@ public class MedicalDocumentService : IMedicalDocumentService
         query = query.OrderByDescending(d => d.CreatedAtUtc);
 
         var count = await query.CountAsync(cancellationToken);
-        var entities = await query
+
+        // Projected to the DTO in the query rather than materializing entities and
+        // mapping afterwards. The mapping is spelled out here instead of reusing
+        // MedicalDocumentMappingConfig because that config builds DownloadUrl with
+        // string interpolation, which lowers to string.Format and has no SQL
+        // translation - so ProjectToType would fail at runtime. The null-guard on
+        // Patient mirrors that config deliberately (an archived patient still has
+        // readable documents, review item C3).
+        var rows = await query
             .Skip((search.Page - 1) * search.PageSize)
             .Take(search.PageSize)
+            .Select(d => new MedicalDocumentDto
+            {
+                Id = d.Id,
+                PatientId = d.PatientId,
+                PatientName = d.Patient == null
+                    ? "Obrisani pacijent"
+                    : d.Patient.FirstName + " " + d.Patient.LastName,
+                FileName = d.FileName,
+                ContentType = d.ContentType,
+                FileSizeBytes = d.FileSizeBytes,
+                Description = d.Description,
+                UploadedByName = d.UploadedByUser.FirstName + " " + d.UploadedByUser.LastName,
+                CreatedAtUtc = d.CreatedAtUtc
+            })
             .ToListAsync(cancellationToken);
+
+        // Pure function of Id, so it costs nothing to fill in here and keeps the
+        // projection above translatable.
+        foreach (var row in rows)
+        {
+            row.DownloadUrl = $"/api/MedicalDocument/{row.Id}/download";
+        }
 
         return new PagedResult<MedicalDocumentDto>
         {
             Count = count,
-            ResultList = _mapper.Map<List<MedicalDocumentDto>>(entities)
+            ResultList = rows
         };
     }
 
@@ -91,6 +140,7 @@ public class MedicalDocumentService : IMedicalDocumentService
             FileName = request.FileName.Trim(),
             ContentType = request.ContentType,
             FileData = bytes,
+            ContentHash = Documents.ContentHash.Compute(bytes),
             FileSizeBytes = bytes.LongLength,
             Description = string.IsNullOrWhiteSpace(request.Description) ? null : request.Description.Trim(),
             UploadedByUserId = actingUserId,
@@ -123,6 +173,10 @@ public class MedicalDocumentService : IMedicalDocumentService
                 throw new ForbiddenException("Ne možete preuzeti tuđi dokument.");
             }
         }
+        else if (IsDoctorWithoutClinicWideAccess(principal))
+        {
+            await EnsureDoctorHasTreatedAsync(principal, document.PatientId, cancellationToken);
+        }
 
         return document;
     }
@@ -135,6 +189,48 @@ public class MedicalDocumentService : IMedicalDocumentService
         document.IsDeleted = true;
         document.DeletedAtUtc = DateTime.UtcNow;
         await _context.SaveChangesAsync(cancellationToken);
+    }
+
+    /// <summary>
+    /// True for a caller acting purely as a doctor. Administrator and Staff run the
+    /// clinic's records and legitimately see every patient, so a user holding either
+    /// of those roles alongside Doctor is not narrowed.
+    /// </summary>
+    private static bool IsDoctorWithoutClinicWideAccess(ClaimsPrincipal principal) =>
+        principal.IsInRole(Roles.Doctor)
+        && !principal.IsInRole(Roles.Administrator)
+        && !principal.IsInRole(Roles.Staff);
+
+    /// <summary>
+    /// Minimum-necessary access: a doctor reads a patient's file only if they have
+    /// actually treated that patient. Being a doctor previously granted read access
+    /// to every patient's documents in the clinic with no treating relationship of
+    /// any kind - for medical records that is exactly the access-control gap the
+    /// principle exists to prevent.
+    ///
+    /// A cancelled appointment does not count: it means the visit never happened.
+    /// </summary>
+    private async Task EnsureDoctorHasTreatedAsync(ClaimsPrincipal principal, int patientId, CancellationToken cancellationToken)
+    {
+        var doctorId = await GetOwnDoctorIdAsync(CurrentUserId(principal), cancellationToken);
+
+        var hasTreated = await _context.Appointments.AnyAsync(a =>
+            a.DoctorId == doctorId
+            && a.PatientId == patientId
+            && a.Status != Model.Common.AppointmentStatus.Cancelled, cancellationToken);
+
+        if (!hasTreated)
+        {
+            throw new ForbiddenException(
+                "Nemate pristup dokumentaciji pacijenta kojeg niste liječili.");
+        }
+    }
+
+    private async Task<int> GetOwnDoctorIdAsync(int userId, CancellationToken cancellationToken)
+    {
+        var doctor = await _context.Doctors.SingleOrDefaultAsync(d => d.UserId == userId, cancellationToken)
+            ?? throw new NotFoundException("Nije pronađen doktorski profil za ovaj nalog.");
+        return doctor.Id;
     }
 
     private async Task<int> GetOwnPatientIdAsync(int userId, CancellationToken cancellationToken)

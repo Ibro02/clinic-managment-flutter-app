@@ -13,4 +13,9 @@ public class ReferralSearchObject : BaseSearchObject
     /// C3's archive/restore feature).
     /// </summary>
     public bool OnlyArchived { get; set; }
+
+    /// <inheritdoc />
+    protected override ISet<string> SortableColumns { get; } =
+        new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        { "Id", "CreatedAtUtc" };
 }

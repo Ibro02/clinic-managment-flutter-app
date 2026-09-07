@@ -37,6 +37,23 @@ public class UserService : IUserService
 
     private const int ResetCodeLength = 12;
 
+    /// <summary>
+    /// A real BCrypt hash of a fixed throwaway string, verified against whenever the
+    /// looked-up account does not exist.
+    ///
+    /// Without it the credential check short-circuits: an unknown email returns in a
+    /// couple of milliseconds while a known one pays a full work-factor-12 BCrypt
+    /// verification (~250 ms). That two-orders-of-magnitude gap is trivially
+    /// measurable over the network, so the deliberately identical error *message*
+    /// still leaked exactly what it was written to hide - and for a clinic, whether
+    /// an address has an account here is itself patient information.
+    ///
+    /// Computed once, lazily, because hashing at class-load time would run on every
+    /// process start whether or not anyone logs in.
+    /// </summary>
+    private static readonly Lazy<string> TimingEqualizerHash = new(() =>
+        BCrypt.Net.BCrypt.HashPassword("clinicnow-timing-equalizer", workFactor: 12));
+
     public UserService(
         ClinicNowContext context,
         IMapper mapper,
@@ -117,6 +134,16 @@ public class UserService : IUserService
     {
         ArgumentNullException.ThrowIfNull(request);
 
+        // Rejected before the database is touched and before BCrypt runs. No stored
+        // password can exceed this (ContactRules enforces it on every write path),
+        // so nothing legitimate is turned away - it just stops an anonymous caller
+        // spending work-factor-12 CPU on a megabyte of input. The check does not
+        // depend on whether the account exists, so it adds no timing signal.
+        if ((request.Password?.Length ?? 0) > ContactRules.MaxPasswordLength)
+        {
+            throw new AuthenticationException("Pogrešan email ili lozinka.");
+        }
+
         var normalizedEmail = (request.Email ?? string.Empty).Trim().ToLowerInvariant();
 
         var user = await _context.Users
@@ -127,7 +154,15 @@ public class UserService : IUserService
         // password" - a specific message would let a caller enumerate valid emails.
         const string invalidCredentialsMessage = "Pogrešan email ili lozinka.";
 
-        if (user is null || !_passwordHasher.Verify(request.Password ?? string.Empty, user.PasswordHash))
+        // Verified unconditionally, against a stand-in hash when there is no such
+        // account, so both outcomes cost one BCrypt verification. Evaluated into a
+        // local *before* the null check below: letting `||` short-circuit past it is
+        // precisely the timing leak this exists to close.
+        var passwordMatches = _passwordHasher.Verify(
+            request.Password ?? string.Empty,
+            user?.PasswordHash ?? TimingEqualizerHash.Value);
+
+        if (user is null || !passwordMatches)
         {
             throw new AuthenticationException(invalidCredentialsMessage);
         }
@@ -222,7 +257,7 @@ public class UserService : IUserService
         return _mapper.Map<UserDto>(user);
     }
 
-    public async Task ChangeCurrentUserPasswordAsync(ChangePasswordRequest request, CancellationToken cancellationToken = default)
+    public async Task<LoginResponseDto> ChangeCurrentUserPasswordAsync(ChangePasswordRequest request, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
 
@@ -257,7 +292,30 @@ public class UserService : IUserService
         // valid would be a second, weaker way into an account the owner just
         // secured.
         ClearResetToken(user);
+        // Changing a password is often a reaction to "someone else may be signed in
+        // as me", so it has to end those sessions rather than only stopping a fresh
+        // sign-in. Every token issued before this instant stops being accepted.
+        InvalidateOutstandingTokens(user);
         await _context.SaveChangesAsync(cancellationToken);
+        _tokenBlocklistService.InvalidateTokensValidFrom(user.Id);
+
+        // The caller's own token was just invalidated along with everyone else's, so
+        // it is replaced here rather than bouncing the user to the login screen for
+        // an action they performed deliberately and authenticated for. The
+        // replacement is minted after the cutoff, so it survives it.
+        var roleNames = await _context.UserRoles
+            .Where(ur => ur.UserId == user.Id)
+            .Select(ur => ur.Role.Name)
+            .ToListAsync(cancellationToken);
+
+        var (accessToken, expiresAtUtc) = _tokenService.CreateAccessToken(user, roleNames);
+
+        return new LoginResponseDto
+        {
+            AccessToken = accessToken,
+            ExpiresAtUtc = expiresAtUtc,
+            User = _mapper.Map<UserDto>(user)
+        };
     }
 
     public async Task RequestPasswordResetAsync(ForgotPasswordRequest request, CancellationToken cancellationToken = default)
@@ -271,13 +329,21 @@ public class UserService : IUserService
         // "nepoznat email" here would turn this endpoint into a way to test
         // which addresses are registered at the clinic - which for a medical
         // system is itself a disclosure.
+        //
+        // The quiet return is only half the defence, though: bailing out here
+        // skipped a BCrypt hash, a SaveChanges and a broker publish, so an unknown
+        // address answered visibly faster than a known one and the endpoint stayed
+        // an enumeration oracle by timing. The code is therefore always generated
+        // and always hashed; only the persist and the email are skipped.
+        var code = GenerateResetCode();
+        var codeHash = _passwordHasher.Hash(code);
+
         if (user is null || !user.IsActive)
         {
             return;
         }
 
-        var code = GenerateResetCode();
-        user.PasswordResetTokenHash = _passwordHasher.Hash(code);
+        user.PasswordResetTokenHash = codeHash;
         user.PasswordResetTokenExpiresAtUtc = DateTime.UtcNow.Add(ResetCodeLifetime);
         await _context.SaveChangesAsync(cancellationToken);
 
@@ -322,11 +388,20 @@ public class UserService : IUserService
         // attacker which half of the pair they got right.
         const string invalidCodeMessage = "Kod nije ispravan ili je istekao. Zatražite novi kod.";
 
+        // Verified against a stand-in hash when there is no pending reset, for the
+        // same reason LoginAsync does: short-circuiting past the BCrypt call makes
+        // "no such email" and "no reset pending" answer measurably faster than a
+        // merely wrong code, which turns the deliberately-uniform message above back
+        // into an oracle.
+        var codeMatches = _passwordHasher.Verify(
+            NormalizeResetCode(request.Code),
+            user?.PasswordResetTokenHash ?? TimingEqualizerHash.Value);
+
         if (user is null
             || user.PasswordResetTokenHash is null
             || user.PasswordResetTokenExpiresAtUtc is not DateTime expiresAtUtc
             || expiresAtUtc <= DateTime.UtcNow
-            || !_passwordHasher.Verify(NormalizeResetCode(request.Code), user.PasswordResetTokenHash))
+            || !codeMatches)
         {
             throw new ValidationException("code", invalidCodeMessage);
         }
@@ -335,7 +410,31 @@ public class UserService : IUserService
         // Single-use: clearing the hash here is what stops the same email being
         // replayed to take the account again later.
         ClearResetToken(user);
+        // A reset is how someone recovers a compromised account, so it has to end
+        // the attacker's session too - not just stop them signing in again. Without
+        // this cutoff their already-issued token keeps working until it expires,
+        // right through the reset performed to lock them out.
+        InvalidateOutstandingTokens(user);
         await _context.SaveChangesAsync(cancellationToken);
+        _tokenBlocklistService.InvalidateTokensValidFrom(user.Id);
+    }
+
+    /// <summary>
+    /// Stamps the cutoff that makes every access token issued before now invalid.
+    /// The caller must <c>SaveChangesAsync</c> and then evict the cached value.
+    ///
+    /// Truncated to whole seconds on purpose. A JWT's <c>iat</c> claim has one-second
+    /// resolution, so an untruncated cutoff of 12:00:00.500 would be *after* the
+    /// <c>iat</c> of a token minted in that same second (12:00:00) and would reject
+    /// the replacement token this very operation hands back. The cost is a
+    /// sub-second window in which an older token from the same second survives,
+    /// which is the standard trade for second-resolution claims.
+    /// </summary>
+    private static void InvalidateOutstandingTokens(User user)
+    {
+        var now = DateTime.UtcNow;
+        user.TokensValidFromUtc = new DateTime(
+            now.Year, now.Month, now.Day, now.Hour, now.Minute, now.Second, DateTimeKind.Utc);
     }
 
     private static void ClearResetToken(User user)

@@ -26,17 +26,30 @@ public class AccountSelfServiceTests
 
     private static (UserService Service, RecordingEmailPublisher Email) Build(ClinicNowContext context, int actingUserId = PatientUserId)
     {
+        var (service, email, _, _) = BuildWithSpies(context, actingUserId);
+        return (service, email);
+    }
+
+    /// <summary>
+    /// Same wiring as <see cref="Build"/>, but hands back the token/blocklist spies
+    /// for the tests that assert on session invalidation.
+    /// </summary>
+    private static (UserService Service, RecordingEmailPublisher Email, StubTokenService Tokens, RecordingTokenBlocklistService Blocklist)
+        BuildWithSpies(ClinicNowContext context, int actingUserId = PatientUserId)
+    {
         var email = new RecordingEmailPublisher();
+        var tokens = new StubTokenService();
+        var blocklist = new RecordingTokenBlocklistService();
         var service = new UserService(
             context,
             TestContextFactory.CreateMapper(),
             new PasswordHasher(),
-            new UnusedTokenService(),
-            new UnusedTokenBlocklistService(),
+            tokens,
+            blocklist,
             TestContextFactory.CreateHttpContextAccessor(actingUserId, Roles.Patient),
             email);
 
-        return (service, email);
+        return (service, email, tokens, blocklist);
     }
 
     /// <summary>Pulls the code out of the message the patient would have received.</summary>
@@ -113,6 +126,67 @@ public class AccountSelfServiceTests
         var hasher = new PasswordHasher();
         Assert.True(hasher.Verify("novaLozinka123", user.PasswordHash));
         Assert.False(hasher.Verify(SeededPassword, user.PasswordHash));
+    }
+
+    [Fact]
+    public async Task Changing_your_own_password_ends_every_session_that_predates_it()
+    {
+        using var context = TestContextFactory.CreateContext();
+        var (service, _, tokens, blocklist) = BuildWithSpies(context);
+
+        var before = DateTime.UtcNow.AddSeconds(-1);
+
+        var result = await service.ChangeCurrentUserPasswordAsync(new ChangePasswordRequest
+        {
+            CurrentPassword = SeededPassword,
+            NewPassword = "novaLozinka123",
+            ConfirmNewPassword = "novaLozinka123"
+        });
+
+        var user = await context.Users.SingleAsync(u => u.Id == PatientUserId);
+
+        // The cutoff is what actually invalidates tokens already in the wild: JWT
+        // validation refuses anything issued before it.
+        Assert.NotNull(user.TokensValidFromUtc);
+        Assert.True(user.TokensValidFromUtc >= before);
+
+        // The cached cutoff has to be dropped, or validation would keep reading the
+        // old value and keep honouring the tokens this was meant to kill.
+        Assert.Contains(PatientUserId, blocklist.InvalidatedUserIds);
+
+        // ...and the caller gets a replacement, so the password change does not sign
+        // them out of the session they just authenticated with.
+        Assert.Equal(1, tokens.CallCount);
+        Assert.False(string.IsNullOrWhiteSpace(result.AccessToken));
+    }
+
+    [Fact]
+    public async Task Password_reset_ends_every_session_but_issues_no_token()
+    {
+        using var context = TestContextFactory.CreateContext();
+        var (service, email, tokens, blocklist) = BuildWithSpies(context);
+
+        await service.RequestPasswordResetAsync(new ForgotPasswordRequest { Email = PatientEmail });
+        var code = CodeFrom(email);
+
+        await service.ResetPasswordAsync(new ResetPasswordRequest
+        {
+            Email = PatientEmail,
+            Code = code,
+            NewPassword = "resetovana123",
+            ConfirmNewPassword = "resetovana123"
+        });
+
+        var user = await context.Users.SingleAsync(u => u.Id == PatientUserId);
+
+        // A reset is how a compromised account is recovered, so the attacker's
+        // existing token must stop working - not merely their ability to sign in again.
+        Assert.NotNull(user.TokensValidFromUtc);
+        Assert.Contains(PatientUserId, blocklist.InvalidatedUserIds);
+
+        // Unlike a password change, the caller here was never signed in, so there is
+        // nobody to hand a replacement token to.
+        Assert.Equal(0, tokens.CallCount);
     }
 
     [Fact]
@@ -244,18 +318,43 @@ public class AccountSelfServiceTests
 
     // UserService's constructor needs these; nothing under test here issues or
     // revokes a token, so they fail loudly if that ever changes.
-    private sealed class UnusedTokenService : ITokenService
+    /// <summary>
+    /// Issues a recognizable stand-in token.
+    ///
+    /// This used to throw on any call, asserting that account self-service never
+    /// mints a token. That is no longer the contract: changing your own password now
+    /// invalidates every token issued before it, so the operation has to hand back a
+    /// replacement or it would sign the user out of the session they just
+    /// authenticated with. Password *reset* still issues nothing - the caller is not
+    /// signed in - and <see cref="Password_reset_does_not_issue_a_token"/> pins that.
+    /// </summary>
+    private sealed class StubTokenService : ITokenService
     {
-        public CreatedToken CreateAccessToken(User user, IEnumerable<string> roles) =>
-            throw new InvalidOperationException("Account self-service must not issue a token.");
+        public int CallCount { get; private set; }
+
+        public CreatedToken CreateAccessToken(User user, IEnumerable<string> roles)
+        {
+            CallCount++;
+            return new CreatedToken($"replacement-token-for-{user.Id}", DateTime.UtcNow.AddHours(1));
+        }
     }
 
-    private sealed class UnusedTokenBlocklistService : ITokenBlocklistService
+    private sealed class RecordingTokenBlocklistService : ITokenBlocklistService
     {
+        public List<int> InvalidatedUserIds { get; } = [];
+
         public Task RevokeAsync(string jti, DateTime tokenExpiresAtUtc, CancellationToken cancellationToken = default) =>
-            throw new InvalidOperationException("Account self-service must not revoke a token.");
+            throw new InvalidOperationException("Account self-service must not revoke an individual token.");
 
         public Task<bool> IsRevokedAsync(string jti, CancellationToken cancellationToken = default) =>
             throw new InvalidOperationException("Account self-service must not check the blocklist.");
+
+        public Task<DateTime?> GetTokensValidFromUtcAsync(int userId, CancellationToken cancellationToken = default) =>
+            throw new InvalidOperationException("Account self-service must not read the cutoff.");
+
+        public void InvalidateTokensValidFrom(int userId) => InvalidatedUserIds.Add(userId);
+
+        public Task<int> PurgeExpiredAsync(CancellationToken cancellationToken = default) =>
+            throw new InvalidOperationException("Account self-service must not purge the blocklist.");
     }
 }

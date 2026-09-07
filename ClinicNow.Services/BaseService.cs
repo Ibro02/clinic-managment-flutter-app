@@ -1,3 +1,4 @@
+using ClinicNow.Model.Exceptions;
 using ClinicNow.Model.SearchObjects;
 using ClinicNow.Services.Database;
 using MapsterMapper;
@@ -47,7 +48,15 @@ public abstract class BaseService<TModel, TSearch, TDbEntity> : IService<TModel,
             .Skip((search.Page - 1) * search.PageSize)
             .Take(search.PageSize); // PageSize is already capped by BaseSearchObject.
 
-        var entities = await query.ToListAsync(cancellationToken);
+        // AsNoTracking: this is a read path by construction - nothing here is ever
+        // mutated and saved - so there is no reason to pay for a change-tracker
+        // snapshot per entity plus O(n) identity-map fixup on every list request.
+        //
+        // Plain AsNoTracking is correct *here* because this generic query never
+        // uses AsSplitQuery. A service that does (see AppointmentService.IncludeAll)
+        // must use AsNoTrackingWithIdentityResolution instead, or the same related
+        // row materializes as separate instances across the split result sets.
+        var entities = await query.AsNoTracking().ToListAsync(cancellationToken);
 
         return new ClinicNow.Model.Common.PagedResult<TModel>
         {
@@ -71,14 +80,31 @@ public abstract class BaseService<TModel, TSearch, TDbEntity> : IService<TModel,
 
     /// <summary>
     /// Applies <see cref="BaseSearchObject.OrderBy"/>/<see cref="BaseSearchObject.SortDirection"/>
-    /// via System.Linq.Dynamic.Core. An unknown/invalid column name is ignored rather
-    /// than turning into a 500 for the whole list.
+    /// via System.Linq.Dynamic.Core, restricted to the columns the search object
+    /// declares sortable.
+    ///
+    /// The allowlist is the whole point: <c>OrderBy(string)</c> will happily accept
+    /// any property on the entity and any navigation path off it, so an unrestricted
+    /// <c>?orderBy=</c> lets a caller sort by a column no DTO exposes
+    /// (<c>Doctor.User.PasswordHash</c>) and read it back out of the resulting row
+    /// order one comparison at a time.
+    ///
+    /// A rejected column throws rather than being silently ignored. Ignoring it hides
+    /// a genuine client bug behind seemingly-working output, and - worse - makes an
+    /// invalid probe indistinguishable from a valid one, which is exactly the free
+    /// property-name oracle an attacker wants.
     /// </summary>
-    private static IQueryable<TDbEntity> ApplySorting(TSearch search, IQueryable<TDbEntity> query)
+    protected static IQueryable<TDbEntity> ApplySorting(TSearch search, IQueryable<TDbEntity> query)
     {
         if (string.IsNullOrWhiteSpace(search.OrderBy))
         {
             return query;
+        }
+
+        if (!search.IsSortable(search.OrderBy))
+        {
+            throw new ValidationException("orderBy",
+                $"Sortiranje po koloni '{search.OrderBy}' nije dozvoljeno.");
         }
 
         var direction = (search.SortDirection ?? string.Empty).Trim().ToLowerInvariant() switch
@@ -87,13 +113,6 @@ public abstract class BaseService<TModel, TSearch, TDbEntity> : IService<TModel,
             _ => "ascending"
         };
 
-        try
-        {
-            return query.OrderBy($"{search.OrderBy} {direction}");
-        }
-        catch (Exception)
-        {
-            return query;
-        }
+        return query.OrderBy($"{search.OrderBy} {direction}");
     }
 }

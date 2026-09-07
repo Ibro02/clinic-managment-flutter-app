@@ -279,12 +279,19 @@ class _ChangePasswordDialogState extends State<_ChangePasswordDialog> {
       _error = null;
     });
     try {
-      await _authApi.changePassword(
+      final refreshed = await _authApi.changePassword(
         token: token,
         currentPassword: _current.text,
         newPassword: _next.text,
         confirmNewPassword: _confirm.text,
       );
+
+      // The change invalidated every token issued before it, this one included,
+      // so the replacement has to be stored or the next call 401s and drops the
+      // user at the login screen right after a successful password change.
+      if (!mounted) return;
+      refreshed.applyTo(context.read<AuthSession>());
+
       if (mounted) Navigator.of(context).pop(true);
     } on ApiException catch (e) {
       // The server names the field it rejected ("currentPassword"), and the

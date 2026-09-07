@@ -1,6 +1,7 @@
 using ClinicNow.Model.SearchObjects;
 using ClinicNow.Services;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 
 namespace ClinicNow.API.Controllers;
 
@@ -22,6 +23,7 @@ public abstract class BaseCRUDController<TModel, TSearch, TInsert, TUpdate>
     }
 
     [HttpPost]
+    [EnableRateLimiting(RateLimiterPolicies.Write)]
     public virtual async Task<ActionResult<TModel>> Insert(TInsert request, CancellationToken cancellationToken)
     {
         var created = await Service.InsertAsync(request, cancellationToken);
@@ -29,12 +31,14 @@ public abstract class BaseCRUDController<TModel, TSearch, TInsert, TUpdate>
     }
 
     [HttpPut("{id:int}")]
+    [EnableRateLimiting(RateLimiterPolicies.Write)]
     public virtual async Task<ActionResult<TModel>> Update(int id, TUpdate request, CancellationToken cancellationToken)
     {
         return Ok(await Service.UpdateAsync(id, request, cancellationToken));
     }
 
     [HttpDelete("{id:int}")]
+    [EnableRateLimiting(RateLimiterPolicies.Write)]
     public virtual async Task<IActionResult> Delete(int id, CancellationToken cancellationToken)
     {
         await Service.DeleteAsync(id, cancellationToken);

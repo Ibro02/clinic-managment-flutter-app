@@ -41,6 +41,16 @@ class NotificationCenter extends ChangeNotifier with WidgetsBindingObserver {
 
   static const pollInterval = Duration(seconds: 20);
 
+  /// Ceiling for the backoff below.
+  ///
+  /// Polling at a fixed 20s regardless of outcome meant an unreachable server
+  /// kept being contacted every 20 seconds forever, each attempt running until
+  /// the socket gave up. Backing off geometrically to this ceiling keeps a
+  /// healthy connection at the normal cadence while making a broken one cheap.
+  static const maxPollInterval = Duration(minutes: 5);
+
+  Duration _currentInterval = pollInterval;
+
   final AuthSession _session;
   final NotificationProvider _provider;
 
@@ -105,8 +115,15 @@ class NotificationCenter extends ChangeNotifier with WidgetsBindingObserver {
       if (_isDisposed) return;
       hasNewUnread = count > _unreadCount;
       _unreadCount = count;
+      // A reachable server resets the cadence immediately, so recovering from a
+      // dead connection costs one slow tick rather than staying slow.
+      _currentInterval = pollInterval;
     } catch (_) {
-      // Silent by design - see above.
+      // Still silent to the user - a background poll failing is not something to
+      // interrupt them with - but it now feeds the backoff instead of being
+      // discarded entirely.
+      final doubled = _currentInterval * 2;
+      _currentInterval = doubled > maxPollInterval ? maxPollInterval : doubled;
     }
 
     if (isWatchingList) {
@@ -222,8 +239,22 @@ class NotificationCenter extends ChangeNotifier with WidgetsBindingObserver {
 
   void _start() {
     if (_timer != null || !_isForeground) return;
-    unawaited(refresh());
-    _timer = Timer.periodic(pollInterval, (_) => refresh());
+    // A fresh start is an optimistic one: whatever made the last attempt fail
+    // tends to be exactly what regaining focus or signing back in resolved.
+    _currentInterval = pollInterval;
+    unawaited(refresh().then((_) => _scheduleNext()));
+  }
+
+  /// One-shot timer that re-arms itself, rather than [Timer.periodic]: the delay
+  /// has to be re-read after each attempt so the backoff in [refresh] can
+  /// actually take effect. A periodic timer fixes its interval at creation.
+  void _scheduleNext() {
+    if (_isDisposed || !_isForeground || !_session.isLoggedIn) return;
+    _timer?.cancel();
+    _timer = Timer(_currentInterval, () async {
+      await refresh();
+      _scheduleNext();
+    });
   }
 
   void _stop() {

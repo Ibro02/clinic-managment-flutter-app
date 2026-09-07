@@ -25,6 +25,15 @@ public class MedicalDocument : ISoftDelete
     public byte[] FileData { get; set; } = [];
     public long FileSizeBytes { get; set; }
 
+    /// <summary>
+    /// SHA-256 of <see cref="FileData"/>, stored at upload time and served as the
+    /// download's ETag. Kept as a column rather than hashed per request: the point
+    /// of the ETag is to avoid sending the bytes, so reading them back to hash them
+    /// would trade the bandwidth saving for exactly the I/O it was meant to avoid.
+    /// Null only for rows written before this column existed.
+    /// </summary>
+    public string? ContentHash { get; set; }
+
     /// <summary>Free-text clinical finding/note attached alongside the file (may be empty if it's just a scan).</summary>
     public string? Description { get; set; }
 

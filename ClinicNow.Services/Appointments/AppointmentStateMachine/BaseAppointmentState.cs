@@ -34,6 +34,56 @@ public abstract class BaseAppointmentState
         ServiceProvider = serviceProvider;
     }
 
+    /// <summary>
+    /// Runs <paramref name="operation"/> inside a Serializable transaction, through
+    /// the context's execution strategy so a deadlock or serialization conflict is
+    /// retried instead of becoming a 500.
+    ///
+    /// The <c>DiscardPendingInserts</c> call is what makes the retry safe. An
+    /// execution strategy re-invokes the whole delegate, but a rolled-back attempt
+    /// leaves the rows it added still tracked as <see cref="EntityState.Added"/> -
+    /// so a second attempt that builds a fresh Appointment (or appends another audit
+    /// row) would save both copies and hand the patient a duplicate booking. Only
+    /// pending *inserts of this state machine's own entities* are dropped; anything
+    /// else the caller has tracked, such as a Referral being consumed by this
+    /// booking, is deliberately left attached so it still participates.
+    /// </summary>
+    protected async Task<TResult> InSerializableTransactionAsync<TResult>(
+        Func<CancellationToken, Task<TResult>> operation, CancellationToken cancellationToken)
+    {
+        var strategy = Context.Database.CreateExecutionStrategy();
+
+        return await strategy.ExecuteAsync(async ct =>
+        {
+            DiscardPendingInserts();
+
+            await using var transaction =
+                await Context.Database.BeginTransactionAsync(IsolationLevel.Serializable, ct);
+
+            var result = await operation(ct);
+
+            await transaction.CommitAsync(ct);
+            return result;
+        }, cancellationToken);
+    }
+
+    /// <summary>
+    /// Detaches Appointment/AppointmentAuditLog rows left in the Added state by a
+    /// previous, rolled-back attempt. A no-op on the first attempt.
+    /// </summary>
+    private void DiscardPendingInserts()
+    {
+        var stale = Context.ChangeTracker.Entries()
+            .Where(entry => entry.State == EntityState.Added
+                && entry.Entity is Appointment or AppointmentAuditLog)
+            .ToList();
+
+        foreach (var entry in stale)
+        {
+            entry.State = EntityState.Detached;
+        }
+    }
+
     /// <summary>Resolves the concrete state for a given status via DI (rulebook: state classes may need scoped dependencies like the DbContext).</summary>
     public static BaseAppointmentState CreateState(AppointmentStatus status, IServiceProvider serviceProvider) => status switch
     {
@@ -233,26 +283,28 @@ public abstract class BaseAppointmentState
             throw new BusinessException("Termin je moguće premjestiti najkasnije 48 sati prije zakazanog vremena.");
         }
 
-        await using var transaction = await Context.Database.BeginTransactionAsync(IsolationLevel.Serializable, cancellationToken);
+        return await InSerializableTransactionAsync(async ct =>
+        {
+            var (endUtc, locationId) = await EnsureAvailableAsync(
+                appointment.PatientId, newDoctorId, appointment.MedicalServiceId, newStartUtc,
+                excludeAppointmentId: appointment.Id, ct);
 
-        var (endUtc, locationId) = await EnsureAvailableAsync(
-            appointment.PatientId, newDoctorId, appointment.MedicalServiceId, newStartUtc,
-            excludeAppointmentId: appointment.Id, cancellationToken);
+            appointment.DoctorId = newDoctorId;
+            appointment.LocationId = locationId;
+            appointment.StartUtc = newStartUtc;
+            appointment.EndUtc = endUtc;
+            // Any reminder already sent was for the old time - it no longer applies
+            // to the new one, so the reminder scanner must be free to send again.
+            appointment.ReminderSentAtUtc = null;
 
-        appointment.DoctorId = newDoctorId;
-        appointment.LocationId = locationId;
-        appointment.StartUtc = newStartUtc;
-        appointment.EndUtc = endUtc;
-        // Any reminder already sent was for the old time - it no longer applies
-        // to the new one, so the reminder scanner must be free to send again.
-        appointment.ReminderSentAtUtc = null;
+            // Safe to re-run on a retry: the field assignments above are idempotent,
+            // and the audit row this appends was detached along with the rest of the
+            // failed attempt's pending inserts before this delegate re-entered.
+            AddAuditLog(appointment, AppointmentStatus.Pending, actingUserId, "Termin premješten.");
 
-        AddAuditLog(appointment, AppointmentStatus.Pending, actingUserId, "Termin premješten.");
-
-        await Context.SaveChangesAsync(cancellationToken);
-        await transaction.CommitAsync(cancellationToken);
-
-        return appointment;
+            await Context.SaveChangesAsync(ct);
+            return appointment;
+        }, cancellationToken);
     }
 
     /// <summary>

@@ -15,6 +15,12 @@ public class ScheduleBlockConfiguration : IEntityTypeConfiguration<ScheduleBlock
             .HasForeignKey(b => b.DoctorId)
             .OnDelete(DeleteBehavior.Cascade);
 
+        // Blocks are always looked up as "this doctor, overlapping this window",
+        // so the range column belongs in the index next to the doctor rather than
+        // being filtered out of every row the FK index returns.
+        builder.HasIndex(b => new { b.DoctorId, b.StartUtc })
+            .IncludeProperties(b => b.EndUtc);
+
         // One example block: Doctor 1 on vacation for a fixed, deterministic
         // week (HasData requires constant values, not DateTime.UtcNow-relative).
         builder.HasData(

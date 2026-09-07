@@ -27,7 +27,13 @@ public interface IUserService
     Task<UserDto> UpdateCurrentUserAsync(UpdateProfileRequest request, CancellationToken cancellationToken = default);
 
     /// <summary>Changes the current user's own password, after verifying the current one.</summary>
-    Task ChangeCurrentUserPasswordAsync(ChangePasswordRequest request, CancellationToken cancellationToken = default);
+    /// <summary>
+    /// Changes the caller's own password and returns a replacement access token.
+    /// The change invalidates every token issued before it (including the one used
+    /// to make this call), so a fresh one is handed back to keep the caller signed
+    /// in while every *other* session is ended.
+    /// </summary>
+    Task<LoginResponseDto> ChangeCurrentUserPasswordAsync(ChangePasswordRequest request, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Issues a single-use, short-lived reset code and emails it. Deliberately

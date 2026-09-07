@@ -113,11 +113,26 @@ public static partial class ContactRules
         }
     }
 
+    /// <summary>
+    /// Upper bound on an accepted password.
+    ///
+    /// BCrypt only reads the first 72 bytes of its input, so anything past that
+    /// contributes nothing to the hash but is still hashed - which makes an
+    /// arbitrarily long password an easy way to spend server CPU at
+    /// work-factor 12, on an endpoint reachable before authentication. 128 is far
+    /// above any real passphrase and far below anything worth a denial of service.
+    /// </summary>
+    public const int MaxPasswordLength = 128;
+
     public static void RequirePassword(IDictionary<string, string[]> errors, string field, string? value)
     {
         if (string.IsNullOrWhiteSpace(value) || value.Length < MinPasswordLength)
         {
             errors[field] = [$"Lozinka mora imati najmanje {MinPasswordLength} karaktera."];
+        }
+        else if (value.Length > MaxPasswordLength)
+        {
+            errors[field] = [$"Lozinka može imati najviše {MaxPasswordLength} karaktera."];
         }
     }
 

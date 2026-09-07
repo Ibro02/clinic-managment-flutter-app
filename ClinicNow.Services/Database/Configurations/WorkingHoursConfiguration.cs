@@ -13,6 +13,12 @@ public class WorkingHoursConfiguration : IEntityTypeConfiguration<WorkingHours>
             .HasForeignKey(w => w.DoctorId)
             .OnDelete(DeleteBehavior.Cascade);
 
+        // Slot generation and the recommender's batch window both filter on
+        // exactly this pair. The FK convention index on DoctorId alone leaves
+        // DayOfWeek to a residual predicate on every matched row.
+        builder.HasIndex(w => new { w.DoctorId, w.DayOfWeek })
+            .IncludeProperties(w => new { w.StartTime, w.EndTime });
+
         // Doctor 1: Mon-Fri 08:00-16:00. Doctor 2: Mon/Wed/Fri 09:00-15:00.
         builder.HasData(
             new WorkingHours { Id = 1, DoctorId = 1, DayOfWeek = DayOfWeek.Monday, StartTime = new TimeOnly(8, 0), EndTime = new TimeOnly(16, 0) },

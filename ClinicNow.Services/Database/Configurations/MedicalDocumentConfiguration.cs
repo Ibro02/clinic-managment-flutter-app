@@ -19,6 +19,9 @@ public class MedicalDocumentConfiguration : IEntityTypeConfiguration<MedicalDocu
 
     public void Configure(EntityTypeBuilder<MedicalDocument> builder)
     {
+        // Fixed-width hex from ContentHash.Compute - without this EF picks nvarchar(max).
+        builder.Property(d => d.ContentHash).HasMaxLength(32);
+
         builder.Property(d => d.FileName).IsRequired().HasMaxLength(260);
         builder.Property(d => d.ContentType).IsRequired().HasMaxLength(100);
         builder.Property(d => d.Description).HasMaxLength(2000);
@@ -58,6 +61,7 @@ public class MedicalDocumentConfiguration : IEntityTypeConfiguration<MedicalDocu
             ContentType = "application/pdf",
             FileData = SeedPdfBytes,
             FileSizeBytes = SeedPdfBytes.LongLength,
+            ContentHash = Documents.ContentHash.Compute(SeedPdfBytes),
             Description = "Nalaz kompletne krvne slike - uredni parametri.",
             UploadedByUserId = 2,
             CreatedAtUtc = new DateTime(2026, 8, 18, 10, 0, 0, DateTimeKind.Utc),
