@@ -32,6 +32,28 @@ void main() {
     expect(result.resultList.single.canRefund, isFalse);
     expect(result.resultList.single.paymentStatus, isNull);
     expect(result.resultList.single.paymentId, isNull);
+    // Same for the price the payment confirmation quotes (review item C18):
+    // absent means "unknown", and the dialog says so instead of quoting 0 KM.
+    expect(result.resultList.single.priceKm, 0);
+    expect(result.resultList.single.payableAmountEur, 0);
+  });
+
+  test('the price the payment confirmation quotes is read from the server (review item C18)', () {
+    // Both figures are priced server-side from the same MedicalService.Price
+    // that PaymentService charges from - the client only ever displays them.
+    final appointment = Appointment.fromJson(jsonDecode('''
+    {"id":1,"patientId":1,"patientName":"Hana Pacijentić","doctorId":1,
+    "doctorName":"Emir Doktorović","medicalServiceId":1,"medicalServiceName":"Opći pregled",
+    "locationId":1,"locationName":"Poliklinika Centar","startUtc":"2026-08-18T09:00:00Z",
+    "endUtc":"2026-08-18T09:30:00Z","status":0,"statusName":"Na čekanju",
+    "cancellationReason":null,"createdAtUtc":"2026-01-01T00:00:00Z","allowedActions":["Cancel"],
+    "priceKm":45,"payableAmountEur":23.01,"isPaid":false,"canRefund":false}
+    ''') as Map<String, dynamic>);
+
+    // Sent by the API as JSON numbers, which arrive as int or double depending
+    // on whether the decimal had a fractional part - both must land as double.
+    expect(appointment.priceKm, 45.0);
+    expect(appointment.payableAmountEur, 23.01);
   });
 
   test('canReschedule reflects the server-computed allowedActions list (review item C6)', () {

@@ -624,6 +624,15 @@ public class AppointmentService : IAppointmentService
             .Select(a => a.ToString())
             .ToList();
 
+        // Priced from the same column, through the same converter, that
+        // PaymentService.CreateAsync uses - so the sum a patient confirms in
+        // the client is by construction the sum the server will order from
+        // PayPal, rather than a second opinion the two could disagree on.
+        // MedicalService is always loaded here: every caller reaches MapToDto
+        // through IncludeAll.
+        dto.PriceKm = appointment.MedicalService.Price;
+        dto.PayableAmountEur = CurrencyConverter.ConvertKmToEur(appointment.MedicalService.Price);
+
         // Cancelled is excluded alongside Pending (review item C12): an
         // abandoned attempt is not this appointment's payment, and since
         // IsPaid below is "anything that isn't Refunded", letting one through

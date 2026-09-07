@@ -2,8 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 
-import '../../core/api_exception.dart';
 import '../../core/auth_session.dart';
+import '../../core/error_text.dart';
 import '../../models/appointment.dart';
 import '../../providers/appointment_provider.dart';
 import '../../core/design_tokens.dart';
@@ -108,9 +108,12 @@ class _AppointmentDetailScreenState extends State<AppointmentDetailScreen> {
       if (!mounted) return;
       setState(() => _appointment = updated);
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Termin je otkazan.')));
-    } on ApiException catch (e) {
+    } catch (e) {
+      // Catches the transport failure too, not just ApiException: losing the
+      // network mid-cancel used to leave the button spinning down with nothing
+      // said, and the patient with no idea whether the termin was cancelled.
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+      _showFailure('Termin nije otkazan.', e, stillTrue: 'Termin je i dalje zakazan.');
     } finally {
       if (mounted) setState(() => _isCancelling = false);
     }
@@ -124,11 +127,58 @@ class _AppointmentDetailScreenState extends State<AppointmentDetailScreen> {
     );
     if (moved != true || !mounted) return;
 
-    final refreshed = await widget.provider.getById(_appointment.id);
-    if (mounted) setState(() => _appointment = refreshed);
+    // The move already succeeded server-side; this is only the re-read. Failing
+    // it must not read as "premještanje nije uspjelo" - it means the screen is
+    // showing stale times, which is a different problem with a different fix.
+    try {
+      final refreshed = await widget.provider.getById(_appointment.id);
+      if (mounted) setState(() => _appointment = refreshed);
+    } catch (e) {
+      if (mounted) {
+        _showFailure(
+          'Termin je premješten, ali prikaz nije osvježen.',
+          e,
+          stillTrue: 'Vratite se na listu termina da vidite novo vrijeme.',
+        );
+      }
+    }
+  }
+
+  /// Bosnian decimal comma, without pulling in locale data the app doesn't
+  /// otherwise initialise.
+  static String _money(double amount) => amount.toStringAsFixed(2).replaceAll('.', ',');
+
+  /// Rulebook Part II §K: an irreversible action asks first (review item C18).
+  /// Paying is the most irreversible thing a patient can do in this app, so the
+  /// dialog states the exact sum, the currency PayPal will charge in, and that
+  /// undoing it is not something they can do themselves - the three facts that
+  /// decide whether "Plati" was a mistake.
+  Future<bool> _confirmPayment() async {
+    final amountLine = _appointment.priceKm > 0
+        ? 'Iznos: ${_money(_appointment.priceKm)} KM '
+              '(naplaćuje se ${_money(_appointment.payableAmountEur)} EUR preko PayPala).\n\n'
+        // Zero means the API didn't send a price (an older build). Better to
+        // say the amount will be shown on the next screen than to invent one.
+        : 'Tačan iznos će vam PayPal prikazati prije potvrde plaćanja.\n\n';
+
+    return showConfirmDialog(
+      context: context,
+      title: 'Potvrda plaćanja',
+      icon: Icons.payment_rounded,
+      confirmLabel: 'Nastavi na PayPal',
+      message:
+          'Plaćate uslugu "${_appointment.medicalServiceName}" '
+          'kod ${_appointment.doctorName}.\n\n'
+          '$amountLine'
+          'Sredstva se naplaćuju odmah nakon što odobrite plaćanje na PayPalu. '
+          'Povrat nakon toga možete zatražiti samo od klinike.',
+    );
   }
 
   Future<void> _pay() async {
+    if (!await _confirmPayment()) return;
+    if (!mounted) return;
+
     setState(() => _isPaying = true);
     // Tracked outside the try so *every* exit that isn't a completed payment
     // retires the attempt (review item C12) - including a capture PayPal
@@ -136,12 +186,27 @@ class _AppointmentDetailScreenState extends State<AppointmentDetailScreen> {
     // staleness window expires, and by then the PayPal screen is gone, so the
     // patient has no way to clear it themselves.
     int? attemptId;
+    // The one fact that decides which story the rest of this method may tell.
+    // Everything before the capture can honestly promise "ništa vam nije
+    // naplaćeno"; nothing after it may, so the post-capture re-read is kept
+    // outside the try that owns that promise.
+    var captured = false;
+
     try {
       final payment = await _paymentProvider.create(_appointment.id);
       attemptId = payment.id;
+      if (!mounted) return;
 
-      if (!mounted || payment.approveUrl == null) {
+      if (payment.approveUrl == null) {
+        // Not silent: an attempt with no approval link is a server-side
+        // problem the patient can do nothing about except try again, and
+        // returning without a word would look like the button did nothing.
         await _abandonAttempt(attemptId);
+        _showFailure(
+          'Plaćanje nije pokrenuto.',
+          'PayPal nam nije vratio stranicu za odobrenje plaćanja. Pokušajte ponovo za nekoliko trenutaka.',
+          stillTrue: 'Ništa vam nije naplaćeno.',
+        );
         return;
       }
 
@@ -149,22 +214,63 @@ class _AppointmentDetailScreenState extends State<AppointmentDetailScreen> {
         MaterialPageRoute(builder: (_) => PaymentWebViewScreen(approveUrl: payment.approveUrl!)),
       );
 
-      if (approved == true) {
-        await _paymentProvider.capture(payment.id);
-        if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Plaćanje uspješno.')));
-        // Re-fetch to pick up the server's fresh isPaid/paymentStatus.
-        final refreshed = await widget.provider.getById(_appointment.id);
-        if (mounted) setState(() => _appointment = refreshed);
-      } else {
+      if (approved != true) {
         await _abandonAttempt(attemptId);
+        return;
       }
-    } on ApiException catch (e) {
+
+      await _paymentProvider.capture(payment.id);
+      captured = true;
+    } catch (e) {
       await _abandonAttempt(attemptId);
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+      // The reassurance is the important half here: a failed payment attempt
+      // is the moment a patient most needs to know that no money moved.
+      if (mounted) {
+        _showFailure(
+          'Plaćanje nije izvršeno.',
+          e,
+          stillTrue: 'Ništa vam nije naplaćeno i termin je i dalje zakazan.',
+        );
+      }
     } finally {
       if (mounted) setState(() => _isPaying = false);
     }
+
+    if (!captured || !mounted) return;
+
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Plaćanje uspješno.')));
+
+    // Re-fetch to pick up the server's fresh isPaid/paymentStatus. A failure
+    // here means a stale screen, never a failed payment - saying otherwise
+    // would tell a patient their money is safe moments after it was taken.
+    try {
+      final refreshed = await widget.provider.getById(_appointment.id);
+      if (mounted) setState(() => _appointment = refreshed);
+    } catch (e) {
+      if (mounted) {
+        _showFailure(
+          'Plaćanje je evidentirano, ali prikaz nije osvježen.',
+          e,
+          stillTrue: 'Vratite se na listu termina da vidite status plaćanja.',
+        );
+      }
+    }
+  }
+
+  /// Outcome first, then why, then what is still true - the shape every failure
+  /// message in the app uses, so a patient never has to work out from a bare
+  /// error string whether their appointment or their money survived it.
+  /// [cause] is either a caught exception - translated by [failureCause] - or,
+  /// where the screen diagnosed the problem itself and nothing was thrown, the
+  /// finished sentence to show.
+  void _showFailure(String outcome, Object cause, {String? stillTrue}) {
+    final why = cause is String ? cause : failureCause(cause);
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text([outcome, why, ?stillTrue].join(' ')),
+        duration: const Duration(seconds: 6),
+      ),
+    );
   }
 
   /// Best-effort: the server retires a PayPal-refused attempt on its own and

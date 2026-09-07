@@ -22,6 +22,12 @@ class Appointment {
   /// reimplement "what's legal from this status" itself (rulebook Part II §K).
   final List<String> allowedActions;
 
+  /// The clinic's catalogue price for this appointment's service, in KM, and
+  /// the same sum in EUR - which is what PayPal actually charges. Both are
+  /// priced server-side; the client only ever displays them, never sends them.
+  final double priceKm;
+  final double payableAmountEur;
+
   final bool isPaid;
   final String? paymentStatus;
   final int? paymentId;
@@ -48,6 +54,8 @@ class Appointment {
     this.cancellationReason,
     required this.createdAtUtc,
     required this.allowedActions,
+    this.priceKm = 0,
+    this.payableAmountEur = 0,
     required this.isPaid,
     this.paymentStatus,
     this.paymentId,
@@ -82,6 +90,12 @@ class Appointment {
         // absent key throws a TypeError that takes down the parse of the whole
         // page - one missing optional field would otherwise blank the entire
         // appointments list. Absent payment state means "not paid yet".
+        // Same defensive read as the payment fields below, for the same reason:
+        // an API build predating this field must not blank the whole list.
+        // Zero reads as "price unknown", which the payment confirmation checks
+        // for rather than showing a confident "0,00 KM".
+        priceKm: (json['priceKm'] as num?)?.toDouble() ?? 0,
+        payableAmountEur: (json['payableAmountEur'] as num?)?.toDouble() ?? 0,
         isPaid: json['isPaid'] as bool? ?? false,
         paymentStatus: json['paymentStatus'] as String?,
         paymentId: json['paymentId'] as int?,

@@ -16,9 +16,15 @@ class MedicalDocumentProvider {
 
   MedicalDocumentProvider(AuthSession authSession) : _base = _MedicalDocumentBaseProvider(authSession);
 
-  Future<List<MedicalDocument>> getPaged({int? patientId}) async {
+  /// [fileName] is a case-insensitive partial match, filtered in SQL by
+  /// `MedicalDocumentSearchObject.FileName` - not by the caller over an
+  /// already-fetched page, which would only ever search the first 50 rows
+  /// (rulebook Part II §D: filter at the DB).
+  Future<List<MedicalDocument>> getPaged({int? patientId, String? fileName}) async {
     final query = <String, dynamic>{'pageSize': 50};
     if (patientId != null) query['patientId'] = patientId;
+    final trimmedFileName = fileName?.trim();
+    if (trimmedFileName != null && trimmedFileName.isNotEmpty) query['fileName'] = trimmedFileName;
     final response = await http.get(_base.buildUri('api/MedicalDocument', query), headers: _base.authHeaders());
     final data = _base.decode(response) as Map<String, dynamic>;
     final list = (data['resultList'] as List).cast<Map<String, dynamic>>();

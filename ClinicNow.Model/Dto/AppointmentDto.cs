@@ -39,6 +39,24 @@ public class AppointmentDto
     /// </summary>
     public List<string> AllowedActions { get; set; } = [];
 
+    /// <summary>
+    /// The medical service's catalogue price, in KM - what the clinic's price
+    /// list says this appointment costs. Carried on the appointment so a client
+    /// can name the sum in a payment confirmation without a second call, and
+    /// still without ever being the one who decides it: the server prices the
+    /// order from this same column when the payment is created (rulebook Part
+    /// II §J - the server owns the price catalogue).
+    /// </summary>
+    public decimal PriceKm { get; set; }
+
+    /// <summary>
+    /// The same price converted to EUR at the currency-board peg - what PayPal
+    /// will actually charge. Shown alongside <see cref="PriceKm"/> so a patient
+    /// approving a payment sees the figure that will appear on their statement,
+    /// not only the one on the clinic's price list.
+    /// </summary>
+    public decimal PayableAmountEur { get; set; }
+
     /// <summary>True once a Payment on this appointment reached Paid or PartiallyRefunded - hides the "Pay" button, shows a "Plaćeno" badge (rulebook Part II §J).</summary>
     public bool IsPaid { get; set; }
 

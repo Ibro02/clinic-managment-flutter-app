@@ -62,17 +62,28 @@ class AppEmptyState extends StatelessWidget {
 
 /// Errors explain what happened and how to fix it. They do not apologise and
 /// they are never vague.
+///
+/// [title] is the outcome in the user's terms - "Termini nisu učitani" beats
+/// the generic default, which only stands in where the screen has nothing more
+/// specific to say. [message] carries the cause and the next step; build it
+/// from `failureCause()` so those read the same everywhere.
 class AppErrorState extends StatelessWidget {
   final String message;
+  final String title;
   final VoidCallback? onRetry;
 
-  const AppErrorState({super.key, required this.message, this.onRetry});
+  const AppErrorState({
+    super.key,
+    required this.message,
+    this.title = 'Podaci nisu učitani',
+    this.onRetry,
+  });
 
   @override
   Widget build(BuildContext context) {
     return AppEmptyState(
       icon: Icons.error_outline_rounded,
-      title: 'Podaci nisu učitani',
+      title: title,
       message: message,
       action: onRetry == null
           ? null
