@@ -15,6 +15,7 @@ import '../screens/people/patient_screen.dart';
 import '../screens/reports/reports_screen.dart';
 import '../widgets/notifications_bell.dart';
 import '../widgets/ui/app_badge.dart';
+import 'shell_navigation.dart';
 
 /// Post-login shell: a persistent dark navigation sidebar, a page header, and
 /// the content area.
@@ -46,6 +47,10 @@ class _NavEntry {
   final String section;
   final WidgetBuilder builder;
 
+  /// What a screen inside the shell asks for when it wants to send the user
+  /// here - see [ShellNavigation] (review item C8's KPI drill-through).
+  final ShellDestination destination;
+
   const _NavEntry({
     required this.icon,
     required this.selectedIcon,
@@ -53,6 +58,7 @@ class _NavEntry {
     required this.title,
     required this.subtitle,
     required this.section,
+    required this.destination,
     required this.builder,
   });
 }
@@ -72,6 +78,15 @@ class _AppShellState extends State<AppShell> {
       await _authApi.logout(token); // best-effort; always clears locally after
     }
     session.clear();
+  }
+
+  void _openDestination(List<_NavEntry> entries, ShellDestination destination) {
+    final index = entries.indexWhere((entry) => entry.destination == destination);
+    // -1 means this role has no such destination. ShellNavigation.canOpen
+    // already keeps callers from offering the click, so this is only the
+    // belt-and-braces case; silently doing nothing beats jumping somewhere
+    // the user didn't ask for.
+    if (index >= 0) setState(() => _selectedIndex = index);
   }
 
   List<_NavEntry> _entries(AuthSession session) {
@@ -94,6 +109,7 @@ class _AppShellState extends State<AppShell> {
           title: 'Početna',
           subtitle: 'Pregled dana i ključnih brojki',
           section: 'Rad',
+          destination: ShellDestination.home,
           builder: (_) => const DashboardScreen(),
         ),
       _NavEntry(
@@ -103,6 +119,7 @@ class _AppShellState extends State<AppShell> {
         title: 'Pacijenti',
         subtitle: 'Kartoni, dokumentacija i historija posjeta',
         section: 'Rad',
+        destination: ShellDestination.patients,
         builder: (_) => const PatientScreen(),
       ),
       _NavEntry(
@@ -112,6 +129,7 @@ class _AppShellState extends State<AppShell> {
         title: 'Doktori',
         subtitle: 'Osoblje, specijalizacije i radno vrijeme',
         section: 'Rad',
+        destination: ShellDestination.doctors,
         builder: (_) => const DoctorScreen(),
       ),
       _NavEntry(
@@ -121,6 +139,7 @@ class _AppShellState extends State<AppShell> {
         title: 'Termini',
         subtitle: 'Zakazivanje i pregled rasporeda',
         section: 'Rad',
+        destination: ShellDestination.appointments,
         builder: (_) => const AppointmentScreen(),
       ),
       _NavEntry(
@@ -130,6 +149,7 @@ class _AppShellState extends State<AppShell> {
         title: 'Obavijesti',
         subtitle: 'Vijesti i objave za pacijente',
         section: 'Rad',
+        destination: ShellDestination.news,
         builder: (_) => const NewsScreen(),
       ),
       if (canViewReports)
@@ -140,6 +160,7 @@ class _AppShellState extends State<AppShell> {
           title: 'Izvještaji',
           subtitle: 'Termini i prihodi kroz vrijeme',
           section: 'Administracija',
+          destination: ShellDestination.reports,
           builder: (_) => const ReportsScreen(),
         ),
       if (canManageCodebooks)
@@ -150,6 +171,7 @@ class _AppShellState extends State<AppShell> {
           title: 'Šifrarnici',
           subtitle: 'Gradovi, lokacije, usluge i specijalizacije',
           section: 'Administracija',
+          destination: ShellDestination.codebooks,
           builder: (_) => const CodebooksScreen(),
         ),
     ];
@@ -193,9 +215,19 @@ class _AppShellState extends State<AppShell> {
                 ),
                 Expanded(
                   child: ClipRect(
-                    child: KeyedSubtree(
-                      key: ValueKey(current.label),
-                      child: current.builder(context),
+                    // Scoped to the content area, so only screens hosted by the
+                    // shell can move the shell - and they get a set of
+                    // destinations already filtered by what this role may see
+                    // (review item C8).
+                    child: Provider<ShellNavigation>.value(
+                      value: ShellNavigation(
+                        onOpen: (destination) => _openDestination(entries, destination),
+                        available: {for (final entry in entries) entry.destination},
+                      ),
+                      child: KeyedSubtree(
+                        key: ValueKey(current.label),
+                        child: current.builder(context),
+                      ),
                     ),
                   ),
                 ),

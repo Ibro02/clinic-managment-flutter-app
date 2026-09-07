@@ -12,9 +12,9 @@ namespace ClinicNow.API.Controllers;
 [Authorize(Roles = $"{Roles.Administrator},{Roles.Staff}")]
 public class ReportsController : ControllerBase
 {
-    private readonly IReportPdfService _service;
+    private readonly IReportService _service;
 
-    public ReportsController(IReportPdfService service)
+    public ReportsController(IReportService service)
     {
         _service = service;
     }
@@ -32,4 +32,17 @@ public class ReportsController : ControllerBase
         var bytes = await _service.GenerateRevenueReportAsync(filter, cancellationToken);
         return File(bytes, "application/pdf", $"izvjestaj-prihodi-{filter.StartDate:yyyyMMdd}-{filter.EndDate:yyyyMMdd}.pdf");
     }
+
+    // The same two reports as data, so the desktop can chart them beside the
+    // PDF (review item C8). Same filters, same aggregation - a chart that
+    // disagreed with the document printed next to it would be worse than no
+    // chart at all.
+
+    [HttpGet("appointments-data")]
+    public Task<AppointmentsReportData> AppointmentsData([FromQuery] AppointmentsReportFilter filter, CancellationToken cancellationToken) =>
+        _service.GetAppointmentsReportDataAsync(filter, cancellationToken);
+
+    [HttpGet("revenue-data")]
+    public Task<RevenueReportData> RevenueData([FromQuery] RevenueReportFilter filter, CancellationToken cancellationToken) =>
+        _service.GetRevenueReportDataAsync(filter, cancellationToken);
 }

@@ -6,9 +6,16 @@ import 'package:provider/provider.dart';
 
 import '../../core/api_exception.dart';
 import '../../core/auth_session.dart';
+import '../../core/design_tokens.dart';
+import '../../core/error_text.dart';
 import '../../core/reports_api.dart';
 import '../../models/doctor.dart';
+import '../../models/report_data.dart';
 import '../../providers/doctor_provider.dart';
+import '../../widgets/charts/app_bar_chart.dart';
+import '../../widgets/charts/chart_card.dart';
+import '../../widgets/charts/chart_series.dart';
+import '../../widgets/ui/app_states.dart';
 
 class AppointmentsReportTab extends StatefulWidget {
   const AppointmentsReportTab({super.key});
@@ -30,6 +37,7 @@ class _AppointmentsReportTabState extends State<AppointmentsReportTab> {
   DateTime? _endDate;
 
   Uint8List? _pdfBytes;
+  AppointmentsReportData? _data;
   String? _error;
   bool _isGenerating = false;
 
@@ -77,20 +85,42 @@ class _AppointmentsReportTabState extends State<AppointmentsReportTab> {
       return;
     }
 
+    if (start.isAfter(end)) {
+      setState(() => _error = 'Krajnji datum mora biti isti ili nakon početnog datuma.');
+      return;
+    }
+
     setState(() {
       _isGenerating = true;
       _error = null;
     });
+    final statuses = _selectedStatuses.isEmpty ? null : _selectedStatuses.toList();
     try {
-      final bytes = await _api.getAppointmentsReportPdf(
+      // Both in flight at once: the chart and the document are two views of one
+      // report, so waiting for the PDF before asking for the numbers would just
+      // make the tab feel slower for no reason.
+      final pdfRequest = _api.getAppointmentsReportPdf(
         startDate: start,
         endDate: end,
         doctorId: _selectedDoctorId,
-        statuses: _selectedStatuses.isEmpty ? null : _selectedStatuses.toList(),
+        statuses: statuses,
       );
-      if (mounted) setState(() => _pdfBytes = Uint8List.fromList(bytes));
-    } on ApiException catch (e) {
-      if (mounted) setState(() => _error = e.message);
+      final dataRequest = _api.getAppointmentsReportData(
+        startDate: start,
+        endDate: end,
+        doctorId: _selectedDoctorId,
+        statuses: statuses,
+      );
+
+      final pdfBytes = await pdfRequest;
+      final data = await dataRequest;
+      if (!mounted) return;
+      setState(() {
+        _pdfBytes = Uint8List.fromList(pdfBytes);
+        _data = data;
+      });
+    } catch (e) {
+      if (mounted) setState(() => _error = 'Izvještaj nije generisan. ${failureCause(e)}');
     } finally {
       if (mounted) setState(() => _isGenerating = false);
     }
@@ -194,17 +224,54 @@ class _AppointmentsReportTabState extends State<AppointmentsReportTab> {
                 ),
               ],
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: 12),
             Expanded(
-              child: PdfPreview(
-                build: (format) async => _pdfBytes!,
-                useActions: false,
-                pdfFileName: 'izvjestaj-termini.pdf',
+              child: ListView(
+                children: [
+                  if (_data != null) ...[_chart(_data!), const SizedBox(height: AppSpacing.lg)],
+                  SizedBox(
+                    height: 640,
+                    child: PdfPreview(
+                      build: (format) async => _pdfBytes!,
+                      useActions: false,
+                      pdfFileName: 'izvjestaj-termini.pdf',
+                    ),
+                  ),
+                ],
               ),
             ),
           ],
         ],
       ),
+    );
+  }
+
+  /// Grouped bars per doctor, one series per status - the same split the PDF
+  /// prints, so "who is busy, and with what" is readable at a glance instead of
+  /// only by counting rows in the document.
+  Widget _chart(AppointmentsReportData data) {
+    return ChartCard(
+      title: 'Termini po doktoru',
+      value: '${data.totalCount}',
+      subtitle: 'Ukupan broj termina u odabranom periodu i filterima.',
+      child: data.rows.isEmpty
+          ? const AppEmptyState(
+              icon: Icons.bar_chart_rounded,
+              title: 'Nema termina za ove filtere',
+              message: 'U odabranom periodu nema termina koji odgovaraju odabranom doktoru i statusima.',
+              compact: true,
+            )
+          : AppBarChart(
+              height: 280,
+              labels: [for (final row in data.rows) row.doctorName],
+              series: [
+                AppChartSeries(name: 'Na čekanju', values: [for (final r in data.rows) r.pendingCount.toDouble()]),
+                AppChartSeries(name: 'Potvrđeni', values: [for (final r in data.rows) r.confirmedCount.toDouble()]),
+                AppChartSeries(name: 'Završeni', values: [for (final r in data.rows) r.completedCount.toDouble()]),
+                AppChartSeries(name: 'Otkazani', values: [for (final r in data.rows) r.cancelledCount.toDouble()]),
+              ],
+              valueFormatter: (value) => value.toStringAsFixed(0),
+            ),
     );
   }
 }

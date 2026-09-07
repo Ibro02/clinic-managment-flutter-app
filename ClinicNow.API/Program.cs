@@ -139,7 +139,7 @@ builder.Services.AddScoped<IPaymentService, PaymentService>();
 // first GeneratePdf() call - Community is the free tier and fits this project.
 QuestPDF.Settings.License = LicenseType.Community;
 builder.Services.AddScoped<IDashboardService, DashboardService>();
-builder.Services.AddScoped<IReportPdfService, ReportPdfService>();
+builder.Services.AddScoped<IReportService, ReportService>();
 
 // SignalR for real-time notification auto-refresh (rulebook Part II §G) - the JWT
 // is delivered via the `access_token` query string since browsers/WebSockets can't

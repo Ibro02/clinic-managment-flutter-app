@@ -4,7 +4,7 @@ using ClinicNow.Model.Common;
 
 /// <summary>
 /// Filters for the Appointments PDF report (design doc §4). Dates are plain
-/// clinic-local calendar dates - <c>ReportPdfService</c> converts them to UTC
+/// clinic-local calendar dates - <c>ReportService</c> converts them to UTC
 /// via <see cref="ClinicTimeZone"/>, keeping timezone math server-side and
 /// out of the Flutter client entirely.
 /// </summary>

@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 
 import '../models/dashboard_summary.dart';
+import '../models/report_data.dart';
 import 'api_exception.dart';
 import 'auth_session.dart';
 import 'base_provider.dart';
@@ -58,11 +59,64 @@ class ReportsApi {
     return _pdfBytesOrThrow(response);
   }
 
-  Future<List<int>> getRevenueReportPdf({required DateTime startDate, required DateTime endDate}) async {
+  Future<List<int>> getRevenueReportPdf({
+    required DateTime startDate,
+    required DateTime endDate,
+    int? medicalServiceId,
+  }) async {
     final response = await _get(
-      _uri('api/Reports/revenue-pdf', {'startDate': _formatDate(startDate), 'endDate': _formatDate(endDate)}),
+      _uri('api/Reports/revenue-pdf', {
+        'startDate': _formatDate(startDate),
+        'endDate': _formatDate(endDate),
+        'medicalServiceId': ?medicalServiceId,
+      }),
     );
     return _pdfBytesOrThrow(response);
+  }
+
+  // The same two reports as data, for the charts beside the PDF (review item
+  // C8). Same filters as the PDF calls above, because the server computes both
+  // from one aggregation - a chart that disagreed with the document printed
+  // next to it would be worse than no chart.
+
+  Future<AppointmentsReportData> getAppointmentsReportData({
+    required DateTime startDate,
+    required DateTime endDate,
+    int? doctorId,
+    List<int>? statuses,
+  }) async {
+    final response = await _get(
+      _uri('api/Reports/appointments-data', {
+        'startDate': _formatDate(startDate),
+        'endDate': _formatDate(endDate),
+        'doctorId': ?doctorId,
+        if (statuses != null && statuses.isNotEmpty) 'statuses': statuses,
+      }),
+    );
+    return AppointmentsReportData.fromJson(_jsonOrThrow(response));
+  }
+
+  Future<RevenueReportData> getRevenueReportData({
+    required DateTime startDate,
+    required DateTime endDate,
+    int? medicalServiceId,
+  }) async {
+    final response = await _get(
+      _uri('api/Reports/revenue-data', {
+        'startDate': _formatDate(startDate),
+        'endDate': _formatDate(endDate),
+        'medicalServiceId': ?medicalServiceId,
+      }),
+    );
+    return RevenueReportData.fromJson(_jsonOrThrow(response));
+  }
+
+  Map<String, dynamic> _jsonOrThrow(http.Response response) {
+    _handleAuth(response);
+    if (response.statusCode != 200) {
+      throw _parseError(response, fallbackMessage: 'Greška prilikom učitavanja podataka izvještaja.');
+    }
+    return jsonDecode(response.body) as Map<String, dynamic>;
   }
 
   /// Wraps `http.get` so a network-layer failure (connection refused, DNS,
