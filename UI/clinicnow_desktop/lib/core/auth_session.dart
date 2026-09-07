@@ -16,6 +16,7 @@ class AuthSession extends ChangeNotifier {
   String? _email;
   String? _firstName;
   String? _lastName;
+  String? _phoneNumber;
   List<String> _roles = const [];
 
   String? get token => _token;
@@ -24,6 +25,7 @@ class AuthSession extends ChangeNotifier {
   String? get email => _email;
   String? get firstName => _firstName;
   String? get lastName => _lastName;
+  String? get phoneNumber => _phoneNumber;
   String get fullName => [_firstName, _lastName].where((s) => s != null && s.isNotEmpty).join(' ');
   List<String> get roles => List.unmodifiable(_roles);
   bool get isLoggedIn => _token != null;
@@ -49,6 +51,21 @@ class AuthSession extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Applies a profile edit the server has already accepted. Separate from
+  /// [setSession] because the token, expiry and roles are unchanged by a
+  /// profile save - only the display fields move, and overwriting the token
+  /// with a stale copy would be a real bug.
+  void applyProfile({
+    required String firstName,
+    required String lastName,
+    String? phoneNumber,
+  }) {
+    _firstName = firstName;
+    _lastName = lastName;
+    _phoneNumber = phoneNumber;
+    notifyListeners();
+  }
+
   /// Clears the session - called on explicit logout, and automatically by
   /// [BaseProvider] whenever the API returns HTTP 401 (expired/invalid/
   /// revoked token).
@@ -59,6 +76,7 @@ class AuthSession extends ChangeNotifier {
     _email = null;
     _firstName = null;
     _lastName = null;
+    _phoneNumber = null;
     _roles = const [];
     notifyListeners();
   }

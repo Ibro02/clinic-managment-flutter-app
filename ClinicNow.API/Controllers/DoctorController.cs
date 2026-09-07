@@ -2,7 +2,7 @@ using ClinicNow.Model.Dto;
 using ClinicNow.Model.Requests;
 using ClinicNow.Model.SearchObjects;
 using ClinicNow.Model.Security;
-using ClinicNow.Services;
+using ClinicNow.Services.People;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
@@ -15,10 +15,23 @@ namespace ClinicNow.API.Controllers;
 /// </summary>
 public class DoctorController : BaseCRUDController<DoctorDto, DoctorSearchObject, DoctorInsertRequest, DoctorUpdateRequest>
 {
-    public DoctorController(ICRUDService<DoctorDto, DoctorSearchObject, DoctorInsertRequest, DoctorUpdateRequest> service)
-        : base(service)
+    private readonly IDoctorService _service;
+
+    public DoctorController(IDoctorService service) : base(service)
     {
+        _service = service;
     }
+
+    /// <summary>
+    /// The signed-in doctor's own profile, resolved from the token - never a
+    /// route id (rulebook §5). Read-only by design: clinic, specializations and
+    /// licence are Administrator/Staff-owned, so a doctor can see them on their
+    /// profile screen without any route to editing them.
+    /// </summary>
+    [HttpGet("me")]
+    [Authorize(Roles = Roles.Doctor)]
+    public async Task<ActionResult<DoctorDto>> Me(CancellationToken cancellationToken) =>
+        Ok(await _service.GetOwnAsync(cancellationToken));
 
     [Authorize(Roles = $"{Roles.Administrator},{Roles.Staff}")]
     public override Task<ActionResult<DoctorDto>> Insert(DoctorInsertRequest request, CancellationToken cancellationToken) =>

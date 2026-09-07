@@ -99,7 +99,8 @@ builder.Services.AddScoped<ICRUDService<MedicalServiceDto, MedicalServiceSearchO
 // the generic CRUD shape) rather than the plain ICRUDService<...>, same pattern as
 // IAppointmentService below.
 builder.Services.AddScoped<IPatientService, PatientService>();
-builder.Services.AddScoped<ICRUDService<DoctorDto, DoctorSearchObject, DoctorInsertRequest, DoctorUpdateRequest>, DoctorService>();
+// Doctor, likewise, by its bespoke IDoctorService (adds GetOwnAsync).
+builder.Services.AddScoped<IDoctorService, DoctorService>();
 builder.Services.AddScoped<ICRUDService<WorkingHoursDto, WorkingHoursSearchObject, WorkingHoursInsertRequest, WorkingHoursUpdateRequest>, WorkingHoursService>();
 builder.Services.AddScoped<ICRUDService<ScheduleBlockDto, ScheduleBlockSearchObject, ScheduleBlockInsertRequest, ScheduleBlockUpdateRequest>, ScheduleBlockService>();
 

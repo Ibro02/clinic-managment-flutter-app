@@ -1,3 +1,4 @@
+using System.Security.Claims;
 using ClinicNow.Model.Dto;
 using ClinicNow.Model.Exceptions;
 using ClinicNow.Model.Requests;
@@ -8,6 +9,7 @@ using ClinicNow.Services.Database.Entities;
 using ClinicNow.Services.Validation;
 using ClinicNow.Services.Security;
 using MapsterMapper;
+using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 
 namespace ClinicNow.Services.People;
@@ -18,13 +20,41 @@ namespace ClinicNow.Services.People;
 /// overrides <see cref="InsertAsync"/>/<see cref="UpdateAsync"/> entirely instead
 /// of using the generic Before/After hooks, which assume a single entity.
 /// </summary>
-public class DoctorService : BaseCRUDService<DoctorDto, DoctorSearchObject, Doctor, DoctorInsertRequest, DoctorUpdateRequest>
+public class DoctorService : BaseCRUDService<DoctorDto, DoctorSearchObject, Doctor, DoctorInsertRequest, DoctorUpdateRequest>, IDoctorService
 {
     private readonly IPasswordHasher _passwordHasher;
+    private readonly IHttpContextAccessor _httpContextAccessor;
 
-    public DoctorService(ClinicNowContext context, IMapper mapper, IPasswordHasher passwordHasher) : base(context, mapper)
+    public DoctorService(
+        ClinicNowContext context,
+        IMapper mapper,
+        IPasswordHasher passwordHasher,
+        IHttpContextAccessor httpContextAccessor) : base(context, mapper)
     {
         _passwordHasher = passwordHasher;
+        _httpContextAccessor = httpContextAccessor;
+    }
+
+    /// <inheritdoc />
+    public async Task<DoctorDto> GetOwnAsync(CancellationToken cancellationToken = default)
+    {
+        // Identity from the token, never a route or body value (rulebook Part II
+        // §D/§F) - same shape as PatientService.GetOwnAsync.
+        var principal = _httpContextAccessor.HttpContext?.User
+            ?? throw new AuthenticationException("Nema aktivne sesije.");
+        var userId = int.Parse(principal.FindFirst(ClaimTypes.NameIdentifier)!.Value);
+
+        // The same Includes ApplyFilter uses - DoctorDto denormalizes the linked
+        // user, the clinic name and the specialization names, and all three are
+        // exactly what the profile screen displays.
+        var doctor = await Context.Doctors
+            .Include(d => d.User)
+            .Include(d => d.Location)
+            .Include(d => d.DoctorSpecializations).ThenInclude(ds => ds.Specialization)
+            .SingleOrDefaultAsync(d => d.UserId == userId, cancellationToken)
+            ?? throw new NotFoundException("Nije pronađen doktorski profil za ovaj nalog.");
+
+        return Mapper.Map<DoctorDto>(doctor);
     }
 
     protected override IQueryable<Doctor> ApplyFilter(DoctorSearchObject search, IQueryable<Doctor> query)

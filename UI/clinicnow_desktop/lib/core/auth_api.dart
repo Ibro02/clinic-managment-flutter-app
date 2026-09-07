@@ -72,6 +72,78 @@ class AuthApi {
     }
   }
 
+  /// The signed-in user's own profile. Read on opening the profile dialog
+  /// rather than trusted from the session, because the login response never
+  /// carried the phone number - and because it is the only way to learn the
+  /// current `emailRemindersEnabled` value, which this app must preserve
+  /// without showing (see [updateProfile]).
+  Future<UserProfile> me(String token) async {
+    final response = await http.get(_uri('api/auth/me'), headers: {'Authorization': 'Bearer $token'});
+
+    if (response.statusCode >= 200 && response.statusCode < 300) {
+      return UserProfile.fromJson(jsonDecode(response.body) as Map<String, dynamic>);
+    }
+    throw _parseError(response, fallbackMessage: 'Profil nije učitan.');
+  }
+
+  /// Edits the signed-in user's own profile. No user id is sent: the server
+  /// takes the identity from the JWT, which is what makes an endpoint that
+  /// edits an account safe to expose to every role.
+  ///
+  /// [emailRemindersEnabled] is echoed back, not chosen here. The staff app has
+  /// no control for it - the reminder it gates is only ever sent to a patient -
+  /// but `UpdateProfileRequest.EmailRemindersEnabled` is a non-nullable bool, so
+  /// omitting it would deserialize as `false` and silently switch the
+  /// preference off. Pass through what [me] returned.
+  Future<UserProfile> updateProfile({
+    required String token,
+    required String firstName,
+    required String lastName,
+    String? phoneNumber,
+    required bool emailRemindersEnabled,
+  }) async {
+    final response = await http.put(
+      _uri('api/auth/me'),
+      headers: _authorizedJsonHeaders(token),
+      body: jsonEncode({
+        'firstName': firstName,
+        'lastName': lastName,
+        'phoneNumber': (phoneNumber != null && phoneNumber.trim().isNotEmpty) ? phoneNumber.trim() : null,
+        'emailRemindersEnabled': emailRemindersEnabled,
+      }),
+    );
+
+    if (response.statusCode >= 200 && response.statusCode < 300) {
+      return UserProfile.fromJson(jsonDecode(response.body) as Map<String, dynamic>);
+    }
+    throw _parseError(response, fallbackMessage: 'Profil nije sačuvan.');
+  }
+
+  Future<void> changePassword({
+    required String token,
+    required String currentPassword,
+    required String newPassword,
+    required String confirmNewPassword,
+  }) async {
+    final response = await http.post(
+      _uri('api/auth/change-password'),
+      headers: _authorizedJsonHeaders(token),
+      body: jsonEncode({
+        'currentPassword': currentPassword,
+        'newPassword': newPassword,
+        'confirmNewPassword': confirmNewPassword,
+      }),
+    );
+
+    if (response.statusCode >= 200 && response.statusCode < 300) return;
+    throw _parseError(response, fallbackMessage: 'Lozinka nije promijenjena.');
+  }
+
+  Map<String, String> _authorizedJsonHeaders(String token) => {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer $token',
+      };
+
   AuthResult _parseAuthResult(http.Response response, {required String fallbackMessage}) {
     if (response.statusCode >= 200 && response.statusCode < 300) {
       final body = jsonDecode(response.body) as Map<String, dynamic>;
@@ -103,6 +175,54 @@ class AuthApi {
 
     return ApiException(statusCode: response.statusCode, message: message, fieldErrors: fieldErrors);
   }
+}
+
+/// Mirrors the backend's `UserDto` - the profile half of a login response, and
+/// what `GET`/`PUT api/auth/me` return on their own.
+class UserProfile {
+  final int id;
+  final String email;
+  final String firstName;
+  final String lastName;
+  final String? phoneNumber;
+
+  /// Not shown by this app - carried only so [AuthApi.updateProfile] can echo
+  /// it back unchanged. See that method for why omitting it would be a bug.
+  final bool emailRemindersEnabled;
+
+  final List<String> roles;
+  final bool isActive;
+
+  const UserProfile({
+    required this.id,
+    required this.email,
+    required this.firstName,
+    required this.lastName,
+    required this.phoneNumber,
+    required this.emailRemindersEnabled,
+    required this.roles,
+    required this.isActive,
+  });
+
+  factory UserProfile.fromJson(Map<String, dynamic> json) => UserProfile(
+        id: json['id'] as int,
+        email: json['email'] as String,
+        firstName: json['firstName'] as String,
+        lastName: json['lastName'] as String,
+        phoneNumber: json['phoneNumber'] as String?,
+        // Absent on an API build predating the settings toggle: default to
+        // "on", the server's own default, so echoing it back cannot turn a
+        // preference off that nobody asked to change.
+        emailRemindersEnabled: json['emailRemindersEnabled'] as bool? ?? true,
+        roles: (json['roles'] as List<dynamic>? ?? []).map((e) => '$e').toList(),
+        isActive: json['isActive'] as bool? ?? true,
+      );
+
+  void applyTo(AuthSession session) => session.applyProfile(
+        firstName: firstName,
+        lastName: lastName,
+        phoneNumber: phoneNumber,
+      );
 }
 
 /// Result of a successful login/register - mirrors the backend's

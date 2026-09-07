@@ -12,6 +12,7 @@ import '../screens/dashboard/dashboard_screen.dart';
 import '../screens/news/news_screen.dart';
 import '../screens/people/doctor_screen.dart';
 import '../screens/people/patient_screen.dart';
+import '../screens/profile/profile_dialog.dart';
 import '../screens/reports/reports_screen.dart';
 import '../widgets/notifications_bell.dart';
 import '../widgets/ui/app_badge.dart';
@@ -422,36 +423,61 @@ class _Sidebar extends StatelessWidget {
       ),
     );
 
+    // The account block is the natural way in to the account screen, so the
+    // identity itself opens it rather than a second avatar elsewhere in the
+    // chrome. Every role gets it; what the dialog lets each one *change*
+    // differs, and that is enforced there and on the server.
+    Widget openProfile(Widget child) => Tooltip(
+          message: 'Moj profil',
+          child: InkWell(
+            borderRadius: AppRadius.all(AppRadius.sm),
+            hoverColor: c.navItemHover,
+            onTap: () => ProfileDialog.show(context),
+            child: child,
+          ),
+        );
+
     return Container(
       padding: const EdgeInsets.all(AppSpacing.sm),
       decoration: BoxDecoration(border: Border(top: BorderSide(color: c.navBorder))),
       child: collapsed
-          ? Column(children: [avatar, const SizedBox(height: AppSpacing.xs), logoutButton])
+          ? Column(children: [openProfile(avatar), const SizedBox(height: AppSpacing.xs), logoutButton])
           : Row(
               children: [
-                avatar,
-                const SizedBox(width: AppSpacing.sm),
                 Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        session.fullName,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: context.text.titleSmall?.copyWith(color: Colors.white),
+                  child: openProfile(
+                    Padding(
+                      padding: const EdgeInsets.symmetric(vertical: AppSpacing.xxs),
+                      child: Row(
+                        children: [
+                          avatar,
+                          const SizedBox(width: AppSpacing.sm),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  session.fullName,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: context.text.titleSmall?.copyWith(color: Colors.white),
+                                ),
+                                Text(
+                                  roleLabel,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: context.text.bodySmall?.copyWith(
+                                    color: c.navTextMuted,
+                                    fontSize: 11.5,
+                                    height: 1.25,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
                       ),
-                      Text(
-                        roleLabel,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: context.text.bodySmall?.copyWith(
-                          color: c.navTextMuted,
-                          fontSize: 11.5,
-                          height: 1.25,
-                        ),
-                      ),
-                    ],
+                    ),
                   ),
                 ),
                 logoutButton,

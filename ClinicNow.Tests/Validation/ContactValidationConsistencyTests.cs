@@ -33,7 +33,8 @@ public class ContactValidationConsistencyTests
         new(context, TestContextFactory.CreateMapper(), TestContextFactory.CreateHttpContextAccessor(1));
 
     private static DoctorService NewDoctorService(ClinicNowContext context) =>
-        new(context, TestContextFactory.CreateMapper(), new PasswordHasher());
+        new(context, TestContextFactory.CreateMapper(), new PasswordHasher(),
+            TestContextFactory.CreateHttpContextAccessor(1));
 
     private static UserService NewUserService(ClinicNowContext context) =>
         new(context, TestContextFactory.CreateMapper(), new PasswordHasher(),
