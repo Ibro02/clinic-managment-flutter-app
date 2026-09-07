@@ -1,5 +1,10 @@
 plugins {
     id("com.android.application")
+    // Firebase Cloud Messaging. No firebase-* SDK dependencies are declared by
+    // hand: the FlutterFire plugins (firebase_core, firebase_messaging) bring
+    // their own native SDKs, so adding the BoM here would only pull in products
+    // this app does not use.
+    id("com.google.gms.google-services")
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
     id("dev.flutter.flutter-gradle-plugin")
 }

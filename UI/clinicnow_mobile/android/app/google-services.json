@@ -1,0 +1,48 @@
+{
+  "project_info": {
+    "project_number": "147688124768",
+    "project_id": "clinicnow-66a86",
+    "storage_bucket": "clinicnow-66a86.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:147688124768:android:9ef1c55c83734714596e05",
+        "android_client_info": {
+          "package_name": "clinic.now"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBmURmLOHXXtukH-QZsv39uYJSOWaBpUFU"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:147688124768:android:0453340de1e79eb1596e05",
+        "android_client_info": {
+          "package_name": "com.clinicnow.clinicnow_mobile"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBmURmLOHXXtukH-QZsv39uYJSOWaBpUFU"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

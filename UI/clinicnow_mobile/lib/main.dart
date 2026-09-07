@@ -4,10 +4,21 @@ import 'package:provider/provider.dart';
 import 'core/app_theme.dart';
 import 'core/auth_session.dart';
 import 'core/notification_center.dart';
+import 'core/push_notifications.dart';
 import 'layouts/app_shell.dart';
 import 'screens/login_screen.dart';
 
 void main() {
+  WidgetsFlutterBinding.ensureInitialized();
+
+  // Firebase is deliberately NOT initialised here. `Firebase.initializeApp()`
+  // talks to Play Services, and on a cold or offline device it can hang rather
+  // than throw - which, awaited before runApp(), leaves the user staring at a
+  // blank screen with no error to show for it. Nothing about drawing this app
+  // depends on push, so nothing about push may delay drawing it.
+  //
+  // PushNotifications initialises Firebase itself, after login and off the
+  // startup path (the call is idempotent, so doing it there is safe).
   runApp(const ClinicNowMobileApp());
 }
 
@@ -29,6 +40,30 @@ class ClinicNowMobileApp extends StatelessWidget {
         // AuthSession, so there is nothing to remember to call on login.
         ChangeNotifierProvider(
           create: (context) => NotificationCenter(context.read<AuthSession>()),
+        ),
+        // Registers this device with the backend on login and follows FCM token
+        // rotation. Provided (not created inside a screen) because it has to
+        // outlive every screen and survive navigation - and because the shell's
+        // logout needs to reach it to unregister before the session clears.
+        Provider<PushNotifications>(
+          // lazy: false is load-bearing. Provider builds on first read, and the
+          // only place that reads this one is the shell's logout handler - so
+          // by default the object was not constructed until the user signed
+          // *out*, having never subscribed to AuthSession and never registered
+          // the device. Unlike NotificationCenter, which a widget watches and
+          // which therefore builds on its own, nothing watches this: it works
+          // entirely through a listener, so it has to exist before the login
+          // it is waiting for.
+          lazy: false,
+          create: (context) {
+            final push = PushNotifications(context.read<AuthSession>());
+            // A push that lands while the app is open draws no tray
+            // notification, so the badge and list are refreshed instead.
+            final notifications = context.read<NotificationCenter>();
+            push.onForegroundMessage = notifications.refresh;
+            return push;
+          },
+          dispose: (_, push) => push.dispose(),
         ),
       ],
       child: MaterialApp(

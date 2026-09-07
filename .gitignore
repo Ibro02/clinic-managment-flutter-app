@@ -11,6 +11,17 @@
 #     git add -f .env-tajne.zip
 .env-tajne.zip
 
+# Firebase service-account key (FCM sender credential). Contains a live RSA
+# private key; it belongs in .env as FIREBASE_SERVICE_ACCOUNT_BASE64 and must
+# never be committed as a file, whatever it gets renamed to.
+*firebase-adminsdk*.json
+service-account*.json
+
+# NOT ignored: UI/clinicnow_mobile/android/app/google-services.json. It is the
+# *client* config, is compiled into the APK anyway, and the Android build fails
+# without it - so a clean checkout has to carry it. A documented exception to
+# "config only lives in .env" (rulebook Part II §C), not an oversight.
+
 # =============================================================================
 # Local agent/working documents - never pushed. These describe how the work is
 # done (rules, status, plan), not the deliverable itself. README.md already

@@ -54,6 +54,17 @@ class NotificationCenter extends ChangeNotifier with WidgetsBindingObserver {
   List<NotificationItem>? _items;
   String? _listError;
 
+  /// The highest notification id this session has already announced, so a
+  /// desktop toast fires once per notification and never again on the next
+  /// poll. Null until the first successful poll - see [_announceNewNotifications].
+  int? _lastAnnouncedId;
+
+  /// Called with genuinely new notifications so the host can raise an OS toast.
+  /// A callback rather than a direct `local_notifier` call: this class stays
+  /// platform-free and unit-testable, and the Windows-only dependency lives at
+  /// the composition root instead of in the store every screen watches.
+  void Function(List<NotificationItem> fresh)? onNewNotifications;
+
   int get unreadCount => _unreadCount;
 
   /// Null until the list has been loaded once - which is not the same as an
@@ -88,9 +99,11 @@ class NotificationCenter extends ChangeNotifier with WidgetsBindingObserver {
     if (_isDisposed || !_session.isLoggedIn || _isRefreshing) return;
     _isRefreshing = true;
 
+    var hasNewUnread = false;
     try {
       final count = await _provider.getUnreadCount();
       if (_isDisposed) return;
+      hasNewUnread = count > _unreadCount;
       _unreadCount = count;
     } catch (_) {
       // Silent by design - see above.
@@ -108,8 +121,50 @@ class NotificationCenter extends ChangeNotifier with WidgetsBindingObserver {
       }
     }
 
+    if (hasNewUnread) await _announceNewNotifications();
+
     _isRefreshing = false;
     if (!_isDisposed) notifyListeners();
+  }
+
+  /// Raises a toast for notifications that arrived since the last poll.
+  ///
+  /// Driven off the unread *count* rising, so the extra list fetch only happens
+  /// when something actually arrived - the 20-second badge poll stays one
+  /// request in the common case where nothing has.
+  Future<void> _announceNewNotifications() async {
+    final announce = onNewNotifications;
+    if (announce == null) return;
+
+    List<NotificationItem> items;
+    try {
+      // Reuse what the list fetch above already loaded when a screen is
+      // watching; otherwise ask for the newest page.
+      items = isWatchingList && _items != null ? _items! : await _provider.getPaged();
+    } catch (_) {
+      // A toast is never worth surfacing an error for - the notification is
+      // already in the list, and the badge already moved.
+      return;
+    }
+    if (_isDisposed) return;
+
+    final unread = items.where((item) => !item.isRead).toList();
+    if (unread.isEmpty) return;
+
+    final newestId = unread.map((item) => item.id).reduce((a, b) => a > b ? a : b);
+    final lastAnnounced = _lastAnnouncedId;
+
+    if (lastAnnounced == null) {
+      // First poll after signing in: adopt the high-water mark silently.
+      // Without this, opening the app with five unread notifications would fire
+      // five toasts for things the user already knows about.
+      _lastAnnouncedId = newestId;
+      return;
+    }
+
+    final fresh = unread.where((item) => item.id > lastAnnounced).toList();
+    _lastAnnouncedId = newestId > lastAnnounced ? newestId : lastAnnounced;
+    if (fresh.isNotEmpty) announce(fresh);
   }
 
   /// Marked locally first so the row and the badge react on the click rather than
@@ -157,6 +212,10 @@ class NotificationCenter extends ChangeNotifier with WidgetsBindingObserver {
       _listError = null;
       _unreadCount = 0;
       _listWatchers = 0;
+      // Reset the high-water mark too, or the next person to sign in on this
+      // machine would get no toasts until their ids happened to pass the
+      // previous user's.
+      _lastAnnouncedId = null;
       if (!_isDisposed) notifyListeners();
     }
   }

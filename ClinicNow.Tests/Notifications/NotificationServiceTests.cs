@@ -1,5 +1,8 @@
 using ClinicNow.Model.Dto;
+using ClinicNow.Model.Messaging;
 using ClinicNow.Services.Database;
+using ClinicNow.Services.Database.Entities;
+using ClinicNow.Services.Messaging;
 using ClinicNow.Services.Notifications;
 using ClinicNow.Tests.TestSupport;
 using Microsoft.AspNetCore.SignalR;
@@ -17,13 +20,30 @@ public class NotificationServiceTests
 {
     private const int SeededUserId = 1;
 
-    private static NotificationService CreateService(ClinicNowContext context, IHubContext<NotificationsHub, INotificationsClient> hub) =>
+    private static NotificationService CreateService(
+        ClinicNowContext context,
+        IHubContext<NotificationsHub, INotificationsClient> hub,
+        IPushPublisher? pushPublisher = null) =>
         new(
             context,
             TestContextFactory.CreateMapper(),
             TestContextFactory.CreateHttpContextAccessor(SeededUserId),
             hub,
+            pushPublisher ?? new RecordingPushPublisher(),
             NullLogger<NotificationService>.Instance);
+
+    private static async Task AddDeviceTokenAsync(ClinicNowContext context, int userId, string token)
+    {
+        context.DeviceTokens.Add(new DeviceToken
+        {
+            UserId = userId,
+            Token = token,
+            Platform = "Android",
+            CreatedAtUtc = DateTime.UtcNow,
+            LastSeenAtUtc = DateTime.UtcNow
+        });
+        await context.SaveChangesAsync();
+    }
 
     [Fact]
     public async Task CreateAsync_persists_the_notification_and_pushes_it()
@@ -55,6 +75,75 @@ public class NotificationServiceTests
         var saved = await context.Notifications.SingleAsync(n => n.Title == "Termin otkazan");
         Assert.Equal(SeededUserId, saved.UserId);
         Assert.False(saved.IsRead);
+    }
+
+    [Fact]
+    public async Task CreateAsync_queues_a_device_push_for_every_registered_device()
+    {
+        using var context = TestContextFactory.CreateContext();
+        await AddDeviceTokenAsync(context, SeededUserId, "token-phone");
+        await AddDeviceTokenAsync(context, SeededUserId, "token-tablet");
+
+        var push = new RecordingPushPublisher();
+        var service = CreateService(context, new RecordingHubContext(), push);
+
+        await service.CreateAsync(SeededUserId, "Termin potvrđen", "Vaš termin je potvrđen.");
+
+        var message = Assert.Single(push.Published);
+        Assert.Equal(["token-phone", "token-tablet"], [.. message.Tokens]);
+        Assert.Equal("Termin potvrđen", message.Title);
+        // Carried so a tapped notification can open the right row, and so a
+        // delivery in the Worker's log can be traced back to its cause.
+        Assert.NotEqual(0, message.NotificationId);
+    }
+
+    [Fact]
+    public async Task CreateAsync_does_not_push_to_another_users_device()
+    {
+        using var context = TestContextFactory.CreateContext();
+        await AddDeviceTokenAsync(context, userId: 2, token: "someone-elses-phone");
+
+        var push = new RecordingPushPublisher();
+        var service = CreateService(context, new RecordingHubContext(), push);
+
+        await service.CreateAsync(SeededUserId, "Termin potvrđen", "Vaš termin je potvrđen.");
+
+        // A medical notification reaching the wrong device is the worst failure
+        // this feature can have, so it gets its own test rather than being
+        // implied by the query.
+        Assert.Empty(push.Published);
+    }
+
+    [Fact]
+    public async Task CreateAsync_still_persists_when_queueing_the_device_push_fails()
+    {
+        using var context = TestContextFactory.CreateContext();
+        await AddDeviceTokenAsync(context, SeededUserId, "token-phone");
+
+        var service = CreateService(context, new RecordingHubContext(), new ThrowingPushPublisher());
+
+        await service.CreateAsync(SeededUserId, "Termin otkazan", "Vaš termin je otkazan.");
+
+        var saved = await context.Notifications.SingleAsync(n => n.Title == "Termin otkazan");
+        Assert.False(saved.IsRead);
+    }
+
+    private sealed class RecordingPushPublisher : IPushPublisher
+    {
+        public List<PushMessage> Published { get; } = [];
+
+        public Task<bool> PublishAsync(PushMessage message, CancellationToken cancellationToken)
+        {
+            Published.Add(message);
+            return Task.FromResult(true);
+        }
+    }
+
+    /// <summary>Stands in for a broker that is refusing connections outright.</summary>
+    private sealed class ThrowingPushPublisher : IPushPublisher
+    {
+        public Task<bool> PublishAsync(PushMessage message, CancellationToken cancellationToken) =>
+            throw new IOException("Broker unreachable.");
     }
 
     private sealed class RecordingHubContext : IHubContext<NotificationsHub, INotificationsClient>

@@ -3,19 +3,31 @@ import 'package:provider/provider.dart';
 
 import 'core/app_theme.dart';
 import 'core/auth_session.dart';
+import 'core/desktop_toaster.dart';
 import 'core/notification_center.dart';
 import 'layouts/app_shell.dart';
 import 'screens/login_screen.dart';
 
-void main() {
-  runApp(const ClinicNowDesktopApp());
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+
+  // Registered with Windows before the first toast can be raised. Inert on any
+  // other host, and it swallows its own failures, so this never blocks startup.
+  final toaster = DesktopToaster();
+  await toaster.initialize();
+
+  runApp(ClinicNowDesktopApp(toaster: toaster));
 }
 
 /// ClinicNow staff desktop app entry point. A single [AuthSession] instance
 /// is provided app-wide so every screen/provider shares one source of truth
 /// for the current login state (see core/auth_session.dart).
 class ClinicNowDesktopApp extends StatelessWidget {
-  const ClinicNowDesktopApp({super.key});
+  const ClinicNowDesktopApp({super.key, this.toaster});
+
+  /// Optional so widget tests can boot the app without registering anything
+  /// with the operating system.
+  final DesktopToaster? toaster;
 
   @override
   Widget build(BuildContext context) {
@@ -27,7 +39,13 @@ class ClinicNowDesktopApp extends StatelessWidget {
         // bell to keep counting while staff work elsewhere. It starts and stops
         // itself off AuthSession, so there is nothing to call on login.
         ChangeNotifierProvider(
-          create: (context) => NotificationCenter(context.read<AuthSession>()),
+          create: (context) {
+            final notifications = NotificationCenter(context.read<AuthSession>());
+            // The store decides *what* is new; the toaster decides how Windows
+            // shows it. Wired here so the store itself stays platform-free.
+            notifications.onNewNotifications = toaster?.show;
+            return notifications;
+          },
         ),
       ],
       child: MaterialApp(

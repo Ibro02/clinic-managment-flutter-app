@@ -1,4 +1,8 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Android 13+ (API 33) requires this to be both declared and granted at
+         runtime before any notification is shown. On older versions the grant
+         is implicit and the permission is ignored. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <application
         android:label="clinicnow_mobile"
         android:name="${applicationName}"

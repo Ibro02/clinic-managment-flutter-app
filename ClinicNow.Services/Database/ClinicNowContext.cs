@@ -33,6 +33,7 @@ public class ClinicNowContext : DbContext
     public DbSet<Role> Roles => Set<Role>();
     public DbSet<UserRole> UserRoles => Set<UserRole>();
     public DbSet<RevokedToken> RevokedTokens => Set<RevokedToken>();
+    public DbSet<DeviceToken> DeviceTokens => Set<DeviceToken>();
 
     public DbSet<City> Cities => Set<City>();
     public DbSet<Specialization> Specializations => Set<Specialization>();

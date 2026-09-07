@@ -2,7 +2,9 @@ using System.Security.Claims;
 using ClinicNow.Model.Common;
 using ClinicNow.Model.Dto;
 using ClinicNow.Model.Exceptions;
+using ClinicNow.Model.Messaging;
 using ClinicNow.Model.SearchObjects;
+using ClinicNow.Services.Messaging;
 using ClinicNow.Services.Database;
 using ClinicNow.Services.Database.Entities;
 using MapsterMapper;
@@ -19,6 +21,7 @@ public class NotificationService : INotificationService
     private readonly IMapper _mapper;
     private readonly IHttpContextAccessor _httpContextAccessor;
     private readonly IHubContext<NotificationsHub, INotificationsClient> _hubContext;
+    private readonly IPushPublisher _pushPublisher;
     private readonly ILogger<NotificationService> _logger;
 
     public NotificationService(
@@ -26,12 +29,14 @@ public class NotificationService : INotificationService
         IMapper mapper,
         IHttpContextAccessor httpContextAccessor,
         IHubContext<NotificationsHub, INotificationsClient> hubContext,
+        IPushPublisher pushPublisher,
         ILogger<NotificationService> logger)
     {
         _context = context;
         _mapper = mapper;
         _httpContextAccessor = httpContextAccessor;
         _hubContext = hubContext;
+        _pushPublisher = pushPublisher;
         _logger = logger;
     }
 
@@ -145,6 +150,50 @@ public class NotificationService : INotificationService
         {
             _logger.LogWarning(ex,
                 "Real-time push of notification {NotificationId} to user {UserId} failed; it is persisted and will appear on the client's next refresh.",
+                notification.Id, userId);
+        }
+
+        await PublishDevicePushAsync(notification, userId);
+    }
+
+    /// <summary>
+    /// Queues the same notification as a device push, so it reaches the user
+    /// when the app is closed - the one thing SignalR and polling cannot do,
+    /// since both need the app to be running.
+    ///
+    /// Best-effort for the same reason the hub push above is: the notification
+    /// is already committed, and a broker outage must not turn a completed
+    /// booking into an error. No token means no push and nothing to log loudly
+    /// about - most staff accounts will never register one.
+    /// </summary>
+    private async Task PublishDevicePushAsync(Notification notification, int userId)
+    {
+        try
+        {
+            var tokens = await _context.DeviceTokens
+                .Where(t => t.UserId == userId)
+                .Select(t => t.Token)
+                .ToListAsync();
+
+            if (tokens.Count == 0)
+            {
+                return;
+            }
+
+            await _pushPublisher.PublishAsync(
+                new PushMessage
+                {
+                    Tokens = tokens,
+                    Title = notification.Title,
+                    Body = notification.Text,
+                    NotificationId = notification.Id
+                },
+                CancellationToken.None);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex,
+                "Queueing a device push for notification {NotificationId} to user {UserId} failed; the notification itself is persisted.",
                 notification.Id, userId);
         }
     }

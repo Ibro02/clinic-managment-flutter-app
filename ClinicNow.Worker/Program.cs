@@ -2,6 +2,7 @@ using ClinicNow.Model.Configuration;
 using ClinicNow.Worker;
 using ClinicNow.Worker.Mail;
 using ClinicNow.Worker.Messaging;
+using ClinicNow.Worker.Push;
 using Microsoft.Extensions.Hosting;
 
 // Load .env before anything else reads configuration - same convention (and same
@@ -16,12 +17,18 @@ var builder = Host.CreateApplicationBuilder(args);
 // everywhere else. See ClinicNow.Model.Configuration.EnvOptionsBase.
 var rabbitMqOptions = new RabbitMqOptions();
 var smtpOptions = new SmtpOptions();
+var firebaseOptions = new FirebaseOptions();
 
 builder.Services.AddSingleton(rabbitMqOptions);
 builder.Services.AddSingleton(smtpOptions);
+builder.Services.AddSingleton(firebaseOptions);
 
 builder.Services.AddSingleton<RabbitMqConnectionProvider>();
 builder.Services.AddScoped<IMailSender, MailSender>();
+
+// IHttpClientFactory, never `new HttpClient()` (rulebook Part II §D).
+builder.Services.AddHttpClient();
+builder.Services.AddScoped<IPushSender, FcmPushSender>();
 
 // If MailQueueConsumerWorker.ExecuteAsync throws (e.g. RabbitMQ connection retries
 // exhausted), stop the host instead of leaving a zombie process behind - so
@@ -34,6 +41,7 @@ builder.Services.Configure<HostOptions>(options =>
 });
 
 builder.Services.AddHostedService<MailQueueConsumerWorker>();
+builder.Services.AddHostedService<PushQueueConsumerWorker>();
 
 var host = builder.Build();
 host.Run();

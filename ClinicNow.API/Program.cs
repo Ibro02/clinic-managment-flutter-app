@@ -115,6 +115,10 @@ builder.Services.AddScoped<CancelledAppointmentState>();
 // --- Notifications, News & async email (Phase 5) -----------------------------------
 builder.Services.AddSingleton<RabbitMqPublisherConnectionProvider>();
 builder.Services.AddScoped<IEmailPublisher, RabbitMqEmailPublisher>();
+// Device push rides the same broker connection as mail: the API only ever
+// queues, the Worker does the FCM call.
+builder.Services.AddScoped<IPushPublisher, RabbitMqPushPublisher>();
+builder.Services.AddScoped<IDeviceTokenService, DeviceTokenService>();
 builder.Services.AddScoped<INotificationService, NotificationService>();
 builder.Services.AddScoped<INewsItemService, NewsItemService>();
 builder.Services.AddScoped<ICRUDService<NewsItemDto, NewsItemSearchObject, NewsItemInsertRequest, NewsItemUpdateRequest>>(sp => sp.GetRequiredService<INewsItemService>());

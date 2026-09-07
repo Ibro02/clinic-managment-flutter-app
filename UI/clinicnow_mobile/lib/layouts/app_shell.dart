@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../core/auth_api.dart';
 import '../core/auth_session.dart';
 import '../core/notification_center.dart';
+import '../core/push_notifications.dart';
 import '../screens/appointments/my_appointments_screen.dart';
 import '../screens/documents/my_documents_screen.dart';
 import '../screens/news/news_list_screen.dart';
@@ -35,10 +36,15 @@ class _AppShellState extends State<AppShell> {
 
   Future<void> _logout(BuildContext context) async {
     final session = context.read<AuthSession>();
+    final push = context.read<PushNotifications>();
     final token = session.token;
 
     setState(() => _isLoggingOut = true);
     if (token != null) {
+      // Before the logout call and before clear(): both invalidate the token
+      // this needs, and leaving the device registered would deliver this
+      // patient's notifications to whoever signs in next.
+      await push.unregister(token);
       await _authApi.logout(token); // best-effort; always clears locally after
     }
     session.clear();

@@ -148,6 +148,36 @@ class AuthApi {
     _expectSuccess(response, fallbackMessage: 'Lozinka nije resetovana.');
   }
 
+  /// Subscribes this device to push notifications. No user id is sent - the
+  /// backend takes the owner from the JWT, so a client cannot subscribe someone
+  /// else's account to its own device.
+  Future<void> registerDevice({
+    required String token,
+    required String deviceToken,
+    required String platform,
+  }) async {
+    final response = await http.post(
+      _uri('api/DeviceToken/register'),
+      headers: _authorizedJsonHeaders(token),
+      body: jsonEncode({'token': deviceToken, 'platform': platform}),
+    );
+    _expectSuccess(response, fallbackMessage: 'Uređaj nije registrovan za obavijesti.');
+  }
+
+  /// Unsubscribes this device, on sign-out - so the next person to hold the
+  /// phone does not receive the previous user's notifications.
+  Future<void> unregisterDevice({
+    required String token,
+    required String deviceToken,
+  }) async {
+    final response = await http.post(
+      _uri('api/DeviceToken/unregister'),
+      headers: _authorizedJsonHeaders(token),
+      body: jsonEncode({'token': deviceToken}),
+    );
+    _expectSuccess(response, fallbackMessage: 'Uređaj nije odjavljen sa obavijesti.');
+  }
+
   Map<String, String> _authorizedJsonHeaders(String token) => {
         'Content-Type': 'application/json',
         'Authorization': 'Bearer $token',
