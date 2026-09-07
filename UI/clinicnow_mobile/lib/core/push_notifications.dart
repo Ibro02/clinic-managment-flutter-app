@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 
 import 'auth_api.dart';
 import 'auth_session.dart';
@@ -88,6 +89,24 @@ class PushNotifications {
   /// never happens and never says why.
   static const _initTimeout = Duration(seconds: 20);
 
+  /// The channel every ClinicNow notification is posted on, foreground and
+  /// background alike.
+  ///
+  /// Declared rather than left to FCM's fallback: on Android 8+ the channel -
+  /// not the payload - owns sound and importance, and the fallback channel
+  /// shows up in the phone's notification settings as "Miscellaneous", which
+  /// tells a patient nothing about what they would be switching off. `high`
+  /// importance is what produces a heads-up banner and a sound.
+  static const _channel = AndroidNotificationChannel(
+    'clinicnow_notifications',
+    'ClinicNow obavijesti',
+    description: 'Obavijesti o terminima, uputnicama i plaćanjima.',
+    importance: Importance.high,
+  );
+
+  final _localNotifications = FlutterLocalNotificationsPlugin();
+  bool _localNotificationsReady = false;
+
   Future<void> _register() async {
     try {
       // Idempotent - returns the already-initialised default app on later
@@ -119,14 +138,75 @@ class PushNotifications {
         unawaited(_sendRegistration(refreshed));
       });
 
+      await _prepareLocalNotifications();
+
       _foregroundMessages?.cancel();
-      _foregroundMessages = FirebaseMessaging.onMessage.listen((_) {
+      _foregroundMessages = FirebaseMessaging.onMessage.listen((message) {
+        // Android deliberately draws nothing for the app that is in front, so
+        // a foreground push would otherwise be silent and invisible. Drawing it
+        // here is what makes "notified at any time" true while the app is open,
+        // and it goes to the same channel as the background one so the two look
+        // and sound identical.
+        unawaited(_showLocally(message));
         onForegroundMessage?.call();
       });
     } catch (error) {
       // No Firebase config, no Play Services, no network - all real on a
       // patient's phone, none of them worth interrupting them over.
       debugPrint('Push registration skipped: $error');
+    }
+  }
+
+  /// Registers the channel and the plugin once per session. Creating the
+  /// channel is idempotent on Android - it updates the existing one rather than
+  /// duplicating it - so this is safe to re-run on a re-login.
+  Future<void> _prepareLocalNotifications() async {
+    if (_localNotificationsReady) return;
+
+    try {
+      await _localNotifications.initialize(
+        // The launcher icon doubles as the status-bar icon. Android wants a
+        // white-on-transparent silhouette here; the launcher icon is a
+        // placeholder until ClinicNow has a dedicated notification asset.
+        settings: const InitializationSettings(
+          android: AndroidInitializationSettings('@mipmap/ic_launcher'),
+        ),
+      );
+
+      await _localNotifications
+          .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>()
+          ?.createNotificationChannel(_channel);
+
+      _localNotificationsReady = true;
+    } catch (error) {
+      debugPrint('Local notifications unavailable; foreground pushes will not be drawn: $error');
+    }
+  }
+
+  Future<void> _showLocally(RemoteMessage message) async {
+    final notification = message.notification;
+    if (!_localNotificationsReady || notification == null) return;
+
+    try {
+      await _localNotifications.show(
+        // Keyed to the server's notification id so the same notification
+        // arriving twice replaces its own entry instead of stacking a
+        // duplicate. Falls back to the message's own hash when absent.
+        id: int.tryParse(message.data['notificationId'] as String? ?? '') ?? message.hashCode,
+        title: notification.title,
+        body: notification.body,
+        notificationDetails: NotificationDetails(
+          android: AndroidNotificationDetails(
+            _channel.id,
+            _channel.name,
+            channelDescription: _channel.description,
+            importance: Importance.high,
+            priority: Priority.high,
+          ),
+        ),
+      );
+    } catch (error) {
+      debugPrint('Drawing a foreground notification failed: $error');
     }
   }
 

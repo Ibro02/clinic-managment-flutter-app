@@ -95,7 +95,17 @@ public class FcmPushSender : IPushSender
                 token,
                 notification = new { title = message.Title, body = message.Body },
                 data = new { notificationId = message.NotificationId.ToString() },
-                android = new { priority = "high", notification = new { sound = "default" } }
+                // channel_id must match the channel the app declares
+                // (PushNotifications._channel). Without it Android posts to
+                // FCM's fallback channel, which shows up in the phone's
+                // notification settings as "Miscellaneous" and would make a
+                // background notification look and sound different from the
+                // one the app draws itself in the foreground.
+                android = new
+                {
+                    priority = "high",
+                    notification = new { sound = "default", channel_id = "clinicnow_notifications" }
+                }
             }
         };
 
