@@ -268,6 +268,20 @@ class _ScheduleAppointmentDialogState extends State<ScheduleAppointmentDialog> {
                         // (name + clinic), so a fixed single-line height would
                         // clip the clinic subtext.
                         itemHeight: null,
+                        isExpanded: true,
+                        // The *closed* field draws the selected item too, and
+                        // it only has AppSizes.controlHeight to draw it in - so
+                        // the two-line _DoctorOption overflowed there. The
+                        // popup keeps both lines; the field shows one, and the
+                        // clinic is already on the `help` line above.
+                        selectedItemBuilder: (context) => _doctors
+                            .map(
+                              (d) => Align(
+                                alignment: Alignment.centerLeft,
+                                child: Text(d.fullName, maxLines: 1, overflow: TextOverflow.ellipsis),
+                              ),
+                            )
+                            .toList(),
                         items: _doctors
                             .map(
                               (d) => DropdownMenuItem(

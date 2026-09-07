@@ -370,6 +370,20 @@ public class AppointmentService : IAppointmentService
         else if (principal.IsInRole(Roles.Doctor))
         {
             await EnsureDoctorOwnershipIfApplicableAsync(principal, appointment, cancellationToken);
+
+            // A doctor may move their own appointment in time, but not hand it
+            // to a colleague: that would commit another doctor to work they
+            // never agreed to take. The ownership check above only proves the
+            // appointment is theirs *now*, which says nothing about where it is
+            // going, so the target is checked separately. Administrator/Staff
+            // reassign freely (the branch above) - scheduling other people's
+            // work is their job.
+            if (request.DoctorId != appointment.DoctorId)
+            {
+                throw new ForbiddenException(
+                    "Termin možete premjestiti u drugo vrijeme, ali ne i na drugog doktora. Za promjenu doktora obratite se osoblju klinike.");
+            }
+
             enforceCutoff = false;
         }
         else if (principal.IsInRole(Roles.Patient))

@@ -6,6 +6,7 @@ import '../../core/api_exception.dart';
 import '../../core/auth_session.dart';
 import '../../core/clinic_colors.dart';
 import '../../core/design_tokens.dart';
+import '../../core/roles.dart';
 import '../../models/appointment.dart';
 import '../../models/doctor.dart';
 import '../../providers/appointment_provider.dart';
@@ -46,6 +47,14 @@ class _RescheduleAppointmentDialogState extends State<RescheduleAppointmentDialo
   Doctor? _doctor;
   DateTime? _date;
 
+  /// Whether this user may move the appointment to a *different* doctor.
+  ///
+  /// A doctor may reschedule their own appointment in time, but handing it to
+  /// a colleague would commit that colleague to work they never agreed to, so
+  /// only Administrator/Staff may change who holds it. `RescheduleAsync`
+  /// rejects it server-side; this only keeps the UI from offering it.
+  late final bool _canChangeDoctor;
+
   bool _isLoadingSlots = false;
   List<DateTime> _slots = [];
   DateTime? _selectedSlot;
@@ -57,6 +66,10 @@ class _RescheduleAppointmentDialogState extends State<RescheduleAppointmentDialo
   void initState() {
     super.initState();
     final authSession = context.read<AuthSession>();
+    // Same role precedence RescheduleAsync uses - Administrator/Staff is
+    // checked before Doctor, so someone holding both is not caught by the
+    // doctor-only restriction.
+    _canChangeDoctor = authSession.hasRole(Roles.administrator) || authSession.hasRole(Roles.staff);
     _appointmentProvider = AppointmentProvider(authSession);
     _doctorProvider = DoctorProvider(authSession);
     _serviceProvider = MedicalServiceProvider(authSession);
@@ -141,6 +154,16 @@ class _RescheduleAppointmentDialogState extends State<RescheduleAppointmentDialo
     }
   }
 
+  /// Why the doctor field is locked, when it is - otherwise the clinic the
+  /// selected doctor practices at.
+  String? _doctorHelp() {
+    if (!_canChangeDoctor) {
+      return 'Termin možete premjestiti u drugo vrijeme, ali ne i na drugog doktora. '
+          'Za promjenu doktora obratite se osoblju klinike.';
+    }
+    return _doctor == null ? null : 'Klinika: ${_doctor!.locationName}';
+  }
+
   @override
   Widget build(BuildContext context) {
     return AppDialog(
@@ -171,7 +194,7 @@ class _RescheduleAppointmentDialogState extends State<RescheduleAppointmentDialo
                     AppField(
                       label: 'Doktor',
                       required: true,
-                      help: _doctor == null ? null : 'Klinika: ${_doctor!.locationName}',
+                      help: _doctorHelp(),
                       child: DropdownButtonFormField<Doctor>(
                         initialValue: _doctor,
                         decoration: const InputDecoration(hintText: 'Odaberite doktora'),
@@ -179,15 +202,34 @@ class _RescheduleAppointmentDialogState extends State<RescheduleAppointmentDialo
                         // (name + clinic), so a fixed single-line height would
                         // clip the clinic subtext.
                         itemHeight: null,
+                        isExpanded: true,
+                        // The *closed* field draws the selected item too, and
+                        // it only has AppSizes.controlHeight to draw it in - so
+                        // the two-line _DoctorOption overflowed there. The
+                        // popup keeps both lines; the field shows one, and the
+                        // clinic is already on the `help` line above.
+                        selectedItemBuilder: (context) => _doctors
+                            .map(
+                              (d) => Align(
+                                alignment: Alignment.centerLeft,
+                                child: Text(d.fullName, maxLines: 1, overflow: TextOverflow.ellipsis),
+                              ),
+                            )
+                            .toList(),
                         items: _doctors.map((d) => DropdownMenuItem(value: d, child: _DoctorOption(doctor: d))).toList(),
-                        onChanged: (value) {
-                          setState(() {
-                            _doctor = value;
-                            _date = null;
-                            _selectedSlot = null;
-                            _slots = [];
-                          });
-                        },
+                        // Disabled rather than hidden, so a doctor can still
+                        // see who holds the appointment while being told why
+                        // they cannot change it (rulebook §K).
+                        onChanged: !_canChangeDoctor
+                            ? null
+                            : (value) {
+                                setState(() {
+                                  _doctor = value;
+                                  _date = null;
+                                  _selectedSlot = null;
+                                  _slots = [];
+                                });
+                              },
                       ),
                     ),
                     AppField(
@@ -253,9 +295,12 @@ class _RescheduleAppointmentDialogState extends State<RescheduleAppointmentDialo
 /// A doctor dropdown item: name, with the clinic they practice at shown
 /// smaller underneath, colored per-clinic - matches
 /// `ScheduleAppointmentDialog`'s own `_DoctorOption` (kept as a private copy
-/// there and here rather than shared, since desktop's version - unlike
-/// mobile's - never grew a specialization list and so never needed the
-/// isExpanded/selectedItemBuilder fix review item C2 required on mobile).
+/// there and here rather than shared).
+///
+/// This is the *popup* row only. The closed field renders a single-line name
+/// via `selectedItemBuilder` instead: desktop was assumed not to need the
+/// isExpanded/selectedItemBuilder treatment review item C2 gave mobile, but
+/// two lines never fit AppSizes.controlHeight, and the field overflowed.
 class _DoctorOption extends StatelessWidget {
   final Doctor doctor;
 
