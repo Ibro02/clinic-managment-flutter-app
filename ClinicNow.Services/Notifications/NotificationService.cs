@@ -9,6 +9,7 @@ using MapsterMapper;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 
 namespace ClinicNow.Services.Notifications;
 
@@ -18,17 +19,20 @@ public class NotificationService : INotificationService
     private readonly IMapper _mapper;
     private readonly IHttpContextAccessor _httpContextAccessor;
     private readonly IHubContext<NotificationsHub, INotificationsClient> _hubContext;
+    private readonly ILogger<NotificationService> _logger;
 
     public NotificationService(
         ClinicNowContext context,
         IMapper mapper,
         IHttpContextAccessor httpContextAccessor,
-        IHubContext<NotificationsHub, INotificationsClient> hubContext)
+        IHubContext<NotificationsHub, INotificationsClient> hubContext,
+        ILogger<NotificationService> logger)
     {
         _context = context;
         _mapper = mapper;
         _httpContextAccessor = httpContextAccessor;
         _hubContext = hubContext;
+        _logger = logger;
     }
 
     public async Task<PagedResult<NotificationDto>> GetPagedAsync(NotificationSearchObject search, CancellationToken cancellationToken = default)
@@ -121,9 +125,28 @@ public class NotificationService : INotificationService
         await _context.SaveChangesAsync(cancellationToken);
 
         var dto = _mapper.Map<NotificationDto>(notification);
-        // Best-effort real-time push - a missed push still leaves the
-        // notification correctly persisted for the client's next poll/list.
-        await _hubContext.Clients.User(userId.ToString()).NotificationCreated(dto);
+
+        // Best-effort real-time push, and now actually best-effort (review item
+        // C15). The notification is already committed by this point, so a hub
+        // that is unreachable, a transport that just dropped, or a caller whose
+        // request was cancelled mid-flight must not turn a succeeded operation
+        // - a booking, a cancellation, a captured payment - into an error the
+        // caller sees. Clients re-read the list on their own poll regardless,
+        // so the cost of a lost push is latency, never a lost notification.
+        //
+        // Deliberately no CancellationToken: cancelling the *caller's* request
+        // is not a reason to skip informing the user about work that already
+        // committed.
+        try
+        {
+            await _hubContext.Clients.User(userId.ToString()).NotificationCreated(dto);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex,
+                "Real-time push of notification {NotificationId} to user {UserId} failed; it is persisted and will appear on the client's next refresh.",
+                notification.Id, userId);
+        }
     }
 
     private int CurrentUserId()

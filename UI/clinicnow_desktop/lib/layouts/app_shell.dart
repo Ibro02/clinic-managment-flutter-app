@@ -590,7 +590,7 @@ class _TopBar extends StatelessWidget {
           ),
           _dateChip(context),
           const SizedBox(width: AppSpacing.sm),
-          NotificationsBell(authSession: session),
+          const NotificationsBell(),
         ],
       ),
     );

@@ -26,4 +26,15 @@ class NotificationItem {
       readAtUtc: json['readAtUtc'] == null ? null : DateTime.parse(json['readAtUtc'] as String),
     );
   }
+
+  /// Optimistic local copy for the moment between clicking a notification and
+  /// the server confirming the read - see `NotificationCenter.markAsRead`.
+  NotificationItem copyWithRead() => NotificationItem(
+        id: id,
+        title: title,
+        text: text,
+        isRead: true,
+        createdAtUtc: createdAtUtc,
+        readAtUtc: readAtUtc ?? DateTime.now().toUtc(),
+      );
 }

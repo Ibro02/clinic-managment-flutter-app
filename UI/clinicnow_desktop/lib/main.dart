@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 
 import 'core/app_theme.dart';
 import 'core/auth_session.dart';
+import 'core/notification_center.dart';
 import 'layouts/app_shell.dart';
 import 'screens/login_screen.dart';
 
@@ -18,8 +19,17 @@ class ClinicNowDesktopApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ChangeNotifierProvider(
-      create: (_) => AuthSession(),
+    return MultiProvider(
+      providers: [
+        ChangeNotifierProvider(create: (_) => AuthSession()),
+        // Above MaterialApp on purpose: the notifications dialog resolves the
+        // store from here, and the store has to outlive any one screen for the
+        // bell to keep counting while staff work elsewhere. It starts and stops
+        // itself off AuthSession, so there is nothing to call on login.
+        ChangeNotifierProvider(
+          create: (context) => NotificationCenter(context.read<AuthSession>()),
+        ),
+      ],
       child: MaterialApp(
         title: 'ClinicNow',
         debugShowCheckedModeBanner: false,

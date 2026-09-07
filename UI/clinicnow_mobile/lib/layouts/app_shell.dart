@@ -1,11 +1,9 @@
-import 'dart:async';
-
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../core/auth_api.dart';
 import '../core/auth_session.dart';
-import '../providers/notification_provider.dart';
+import '../core/notification_center.dart';
 import '../screens/appointments/my_appointments_screen.dart';
 import '../screens/documents/my_documents_screen.dart';
 import '../screens/news/news_list_screen.dart';
@@ -33,37 +31,6 @@ class _AppShellState extends State<AppShell> {
   int _selectedIndex = 0;
   final _authApi = AuthApi();
   bool _isLoggingOut = false;
-  NotificationProvider? _notificationProvider;
-  Timer? _pollTimer;
-  int _unreadCount = 0;
-
-  @override
-  void initState() {
-    super.initState();
-    // Deferred to didChangeDependencies-equivalent timing via a post-frame
-    // callback so `context.read<AuthSession>()` is safe to call once.
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-      _notificationProvider = NotificationProvider(context.read<AuthSession>());
-      _refreshUnreadCount();
-      _pollTimer = Timer.periodic(const Duration(seconds: 20), (_) => _refreshUnreadCount());
-    });
-  }
-
-  @override
-  void dispose() {
-    _pollTimer?.cancel();
-    super.dispose();
-  }
-
-  Future<void> _refreshUnreadCount() async {
-    try {
-      final count = await _notificationProvider?.getUnreadCount();
-      if (mounted && count != null) setState(() => _unreadCount = count);
-    } catch (error) {
-      // A failed background poll shouldn't surface an error - retry next tick.
-    }
-  }
 
   Future<void> _logout(BuildContext context) async {
     final session = context.read<AuthSession>();
@@ -79,6 +46,10 @@ class _AppShellState extends State<AppShell> {
   @override
   Widget build(BuildContext context) {
     final authSession = context.watch<AuthSession>();
+    // The badge follows the shared store's own polling (review item C15) - no
+    // refresh call when the notifications screen pops, because the count was
+    // never this widget's to maintain.
+    final unreadCount = context.watch<NotificationCenter>().unreadCount;
 
     return Scaffold(
       appBar: AppBar(
@@ -86,15 +57,12 @@ class _AppShellState extends State<AppShell> {
         actions: [
           IconButton(
             tooltip: 'Obavijesti',
-            onPressed: () async {
-              await Navigator.of(context).push(MaterialPageRoute(
-                builder: (_) => const NotificationsScreen(),
-              ));
-              _refreshUnreadCount();
-            },
+            onPressed: () => Navigator.of(context).push(MaterialPageRoute(
+              builder: (_) => const NotificationsScreen(),
+            )),
             icon: Badge(
-              label: Text('$_unreadCount'),
-              isLabelVisible: _unreadCount > 0,
+              label: Text('$unreadCount'),
+              isLabelVisible: unreadCount > 0,
               child: const Icon(Icons.notifications_outlined),
             ),
           ),
