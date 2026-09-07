@@ -80,9 +80,18 @@ class AppStatusBadge extends StatelessWidget {
               margin: const EdgeInsets.only(right: 6),
               decoration: BoxDecoration(color: fg, shape: BoxShape.circle),
             ),
-          Text(
-            label,
-            style: context.text.labelMedium?.copyWith(color: fg, fontSize: 12, height: 1.1),
+          // One line, always. The pill is used inside table rows of a fixed
+          // AppSizes.tableRowHeight, so a long status ("Povrat nije uspio")
+          // wrapping to two lines made the badge taller than its row and
+          // overflowed it. Flexible lets the label give way to the cell's
+          // width instead of pushing past it.
+          Flexible(
+            child: Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: context.text.labelMedium?.copyWith(color: fg, fontSize: 12, height: 1.1),
+            ),
           ),
         ],
       ),
