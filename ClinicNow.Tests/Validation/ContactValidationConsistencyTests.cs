@@ -38,7 +38,7 @@ public class ContactValidationConsistencyTests
     private static UserService NewUserService(ClinicNowContext context) =>
         new(context, TestContextFactory.CreateMapper(), new PasswordHasher(),
             new UnusedTokenService(), new UnusedTokenBlocklistService(),
-            TestContextFactory.CreateHttpContextAccessor(1));
+            TestContextFactory.CreateHttpContextAccessor(1), new RecordingEmailPublisher());
 
     private static PatientInsertRequest PatientRequest(
         string? email = null, string? phone = null, string? personalId = null,

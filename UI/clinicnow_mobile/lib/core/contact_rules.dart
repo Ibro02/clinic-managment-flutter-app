@@ -55,6 +55,14 @@ class ContactRules {
     return null;
   }
 
+  /// Mirrors `ContactRules.RequirePassword` - the same minimum the backend
+  /// enforces on registration, password change and password reset, so all three
+  /// forms tell the user the same rule.
+  static String? password(String? value) =>
+      (value == null || value.trim().length < minPasswordLength)
+          ? 'Lozinka mora imati najmanje $minPasswordLength karaktera.'
+          : null;
+
   /// Free text held to its column length, and optionally to being present.
   static String? text(
     String? value, {

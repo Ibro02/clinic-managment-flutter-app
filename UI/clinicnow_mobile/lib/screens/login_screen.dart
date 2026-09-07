@@ -6,6 +6,7 @@ import 'package:provider/provider.dart';
 import '../core/api_exception.dart';
 import '../core/auth_api.dart';
 import '../core/auth_session.dart';
+import 'forgot_password_screen.dart';
 import 'register_screen.dart';
 
 /// Only patients belong on the mobile app - a staff/doctor/admin account
@@ -67,6 +68,18 @@ class _LoginScreenState extends State<LoginScreen> {
     } finally {
       if (mounted) setState(() => _isSubmitting = false);
     }
+  }
+
+  void _openForgotPassword() {
+    // `saveAndValidate` would flag an empty password field too, so read the
+    // email straight off the form state instead - this is a convenience
+    // prefill, not a reason to fail validation on a form nobody submitted.
+    final typedEmail = _formKey.currentState?.fields['email']?.value as String?;
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => ForgotPasswordScreen(initialEmail: typedEmail?.trim() ?? ''),
+      ),
+    );
   }
 
   @override
@@ -170,6 +183,13 @@ class _LoginScreenState extends State<LoginScreen> {
                                 ),
                               ),
                         child: const Text('Nemate nalog? Registrujte se'),
+                      ),
+                      // Review item C7: there was previously no way out of a
+                      // forgotten password at all. The address already typed
+                      // above is carried over so it isn't entered twice.
+                      TextButton(
+                        onPressed: _isSubmitting ? null : _openForgotPassword,
+                        child: const Text('Zaboravili ste lozinku?'),
                       ),
                     ],
                   ),

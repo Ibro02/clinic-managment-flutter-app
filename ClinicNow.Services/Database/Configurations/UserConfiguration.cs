@@ -27,6 +27,14 @@ public class UserConfiguration : IEntityTypeConfiguration<User>
         builder.Property(u => u.LastName).IsRequired().HasMaxLength(100);
         builder.Property(u => u.PhoneNumber).HasMaxLength(30);
 
+        // Opt-out, not opt-in: without the DB default, the migration that adds
+        // this column would backfill every existing account with `false` and
+        // silently switch off reminders for people who never asked for that.
+        builder.Property(u => u.EmailRemindersEnabled).IsRequired().HasDefaultValue(true);
+
+        // A BCrypt hash, same size as PasswordHash - never the code itself.
+        builder.Property(u => u.PasswordResetTokenHash).HasMaxLength(200);
+
         // Four demo accounts, one per role, credentials documented in README.md
         // ("Planned test accounts"): <role>@clinicnow.test / test.
         builder.HasData(

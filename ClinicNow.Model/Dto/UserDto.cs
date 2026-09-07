@@ -18,6 +18,13 @@ public class UserDto
 
     public bool IsActive { get; set; }
 
+    /// <summary>
+    /// Whether this account receives the pre-appointment reminder by email
+    /// (review item C7) - the persisted state behind the mobile settings
+    /// toggle, so the switch shows what the server actually holds.
+    /// </summary>
+    public bool EmailRemindersEnabled { get; set; }
+
     /// <summary>Role names (e.g. "Administrator"), never role IDs (rulebook Part II §K).</summary>
     public List<string> Roles { get; set; } = [];
 }

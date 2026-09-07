@@ -16,6 +16,8 @@ class AuthSession extends ChangeNotifier {
   String? _email;
   String? _firstName;
   String? _lastName;
+  String? _phoneNumber;
+  bool _emailRemindersEnabled = true;
   List<String> _roles = const [];
 
   String? get token => _token;
@@ -25,6 +27,12 @@ class AuthSession extends ChangeNotifier {
   String? get firstName => _firstName;
   String? get lastName => _lastName;
   String get fullName => [_firstName, _lastName].where((s) => s != null && s.isNotEmpty).join(' ');
+
+  /// Kept in the session so the shell's greeting and the profile screen never
+  /// disagree after an edit (review item C7).
+  String? get phoneNumber => _phoneNumber;
+
+  bool get emailRemindersEnabled => _emailRemindersEnabled;
   List<String> get roles => List.unmodifiable(_roles);
   bool get isLoggedIn => _token != null;
 
@@ -37,6 +45,8 @@ class AuthSession extends ChangeNotifier {
     required String email,
     required String firstName,
     required String lastName,
+    String? phoneNumber,
+    bool emailRemindersEnabled = true,
     required List<String> roles,
   }) {
     _token = token;
@@ -45,7 +55,26 @@ class AuthSession extends ChangeNotifier {
     _email = email;
     _firstName = firstName;
     _lastName = lastName;
+    _phoneNumber = phoneNumber;
+    _emailRemindersEnabled = emailRemindersEnabled;
     _roles = roles;
+    notifyListeners();
+  }
+
+  /// Applies a profile the server just confirmed, without touching the token
+  /// (review item C7). A profile edit is not a new sign-in, so re-running
+  /// [setSession] with a stale token would be the wrong shape - and dropping
+  /// the token entirely would sign the user out for renaming themselves.
+  void applyProfile({
+    required String firstName,
+    required String lastName,
+    String? phoneNumber,
+    required bool emailRemindersEnabled,
+  }) {
+    _firstName = firstName;
+    _lastName = lastName;
+    _phoneNumber = phoneNumber;
+    _emailRemindersEnabled = emailRemindersEnabled;
     notifyListeners();
   }
 
@@ -59,6 +88,8 @@ class AuthSession extends ChangeNotifier {
     _email = null;
     _firstName = null;
     _lastName = null;
+    _phoneNumber = null;
+    _emailRemindersEnabled = true;
     _roles = const [];
     notifyListeners();
   }

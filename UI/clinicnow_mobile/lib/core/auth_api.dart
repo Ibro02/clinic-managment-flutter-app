@@ -72,6 +72,94 @@ class AuthApi {
     }
   }
 
+  /// Edits the signed-in user's own profile (review item C7). No user id is
+  /// sent: the server takes the identity from the JWT, which is what makes this
+  /// endpoint safe to expose to the patient app at all.
+  Future<UserProfile> updateProfile({
+    required String token,
+    required String firstName,
+    required String lastName,
+    String? phoneNumber,
+    required bool emailRemindersEnabled,
+  }) async {
+    final response = await http.put(
+      _uri('api/auth/me'),
+      headers: _authorizedJsonHeaders(token),
+      body: jsonEncode({
+        'firstName': firstName,
+        'lastName': lastName,
+        'phoneNumber': (phoneNumber != null && phoneNumber.trim().isNotEmpty) ? phoneNumber.trim() : null,
+        'emailRemindersEnabled': emailRemindersEnabled,
+      }),
+    );
+
+    if (response.statusCode >= 200 && response.statusCode < 300) {
+      return UserProfile.fromJson(jsonDecode(response.body) as Map<String, dynamic>);
+    }
+    throw _parseError(response, fallbackMessage: 'Profil nije sačuvan.');
+  }
+
+  Future<void> changePassword({
+    required String token,
+    required String currentPassword,
+    required String newPassword,
+    required String confirmNewPassword,
+  }) async {
+    final response = await http.post(
+      _uri('api/auth/change-password'),
+      headers: _authorizedJsonHeaders(token),
+      body: jsonEncode({
+        'currentPassword': currentPassword,
+        'newPassword': newPassword,
+        'confirmNewPassword': confirmNewPassword,
+      }),
+    );
+    _expectSuccess(response, fallbackMessage: 'Lozinka nije promijenjena.');
+  }
+
+  /// Asks for a reset code by email. Succeeds whether or not the address has an
+  /// account - the server deliberately does not say, so the app must not
+  /// pretend to know either.
+  Future<void> forgotPassword({required String email}) async {
+    final response = await http.post(
+      _uri('api/auth/forgot-password'),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({'email': email}),
+    );
+    _expectSuccess(response, fallbackMessage: 'Zahtjev za resetovanje lozinke nije poslan.');
+  }
+
+  Future<void> resetPassword({
+    required String email,
+    required String code,
+    required String newPassword,
+    required String confirmNewPassword,
+  }) async {
+    final response = await http.post(
+      _uri('api/auth/reset-password'),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({
+        'email': email,
+        'code': code,
+        'newPassword': newPassword,
+        'confirmNewPassword': confirmNewPassword,
+      }),
+    );
+    _expectSuccess(response, fallbackMessage: 'Lozinka nije resetovana.');
+  }
+
+  Map<String, String> _authorizedJsonHeaders(String token) => {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer $token',
+      };
+
+  /// For the endpoints that answer 204 with no body - there is nothing to
+  /// decode, only a status to believe or a validation message to surface.
+  void _expectSuccess(http.Response response, {required String fallbackMessage}) {
+    if (response.statusCode >= 200 && response.statusCode < 300) return;
+    throw _parseError(response, fallbackMessage: fallbackMessage);
+  }
+
   AuthResult _parseAuthResult(http.Response response, {required String fallbackMessage}) {
     if (response.statusCode >= 200 && response.statusCode < 300) {
       final body = jsonDecode(response.body) as Map<String, dynamic>;
@@ -105,6 +193,48 @@ class AuthApi {
   }
 }
 
+/// Mirrors the backend's `UserDto` - the profile half of a login response, and
+/// what `PUT api/auth/me` returns on its own.
+class UserProfile {
+  final int id;
+  final String email;
+  final String firstName;
+  final String lastName;
+  final String? phoneNumber;
+  final bool emailRemindersEnabled;
+  final List<String> roles;
+
+  const UserProfile({
+    required this.id,
+    required this.email,
+    required this.firstName,
+    required this.lastName,
+    required this.phoneNumber,
+    required this.emailRemindersEnabled,
+    required this.roles,
+  });
+
+  factory UserProfile.fromJson(Map<String, dynamic> json) => UserProfile(
+        id: json['id'] as int,
+        email: json['email'] as String,
+        firstName: json['firstName'] as String,
+        lastName: json['lastName'] as String,
+        phoneNumber: json['phoneNumber'] as String?,
+        // Absent on an API build predating the settings toggle: default to
+        // "on", which is the server's own default, rather than showing the
+        // switch off and inviting the user to "fix" something that isn't wrong.
+        emailRemindersEnabled: json['emailRemindersEnabled'] as bool? ?? true,
+        roles: (json['roles'] as List<dynamic>? ?? []).map((e) => '$e').toList(),
+      );
+
+  void applyTo(AuthSession session) => session.applyProfile(
+        firstName: firstName,
+        lastName: lastName,
+        phoneNumber: phoneNumber,
+        emailRemindersEnabled: emailRemindersEnabled,
+      );
+}
+
 /// Result of a successful login/register - mirrors the backend's
 /// `LoginResponseDto`.
 class AuthResult {
@@ -114,6 +244,8 @@ class AuthResult {
   final String email;
   final String firstName;
   final String lastName;
+  final String? phoneNumber;
+  final bool emailRemindersEnabled;
   final List<String> roles;
 
   AuthResult({
@@ -123,19 +255,23 @@ class AuthResult {
     required this.email,
     required this.firstName,
     required this.lastName,
+    required this.phoneNumber,
+    required this.emailRemindersEnabled,
     required this.roles,
   });
 
   factory AuthResult.fromJson(Map<String, dynamic> json) {
-    final user = json['user'] as Map<String, dynamic>;
+    final user = UserProfile.fromJson(json['user'] as Map<String, dynamic>);
     return AuthResult(
       accessToken: json['accessToken'] as String,
       expiresAtUtc: DateTime.parse(json['expiresAtUtc'] as String),
-      userId: user['id'] as int,
-      email: user['email'] as String,
-      firstName: user['firstName'] as String,
-      lastName: user['lastName'] as String,
-      roles: (user['roles'] as List<dynamic>? ?? []).map((e) => '$e').toList(),
+      userId: user.id,
+      email: user.email,
+      firstName: user.firstName,
+      lastName: user.lastName,
+      phoneNumber: user.phoneNumber,
+      emailRemindersEnabled: user.emailRemindersEnabled,
+      roles: user.roles,
     );
   }
 
@@ -147,6 +283,8 @@ class AuthResult {
       email: email,
       firstName: firstName,
       lastName: lastName,
+      phoneNumber: phoneNumber,
+      emailRemindersEnabled: emailRemindersEnabled,
       roles: roles,
     );
   }

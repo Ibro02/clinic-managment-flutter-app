@@ -43,6 +43,26 @@ public sealed class ThrowingEmailPublisher : IEmailPublisher
         throw new InvalidOperationException("Not expected to be called on the code path under test.");
 }
 
+/// <summary>
+/// Captures what would have been emailed instead of publishing it. The password
+/// reset flow (review item C7) can only be tested end to end by reading the code
+/// out of the message the user would have received - it is deliberately never
+/// returned by the API.
+/// </summary>
+public sealed class RecordingEmailPublisher : IEmailPublisher
+{
+    public List<EmailMessage> Published { get; } = [];
+
+    /// <summary>Set to false to stand in for a broker that is refusing messages.</summary>
+    public bool Result { get; set; } = true;
+
+    public Task<bool> PublishAsync(EmailMessage message, CancellationToken cancellationToken)
+    {
+        Published.Add(message);
+        return Task.FromResult(Result);
+    }
+}
+
 public sealed class ThrowingPaymentService : IPaymentService
 {
     private const string Message = "Not expected to be called on the code path under test.";

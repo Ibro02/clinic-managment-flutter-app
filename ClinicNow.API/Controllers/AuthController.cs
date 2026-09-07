@@ -56,4 +56,48 @@ public class AuthController : ControllerBase
     {
         return Ok(await _userService.GetCurrentUserAsync(cancellationToken));
     }
+
+    /// <summary>
+    /// Edits the caller's own profile (review item C7). There is no
+    /// <c>{id}</c> in the route on purpose: the user being edited is whoever
+    /// the bearer token says, so this endpoint cannot be pointed at somebody
+    /// else's account (rulebook Part II §F).
+    /// </summary>
+    [HttpPut("me")]
+    public async Task<ActionResult<UserDto>> UpdateMe(UpdateProfileRequest request, CancellationToken cancellationToken)
+    {
+        return Ok(await _userService.UpdateCurrentUserAsync(request, cancellationToken));
+    }
+
+    [HttpPost("change-password")]
+    [EnableRateLimiting(RateLimiterPolicies.Auth)]
+    public async Task<IActionResult> ChangePassword(ChangePasswordRequest request, CancellationToken cancellationToken)
+    {
+        await _userService.ChangeCurrentUserPasswordAsync(request, cancellationToken);
+        return NoContent();
+    }
+
+    /// <summary>
+    /// Starts a forgotten-password reset. Anonymous by necessity - the caller
+    /// cannot sign in - and rate-limited, since it both sends mail and could
+    /// otherwise be used to probe which addresses have accounts. Always answers
+    /// 204, whether or not the address is registered.
+    /// </summary>
+    [HttpPost("forgot-password")]
+    [AllowAnonymous]
+    [EnableRateLimiting(RateLimiterPolicies.Auth)]
+    public async Task<IActionResult> ForgotPassword(ForgotPasswordRequest request, CancellationToken cancellationToken)
+    {
+        await _userService.RequestPasswordResetAsync(request, cancellationToken);
+        return NoContent();
+    }
+
+    [HttpPost("reset-password")]
+    [AllowAnonymous]
+    [EnableRateLimiting(RateLimiterPolicies.Auth)]
+    public async Task<IActionResult> ResetPassword(ResetPasswordRequest request, CancellationToken cancellationToken)
+    {
+        await _userService.ResetPasswordAsync(request, cancellationToken);
+        return NoContent();
+    }
 }

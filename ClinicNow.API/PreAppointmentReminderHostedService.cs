@@ -86,11 +86,18 @@ public class PreAppointmentReminderHostedService : BackgroundService
             // again by the next scan - so creating the in-app notification
             // first would post a duplicate notification on every retry.
             // A patient with no account has no email either; nothing to publish
-            // is not a failure.
-            var published = appointment.Patient.User is null
+            // is not a failure. Neither is a patient who turned email reminders
+            // off in their profile (review item C7) - the toggle is real state
+            // that this loop honours, and skipping the send must not look like
+            // a broker failure and get retried forever. The in-app
+            // notification below still fires: the preference is about email,
+            // not about whether the clinic may tell a patient about their own
+            // appointment.
+            var wantsEmail = appointment.Patient.User is { EmailRemindersEnabled: true };
+            var published = !wantsEmail
                 || await emailPublisher.PublishAsync(new EmailMessage
                 {
-                    To = appointment.Patient.User.Email,
+                    To = appointment.Patient.User!.Email,
                     Subject = "ClinicNow - podsjetnik za termin",
                     Body = text
                 }, cancellationToken);

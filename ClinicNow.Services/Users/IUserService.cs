@@ -19,4 +19,24 @@ public interface IUserService
 
     /// <summary>Profile of the user identified by the current request's bearer token.</summary>
     Task<UserDto> GetCurrentUserAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Edits the profile of the user identified by the current bearer token
+    /// (review item C7). The id is never taken from the request.
+    /// </summary>
+    Task<UserDto> UpdateCurrentUserAsync(UpdateProfileRequest request, CancellationToken cancellationToken = default);
+
+    /// <summary>Changes the current user's own password, after verifying the current one.</summary>
+    Task ChangeCurrentUserPasswordAsync(ChangePasswordRequest request, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Issues a single-use, short-lived reset code and emails it. Deliberately
+    /// returns nothing and reports success even for an address with no account:
+    /// a caller must not be able to use this endpoint to discover which emails
+    /// are registered.
+    /// </summary>
+    Task RequestPasswordResetAsync(ForgotPasswordRequest request, CancellationToken cancellationToken = default);
+
+    /// <summary>Redeems a reset code for a new password.</summary>
+    Task ResetPasswordAsync(ResetPasswordRequest request, CancellationToken cancellationToken = default);
 }

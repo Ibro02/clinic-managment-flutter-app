@@ -8,6 +8,7 @@ import '../screens/appointments/my_appointments_screen.dart';
 import '../screens/documents/my_documents_screen.dart';
 import '../screens/news/news_list_screen.dart';
 import '../screens/notifications/notifications_screen.dart';
+import '../screens/profile/profile_screen.dart';
 import '../screens/recommendations/recommendations_screen.dart';
 
 /// Post-login shell for the mobile (patient) app - a bottom navigation bar
@@ -83,6 +84,7 @@ class _AppShellState extends State<AppShell> {
         1 => const MyAppointmentsScreen(),
         2 => const MyDocumentsScreen(),
         3 => const RecommendationsScreen(),
+        4 => const ProfileScreen(),
         _ => const NewsListScreen(),
       },
       bottomNavigationBar: NavigationBar(
@@ -109,6 +111,14 @@ class _AppShellState extends State<AppShell> {
             icon: Icon(Icons.recommend_outlined),
             selectedIcon: Icon(Icons.recommend),
             label: 'Preporuke',
+          ),
+          // Review item C7: the shell had no profile or settings destination
+          // at all, so a patient could not correct their own name or phone
+          // number, or turn off the reminder emails.
+          NavigationDestination(
+            icon: Icon(Icons.person_outline),
+            selectedIcon: Icon(Icons.person),
+            label: 'Profil',
           ),
         ],
       ),
