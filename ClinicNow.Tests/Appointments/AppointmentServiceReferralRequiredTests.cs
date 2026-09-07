@@ -93,49 +93,4 @@ public class AppointmentServiceReferralRequiredTests
         Assert.Contains("referralId", ex.Errors.Keys);
     }
 
-    private sealed class ThrowingNotificationService : INotificationService
-    {
-        public Task<ClinicNow.Model.Common.PagedResult<ClinicNow.Model.Dto.NotificationDto>> GetPagedAsync(
-            ClinicNow.Model.SearchObjects.NotificationSearchObject search, CancellationToken cancellationToken = default) =>
-            throw new InvalidOperationException("Not expected to be called on the rejection path.");
-
-        public Task<int> GetUnreadCountAsync(CancellationToken cancellationToken = default) =>
-            throw new InvalidOperationException("Not expected to be called on the rejection path.");
-
-        public Task MarkAsReadAsync(int id, CancellationToken cancellationToken = default) =>
-            throw new InvalidOperationException("Not expected to be called on the rejection path.");
-
-        public Task MarkAllAsReadAsync(CancellationToken cancellationToken = default) =>
-            throw new InvalidOperationException("Not expected to be called on the rejection path.");
-
-        public Task CreateAsync(int userId, string title, string text, CancellationToken cancellationToken = default) =>
-            throw new InvalidOperationException("Not expected to be called on the rejection path.");
-    }
-
-    private sealed class ThrowingEmailPublisher : IEmailPublisher
-    {
-        public Task<bool> PublishAsync(EmailMessage message, CancellationToken cancellationToken) =>
-            throw new InvalidOperationException("Not expected to be called on the rejection path.");
-    }
-
-    private sealed class ThrowingPaymentService : IPaymentService
-    {
-        public Task<ClinicNow.Model.Dto.PaymentDto> CreateAsync(ClinicNow.Model.Requests.PaymentCreateRequest request, CancellationToken cancellationToken = default) =>
-            throw new InvalidOperationException("Not expected to be called on the rejection path.");
-
-        public Task<ClinicNow.Model.Dto.PaymentDto> CaptureAsync(int paymentId, CancellationToken cancellationToken = default) =>
-            throw new InvalidOperationException("Not expected to be called on the rejection path.");
-
-        public Task<ClinicNow.Model.Dto.PaymentDto> AbandonAsync(int paymentId, CancellationToken cancellationToken = default) =>
-            throw new InvalidOperationException("Not expected to be called on the rejection path.");
-
-        public Task<ClinicNow.Model.Dto.PaymentDto> RefundAsync(int paymentId, ClinicNow.Model.Requests.PaymentRefundRequest request, CancellationToken cancellationToken = default) =>
-            throw new InvalidOperationException("Not expected to be called on the rejection path.");
-
-        public Task<ClinicNow.Model.Dto.PaymentDto?> GetByAppointmentIdAsync(int appointmentId, CancellationToken cancellationToken = default) =>
-            throw new InvalidOperationException("Not expected to be called on the rejection path.");
-
-        public Task RefundForCancelledAppointmentAsync(int appointmentId, int actingUserId, CancellationToken cancellationToken = default) =>
-            throw new InvalidOperationException("Not expected to be called on the rejection path.");
-    }
 }

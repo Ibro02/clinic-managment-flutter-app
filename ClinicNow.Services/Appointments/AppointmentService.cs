@@ -461,33 +461,16 @@ public class AppointmentService : IAppointmentService
             .Select(a => new { a.StartUtc, a.EndUtc })
             .ToListAsync(cancellationToken);
 
-        var duration = TimeSpan.FromMinutes(medicalService.DurationMinutes);
-        var now = DateTime.UtcNow;
-        var slots = new List<DateTime>();
-
-        foreach (var window in workingHours)
-        {
-            var slotStart = ClinicTimeZone.ToUtc(date, window.StartTime);
-            var windowEnd = ClinicTimeZone.ToUtc(date, window.EndTime);
-
-            while (slotStart + duration <= windowEnd)
-            {
-                var slotEnd = slotStart + duration;
-
-                var isPast = slotStart <= now;
-                var isBlocked = blocks.Any(b => b.StartUtc < slotEnd && b.EndUtc > slotStart);
-                var isTaken = existing.Any(e => e.StartUtc < slotEnd && e.EndUtc > slotStart);
-
-                if (!isPast && !isBlocked && !isTaken)
-                {
-                    slots.Add(slotStart);
-                }
-
-                slotStart = slotEnd; // back-to-back slots at service-duration granularity, no gaps
-            }
-        }
-
-        return slots;
+        // The walk itself lives in SlotGeneration so the recommender can run the
+        // exact same rule over a batch-loaded window instead of calling this
+        // method once per doctor/service/day (review item C19).
+        return SlotGeneration.FreeSlots(
+            date,
+            workingHours,
+            blocks.Select(b => new SlotGeneration.Interval(b.StartUtc, b.EndUtc)).ToList(),
+            existing.Select(e => new SlotGeneration.Interval(e.StartUtc, e.EndUtc)).ToList(),
+            TimeSpan.FromMinutes(medicalService.DurationMinutes),
+            DateTime.UtcNow);
     }
 
     // --- helpers -----------------------------------------------------------------

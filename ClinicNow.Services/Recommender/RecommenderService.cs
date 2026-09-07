@@ -21,7 +21,6 @@ public class RecommenderService : IRecommenderService
     private const string ModelCacheKey = "recommender:model";
 
     private readonly ClinicNowContext _context;
-    private readonly IAppointmentService _appointmentService;
     private readonly IHttpContextAccessor _httpContextAccessor;
     private readonly IMemoryCache _cache;
     private readonly RecommenderOptions _options;
@@ -29,14 +28,12 @@ public class RecommenderService : IRecommenderService
 
     public RecommenderService(
         ClinicNowContext context,
-        IAppointmentService appointmentService,
         IHttpContextAccessor httpContextAccessor,
         IMemoryCache cache,
         RecommenderOptions options,
         ILogger<RecommenderService> logger)
     {
         _context = context;
-        _appointmentService = appointmentService;
         _httpContextAccessor = httpContextAccessor;
         _cache = cache;
         _options = options;
@@ -436,12 +433,17 @@ public class RecommenderService : IRecommenderService
     /// Real candidate free slots (doc §5.2's `C`): for every (Doctor,
     /// MedicalService) pair not already actively booked by this patient, the
     /// earliest genuinely free slot within <see cref="RecommenderOptions.CandidateLookaheadDays"/>,
-    /// reusing <see cref="IAppointmentService.GetAvailableSlotsAsync"/> - the
-    /// same real-slot computation the booking flow itself uses (rulebook §7:
-    /// only real free slots offered, never a synthetic guess). Bounded to a
-    /// demo-scale catalog (a handful of doctors/services) by design - a
-    /// larger clinic would need a batched slot query instead of one
-    /// call per day per pair, which is out of scope for this seminar project.
+    /// running the same real-slot rule the booking flow uses (rulebook §7: only
+    /// real free slots offered, never a synthetic guess) over a batch-loaded
+    /// window.
+    ///
+    /// This used to call <see cref="IAppointmentService.GetAvailableSlotsAsync"/>
+    /// inside a doctor x service x day triple loop, each call issuing several
+    /// queries - SQL in a loop, which review item C19 rejects outright. The
+    /// schedule is now loaded once for the whole lookahead
+    /// (<see cref="LoadSlotWindowAsync"/>) and every pair is evaluated in memory
+    /// through <see cref="SlotGeneration"/>, so the query count no longer grows
+    /// with the size of the catalog.
     /// </summary>
     private async Task<List<(Doctor Doctor, ClinicNow.Services.Database.Entities.MedicalService MedicalService, DateTime StartUtc)>> BuildCandidatesAsync(
         int patientId, List<Doctor> doctors, List<ClinicNow.Services.Database.Entities.MedicalService> services, DateTime nowUtc, CancellationToken cancellationToken)
@@ -452,6 +454,10 @@ public class RecommenderService : IRecommenderService
             .ToListAsync(cancellationToken);
 
         var candidates = new List<(Doctor, ClinicNow.Services.Database.Entities.MedicalService, DateTime)>();
+
+        // Three queries for the entire lookahead, regardless of how many
+        // doctors/services/days follow (review item C19).
+        var schedule = await LoadSlotWindowAsync(doctors.Select(d => d.Id).ToList(), nowUtc, cancellationToken);
 
         foreach (var doctor in doctors)
         {
@@ -465,26 +471,105 @@ public class RecommenderService : IRecommenderService
                 // included for the feature row, so this costs no extra query.
                 if (!Appointments.DoctorCompatibility.CanPerform(doctor, service)) continue;
 
-                for (var offset = 0; offset < _options.CandidateLookaheadDays; offset++)
+                var earliest = EarliestFreeSlot(doctor, service, schedule, nowUtc);
+                if (earliest is not null)
                 {
-                    // Clinic-local calendar day - GetAvailableSlotsAsync takes a
-                    // local date, and a UTC-derived one is off by a day near
-                    // midnight (review item C1).
-                    var date = ClinicTimeZone.LocalDateOf(nowUtc).AddDays(offset);
-                    var slots = await _appointmentService.GetAvailableSlotsAsync(doctor.Id, service.Id, date, cancellationToken);
-                    if (slots.Count > 0)
-                    {
-                        // Earliest slot, not merely the first returned -
-                        // GetAvailableSlotsAsync does not promise ordering.
-                        candidates.Add((doctor, service, slots.Min()));
-                        break;
-                    }
+                    candidates.Add((doctor, service, earliest.Value));
                 }
             }
         }
 
         return candidates;
     }
+
+    /// <summary>
+    /// Every doctor's working hours, schedule blocks and non-cancelled
+    /// appointments across the whole candidate lookahead, in three queries -
+    /// the batch load review item C19 asks for.
+    ///
+    /// Blocks and appointments are fetched for the full window rather than per
+    /// day: <see cref="SlotGeneration.FreeSlots"/> tests each span by overlap
+    /// against the individual slot, so a wider set is correct, and one query
+    /// beats one per day. Working hours are a recurring weekly pattern (seven
+    /// rows per doctor at most), so they are simply loaded whole and grouped by
+    /// day of week in memory.
+    /// </summary>
+    private async Task<SlotWindow> LoadSlotWindowAsync(
+        IReadOnlyCollection<int> doctorIds, DateTime nowUtc, CancellationToken cancellationToken)
+    {
+        var firstLocalDate = ClinicTimeZone.LocalDateOf(nowUtc);
+        var windowStartUtc = ClinicTimeZone.LocalDateStartUtc(firstLocalDate);
+        var windowEndUtc = ClinicTimeZone.LocalDateEndExclusiveUtc(firstLocalDate.AddDays(_options.CandidateLookaheadDays - 1));
+
+        var workingHours = await _context.WorkingHoursEntries
+            .Where(w => doctorIds.Contains(w.DoctorId))
+            .ToListAsync(cancellationToken);
+
+        var blocks = await _context.ScheduleBlocks
+            .Where(b => doctorIds.Contains(b.DoctorId) && b.StartUtc < windowEndUtc && b.EndUtc > windowStartUtc)
+            .Select(b => new { b.DoctorId, b.StartUtc, b.EndUtc })
+            .ToListAsync(cancellationToken);
+
+        var busy = await _context.Appointments
+            .Where(a => doctorIds.Contains(a.DoctorId) && a.Status != Model.Common.AppointmentStatus.Cancelled
+                        && a.StartUtc < windowEndUtc && a.EndUtc > windowStartUtc)
+            .Select(a => new { a.DoctorId, a.StartUtc, a.EndUtc })
+            .ToListAsync(cancellationToken);
+
+        return new SlotWindow(
+            workingHours.GroupBy(w => w.DoctorId).ToDictionary(g => g.Key, g => g.ToList()),
+            blocks.GroupBy(b => b.DoctorId).ToDictionary(
+                g => g.Key, g => g.Select(b => new SlotGeneration.Interval(b.StartUtc, b.EndUtc)).ToList()),
+            busy.GroupBy(a => a.DoctorId).ToDictionary(
+                g => g.Key, g => g.Select(a => new SlotGeneration.Interval(a.StartUtc, a.EndUtc)).ToList()));
+    }
+
+    /// <summary>
+    /// The earliest genuinely free slot for one (doctor, service) pair inside the
+    /// pre-loaded window, or null if the pair has none. Same rule as
+    /// <see cref="IAppointmentService.GetAvailableSlotsAsync"/> - it shares
+    /// <see cref="SlotGeneration.FreeSlots"/> with it - just fed from memory.
+    ///
+    /// One deliberate difference: <paramref name="nowUtc"/> is the single instant
+    /// the whole recommendation is computed against, where the per-call path
+    /// re-reads <c>DateTime.UtcNow</c> each time. A fixed instant is what makes a
+    /// batch self-consistent (and what makes it testable).
+    /// </summary>
+    private DateTime? EarliestFreeSlot(
+        Doctor doctor, ClinicNow.Services.Database.Entities.MedicalService service, SlotWindow schedule, DateTime nowUtc)
+    {
+        if (!schedule.WorkingHours.TryGetValue(doctor.Id, out var doctorHours))
+        {
+            return null;
+        }
+
+        var blocks = schedule.Blocks.GetValueOrDefault(doctor.Id, []);
+        var busy = schedule.Busy.GetValueOrDefault(doctor.Id, []);
+        var duration = TimeSpan.FromMinutes(service.DurationMinutes);
+        var firstLocalDate = ClinicTimeZone.LocalDateOf(nowUtc);
+
+        for (var offset = 0; offset < _options.CandidateLookaheadDays; offset++)
+        {
+            // Clinic-local calendar day - a UTC-derived one is off by a day near
+            // midnight (review item C1).
+            var date = firstLocalDate.AddDays(offset);
+            var dayWindows = doctorHours.Where(w => w.DayOfWeek == date.DayOfWeek).ToList();
+            if (dayWindows.Count == 0) continue;
+
+            var slots = SlotGeneration.FreeSlots(date, dayWindows, blocks, busy, duration, nowUtc);
+            // Earliest slot, not merely the first returned - FreeSlots appends
+            // per working-hours window and does not promise a sorted list.
+            if (slots.Count > 0) return slots.Min();
+        }
+
+        return null;
+    }
+
+    /// <summary>The whole clinic's schedule for the lookahead window, keyed by doctor.</summary>
+    private sealed record SlotWindow(
+        Dictionary<int, List<Database.Entities.WorkingHours>> WorkingHours,
+        Dictionary<int, List<SlotGeneration.Interval>> Blocks,
+        Dictionary<int, List<SlotGeneration.Interval>> Busy);
 
     /// <summary>Cold-start fallback (doc §2.2): most-booked (Doctor, MedicalService) pairs in the last <see cref="RecommenderOptions.PopularityWindowDays"/> days, via one GROUP BY - no per-user history required.</summary>
     private async Task<List<AppointmentRecommendationDto>> GetPopularityFallbackAsync(int patientId, DateTime nowUtc, CancellationToken cancellationToken)
@@ -525,6 +610,10 @@ public class RecommenderService : IRecommenderService
             .Select(a => new { a.DoctorId, a.MedicalServiceId })
             .ToListAsync(cancellationToken);
 
+        // Same batch load as the main path - this fallback looped
+        // GetAvailableSlotsAsync too (review item C19).
+        var schedule = await LoadSlotWindowAsync(doctors.Keys.ToList(), nowUtc, cancellationToken);
+
         var result = new List<AppointmentRecommendationDto>();
         foreach (var row in popular)
         {
@@ -534,16 +623,7 @@ public class RecommenderService : IRecommenderService
             // endpoint would accept today (review item C2).
             if (!Appointments.DoctorCompatibility.CanPerform(doctor, service)) continue;
 
-            DateTime? suggestedStart = null;
-            var firstLocalDate = ClinicTimeZone.LocalDateOf(nowUtc);
-            for (var offset = 0; offset < _options.CandidateLookaheadDays; offset++)
-            {
-                var slots = await _appointmentService.GetAvailableSlotsAsync(doctor.Id, service.Id, firstLocalDate.AddDays(offset), cancellationToken);
-                // GetAvailableSlotsAsync appends per working-hours window and
-                // does not promise an ordered list, so take the minimum rather
-                // than the first element - the DTO promises the earliest slot.
-                if (slots.Count > 0) { suggestedStart = slots.Min(); break; }
-            }
+            var suggestedStart = EarliestFreeSlot(doctor, service, schedule, nowUtc);
             if (suggestedStart is null) continue;
 
             result.Add(new AppointmentRecommendationDto
