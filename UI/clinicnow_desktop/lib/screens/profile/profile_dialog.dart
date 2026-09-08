@@ -45,6 +45,11 @@ class _ProfileDialogState extends State<ProfileDialog> {
   final _firstName = TextEditingController();
   final _lastName = TextEditingController();
   final _phoneNumber = TextEditingController();
+  // Editable only for an Administrator (review item 2: "Administrator treba
+  // imati SVE privilegije, pa čak da i sam sebi promjeni mail") - every other
+  // role still sees the read-only field below.
+  final _email = TextEditingController();
+  String _preferredLanguage = 'bs';
 
   bool _isLoading = true;
   bool _isSaving = false;
@@ -68,6 +73,7 @@ class _ProfileDialogState extends State<ProfileDialog> {
     _firstName.dispose();
     _lastName.dispose();
     _phoneNumber.dispose();
+    _email.dispose();
     super.dispose();
   }
 
@@ -102,6 +108,8 @@ class _ProfileDialogState extends State<ProfileDialog> {
         _firstName.text = profile.firstName;
         _lastName.text = profile.lastName;
         _phoneNumber.text = profile.phoneNumber ?? '';
+        _email.text = profile.email;
+        _preferredLanguage = profile.preferredLanguage;
         _isLoading = false;
       });
     } catch (error) {
@@ -128,24 +136,39 @@ class _ProfileDialogState extends State<ProfileDialog> {
     });
 
     try {
+      // Separate call, and deliberately first: if it fails (a duplicate
+      // address), nothing else here has been saved yet either, and the
+      // failure message is specific to email rather than folded into a
+      // generic "profile not saved".
+      final newEmail = _email.text.trim();
+      if (session.hasRole(Roles.administrator) && newEmail != profile.email) {
+        await _authApi.updateEmail(token: token, userId: session.userId!, email: newEmail);
+      }
+
       final updated = await _authApi.updateProfile(
         token: token,
         firstName: _firstName.text,
         lastName: _lastName.text,
         phoneNumber: _phoneNumber.text,
         emailRemindersEnabled: profile.emailRemindersEnabled,
+        preferredLanguage: _preferredLanguage,
       );
 
       if (!mounted) return;
       // Apply what the server returned, not what was typed - trailing spaces
       // and an emptied phone come back normalised, and the top bar's greeting
-      // reads from the same session.
+      // reads from the same session. UpdateProfileRequest never carries email,
+      // but the row it re-reads already has whatever updateEmail just
+      // committed, so `updated.email` is still the authoritative value.
       updated.applyTo(session);
+      session.updateEmail(updated.email);
       setState(() {
         _profile = updated;
         _firstName.text = updated.firstName;
         _lastName.text = updated.lastName;
         _phoneNumber.text = updated.phoneNumber ?? '';
+        _email.text = updated.email;
+        _preferredLanguage = updated.preferredLanguage;
         _isSaving = false;
         _savedMessage = 'Vaši podaci su sačuvani.';
       });
@@ -241,17 +264,51 @@ class _ProfileDialogState extends State<ProfileDialog> {
           ),
           const SizedBox(height: AppSpacing.lg),
           AppFormSection(
+            label: 'Obavijesti i jezik',
+            children: [
+              AppField(
+                label: 'Jezik aplikacije',
+                help: 'Obavijesti i email poruke ćete primati na odabranom jeziku.',
+                child: DropdownButtonFormField<String>(
+                  initialValue: _preferredLanguage,
+                  decoration: const InputDecoration(hintText: 'Odaberite jezik'),
+                  items: const [
+                    DropdownMenuItem(value: 'bs', child: Text('Bosanski')),
+                    DropdownMenuItem(value: 'en', child: Text('English')),
+                  ],
+                  onChanged: (value) {
+                    if (value != null) setState(() => _preferredLanguage = value);
+                  },
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: AppSpacing.lg),
+          AppFormSection(
             label: 'Nalog',
             children: [
               // Email is the login identity and is mirrored onto a patient's
               // chart, so changing it is an account operation rather than a
               // profile edit - UpdateProfileRequest deliberately has no field
-              // for it. Shown, never editable.
-              _ReadOnlyField(
-                label: 'Email',
-                value: _profile!.email,
-                note: 'Email je vaša prijava. Mijenja ga administrator klinike.',
-              ),
+              // for it. Read-only for every role except Administrator (review
+              // item 2), which gets its own admin-only endpoint - see _save.
+              if (session.hasRole(Roles.administrator))
+                AppField(
+                  label: 'Email',
+                  required: true,
+                  help: 'Email adresa je vaša prijava.',
+                  child: TextFormField(
+                    controller: _email,
+                    keyboardType: TextInputType.emailAddress,
+                    validator: (value) => ContactRules.email(value, required: true),
+                  ),
+                )
+              else
+                _ReadOnlyField(
+                  label: 'Email',
+                  value: _profile!.email,
+                  note: 'Email je vaša prijava. Mijenja ga administrator klinike.',
+                ),
               _RolesField(roles: _profile!.roles),
             ],
           ),

@@ -42,9 +42,10 @@ public class User
     /// the submitted topic proposal, so it needs a real effect): <c>"bs"</c> or
     /// <c>"en"</c>, see <see cref="ClinicNow.Model.Localization.PatientLanguage"/>.
     /// Drives the language of every notification/email this account subsequently
-    /// receives (<see cref="ClinicNow.Model.Localization.PatientMessages"/>) -
-    /// only ever read for a Patient account, since Doctor/Staff/Administrator
-    /// have no settings screen that sets it.
+    /// receives (<see cref="ClinicNow.Model.Localization.PatientMessages"/>).
+    /// Both the mobile profile screen and the desktop "Moj profil" dialog
+    /// expose the "Jezik aplikacije" dropdown that sets this, so any role can
+    /// end up with "en" here, not just Patient.
     /// </summary>
     public string PreferredLanguage { get; set; } = PatientLanguage.Bosnian;
 

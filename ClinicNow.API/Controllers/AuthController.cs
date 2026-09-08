@@ -1,5 +1,6 @@
 using ClinicNow.Model.Dto;
 using ClinicNow.Model.Requests;
+using ClinicNow.Model.Security;
 using ClinicNow.Services.Users;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -67,6 +68,22 @@ public class AuthController : ControllerBase
     public async Task<ActionResult<UserDto>> UpdateMe(UpdateProfileRequest request, CancellationToken cancellationToken)
     {
         return Ok(await _userService.UpdateCurrentUserAsync(request, cancellationToken));
+    }
+
+    /// <summary>
+    /// Administrator-only: changes any account's login email by id, including
+    /// the administrator's own (review item: "Administrator treba imati SVE
+    /// privilegije, pa čak da i sam sebi promjeni mail"). The one route on this
+    /// controller that takes its target from the path rather than the token -
+    /// every other action here is deliberately "me"-scoped, but the whole point
+    /// of this one is acting on an account that need not be the caller's.
+    /// </summary>
+    [HttpPut("{id:int}/email")]
+    [Authorize(Roles = Roles.Administrator)]
+    [EnableRateLimiting(RateLimiterPolicies.Write)]
+    public async Task<ActionResult<UserDto>> UpdateEmail(int id, AdminUpdateEmailRequest request, CancellationToken cancellationToken)
+    {
+        return Ok(await _userService.AdminUpdateEmailAsync(id, request, cancellationToken));
     }
 
     /// <summary>

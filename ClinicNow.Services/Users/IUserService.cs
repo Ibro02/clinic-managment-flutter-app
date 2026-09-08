@@ -45,4 +45,14 @@ public interface IUserService
 
     /// <summary>Redeems a reset code for a new password.</summary>
     Task ResetPasswordAsync(ResetPasswordRequest request, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Administrator-only: changes any account's login email by id, including
+    /// the administrator's own. The one place email becomes editable at all -
+    /// <see cref="UpdateCurrentUserAsync"/> deliberately never touches it.
+    /// Role-gated on the controller, not here; <paramref name="id"/> is taken
+    /// from the route because unlike the self-service endpoints, the whole
+    /// point is acting on an account that need not be the caller's.
+    /// </summary>
+    Task<UserDto> AdminUpdateEmailAsync(int id, AdminUpdateEmailRequest request, CancellationToken cancellationToken = default);
 }

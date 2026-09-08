@@ -12,6 +12,7 @@ import '../screens/dashboard/dashboard_screen.dart';
 import '../screens/news/news_screen.dart';
 import '../screens/people/doctor_screen.dart';
 import '../screens/people/patient_screen.dart';
+import '../screens/people/staff_screen.dart';
 import '../screens/profile/profile_dialog.dart';
 import '../screens/reports/reports_screen.dart';
 import '../widgets/notifications_bell.dart';
@@ -100,6 +101,9 @@ class _AppShellState extends State<AppShell> {
     // (dashboard/reports vs. codebook CRUD) are independent business decisions
     // that happen to currently coincide.
     final canViewReports = session.hasRole(Roles.administrator) || session.hasRole(Roles.staff);
+    // Administrator-only (review item 1): unlike patients/doctors, Staff itself
+    // does not get to list or manage other Staff accounts.
+    final canManageStaff = session.hasRole(Roles.administrator);
 
     return <_NavEntry>[
       if (canViewReports)
@@ -174,6 +178,17 @@ class _AppShellState extends State<AppShell> {
           section: 'Administracija',
           destination: ShellDestination.codebooks,
           builder: (_) => const CodebooksScreen(),
+        ),
+      if (canManageStaff)
+        _NavEntry(
+          icon: Icons.badge_outlined,
+          selectedIcon: Icons.badge_rounded,
+          label: 'Osoblje',
+          title: 'Osoblje',
+          subtitle: 'Nalozi front-desk i administrativnog osoblja',
+          section: 'Administracija',
+          destination: ShellDestination.staff,
+          builder: (_) => const StaffScreen(),
         ),
     ];
   }

@@ -66,6 +66,16 @@ class AuthSession extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Applies an email change the server has already accepted (review item 2:
+  /// only an Administrator can reach this - see AuthApi.updateEmail). Separate
+  /// from [applyProfile] since email isn't part of the ordinary profile edit
+  /// every role uses; kept in the session so the dialog's subtitle and any
+  /// other reader of [email] see the new address without a re-login.
+  void updateEmail(String email) {
+    _email = email;
+    notifyListeners();
+  }
+
   /// Clears the session - called on explicit logout, and automatically by
   /// [BaseProvider] whenever the API returns HTTP 401 (expired/invalid/
   /// revoked token).

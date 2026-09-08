@@ -50,6 +50,19 @@ public class ForgotPasswordRequest
     public string Email { get; set; } = string.Empty;
 }
 
+/// <summary>
+/// Administrator-only: changes any account's login email, including the
+/// administrator's own (review item: "Administrator treba imati SVE
+/// privilegije, pa čak da i sam sebi promjeni mail"). Deliberately separate
+/// from <see cref="UpdateProfileRequest"/>, which every role uses for its own
+/// profile and never touches email - this is the one place email becomes
+/// editable at all, gated to Administrator on the controller.
+/// </summary>
+public class AdminUpdateEmailRequest
+{
+    public string Email { get; set; } = string.Empty;
+}
+
 /// <summary>Step two: redeem the emailed code for a new password.</summary>
 public class ResetPasswordRequest
 {

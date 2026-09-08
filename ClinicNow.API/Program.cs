@@ -118,6 +118,10 @@ builder.Services.AddScoped<ICRUDService<MedicalServiceDto, MedicalServiceSearchO
 builder.Services.AddScoped<IPatientService, PatientService>();
 // Doctor, likewise, by its bespoke IDoctorService (adds GetOwnAsync).
 builder.Services.AddScoped<IDoctorService, DoctorService>();
+// Staff has no separate profile entity - the generic CRUD shape over User rows,
+// filtered to the Staff role. Registered by its own interface only for
+// consistency with the rest of this block; it adds nothing beyond ICRUDService.
+builder.Services.AddScoped<IStaffService, StaffService>();
 builder.Services.AddScoped<ICRUDService<WorkingHoursDto, WorkingHoursSearchObject, WorkingHoursInsertRequest, WorkingHoursUpdateRequest>, WorkingHoursService>();
 builder.Services.AddScoped<ICRUDService<ScheduleBlockDto, ScheduleBlockSearchObject, ScheduleBlockInsertRequest, ScheduleBlockUpdateRequest>, ScheduleBlockService>();
 

@@ -23,6 +23,8 @@ public class AccountSelfServiceTests
 {
     private const int PatientUserId = 4;
     private const string PatientEmail = "patient@clinicnow.test";
+    private const int AdministratorUserId = 1;
+    private const int StaffUserId = 2;
     private const string SeededPassword = "test";
 
     private static (UserService Service, RecordingEmailPublisher Email) Build(ClinicNowContext context, int actingUserId = PatientUserId)
@@ -140,6 +142,68 @@ public class AccountSelfServiceTests
 
         var user = await context.Users.SingleAsync(u => u.Id == PatientUserId);
         Assert.Equal(PatientLanguage.Bosnian, user.PreferredLanguage);
+    }
+
+    /// <summary>
+    /// Review item 2: "Administrator treba imati SVE privilegije, pa čak da i
+    /// sam sebi promjeni mail" - AdminUpdateEmailAsync is the one place email
+    /// becomes editable at all, and it must work on the caller's own account
+    /// too, not just other users'.
+    /// </summary>
+    [Fact]
+    public async Task Admin_can_change_their_own_email()
+    {
+        using var context = TestContextFactory.CreateContext();
+        var (service, _) = Build(context, actingUserId: AdministratorUserId);
+
+        var updated = await service.AdminUpdateEmailAsync(
+            AdministratorUserId, new AdminUpdateEmailRequest { Email = "Nova.Adresa@clinicnow.test" });
+
+        // Normalized the same way registration/login normalize it.
+        Assert.Equal("nova.adresa@clinicnow.test", updated.Email);
+
+        var user = await context.Users.SingleAsync(u => u.Id == AdministratorUserId);
+        Assert.Equal("nova.adresa@clinicnow.test", user.Email);
+    }
+
+    [Fact]
+    public async Task Admin_can_change_another_users_email()
+    {
+        using var context = TestContextFactory.CreateContext();
+        var (service, _) = Build(context, actingUserId: AdministratorUserId);
+
+        await service.AdminUpdateEmailAsync(
+            StaffUserId, new AdminUpdateEmailRequest { Email = "staff-novi@clinicnow.test" });
+
+        var staffUser = await context.Users.SingleAsync(u => u.Id == StaffUserId);
+        Assert.Equal("staff-novi@clinicnow.test", staffUser.Email);
+    }
+
+    [Fact]
+    public async Task Admin_email_change_is_rejected_when_the_address_is_already_taken()
+    {
+        using var context = TestContextFactory.CreateContext();
+        var (service, _) = Build(context, actingUserId: AdministratorUserId);
+
+        var exception = await Assert.ThrowsAsync<ValidationException>(() =>
+            service.AdminUpdateEmailAsync(AdministratorUserId, new AdminUpdateEmailRequest { Email = PatientEmail }));
+
+        Assert.Contains("email", exception.Errors.Keys);
+
+        var admin = await context.Users.SingleAsync(u => u.Id == AdministratorUserId);
+        Assert.Equal("administrator@clinicnow.test", admin.Email);
+    }
+
+    [Fact]
+    public async Task Admin_email_change_is_rejected_when_malformed()
+    {
+        using var context = TestContextFactory.CreateContext();
+        var (service, _) = Build(context, actingUserId: AdministratorUserId);
+
+        var exception = await Assert.ThrowsAsync<ValidationException>(() =>
+            service.AdminUpdateEmailAsync(AdministratorUserId, new AdminUpdateEmailRequest { Email = "not-an-email" }));
+
+        Assert.Contains("email", exception.Errors.Keys);
     }
 
     [Fact]

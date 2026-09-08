@@ -108,12 +108,18 @@ class AuthApi {
   /// but `UpdateProfileRequest.EmailRemindersEnabled` is a non-nullable bool, so
   /// omitting it would deserialize as `false` and silently switch the
   /// preference off. Pass through what [me] returned.
+  ///
+  /// [preferredLanguage] is likewise non-nullable on `UpdateProfileRequest` and
+  /// defaults to "bs" server-side when omitted - so it must always be sent back,
+  /// or every profile save (even one that doesn't touch language) would silently
+  /// reset the account back to Bosnian.
   Future<UserProfile> updateProfile({
     required String token,
     required String firstName,
     required String lastName,
     String? phoneNumber,
     required bool emailRemindersEnabled,
+    required String preferredLanguage,
   }) async {
     final response = await _put(
       _uri('api/auth/me'),
@@ -123,6 +129,7 @@ class AuthApi {
         'lastName': lastName,
         'phoneNumber': (phoneNumber != null && phoneNumber.trim().isNotEmpty) ? phoneNumber.trim() : null,
         'emailRemindersEnabled': emailRemindersEnabled,
+        'preferredLanguage': preferredLanguage,
       }),
     );
 
@@ -156,6 +163,27 @@ class AuthApi {
     );
 
     return _parseAuthResult(response, fallbackMessage: 'Lozinka nije promijenjena.');
+  }
+
+  /// Administrator-only: changes any account's login email by id, including
+  /// the administrator's own - the one endpoint that makes email editable at
+  /// all (review item: "Administrator treba imati SVE privilegije, pa čak da
+  /// i sam sebi promjeni mail"). Rejected server-side for every other role.
+  Future<UserProfile> updateEmail({
+    required String token,
+    required int userId,
+    required String email,
+  }) async {
+    final response = await _put(
+      _uri('api/auth/$userId/email'),
+      headers: _authorizedJsonHeaders(token),
+      body: jsonEncode({'email': email}),
+    );
+
+    if (response.statusCode >= 200 && response.statusCode < 300) {
+      return UserProfile.fromJson(jsonDecode(response.body) as Map<String, dynamic>);
+    }
+    throw _parseError(response, fallbackMessage: 'Email adresa nije sačuvana.');
   }
 
   Map<String, String> _authorizedJsonHeaders(String token) => {
@@ -209,6 +237,11 @@ class UserProfile {
   /// it back unchanged. See that method for why omitting it would be a bug.
   final bool emailRemindersEnabled;
 
+  /// "bs" or "en" - drives the language of notifications/emails this account
+  /// receives (server-side, via `PatientMessages`); see the "Jezik aplikacije"
+  /// dropdown in [ProfileDialog].
+  final String preferredLanguage;
+
   final List<String> roles;
   final bool isActive;
 
@@ -219,6 +252,7 @@ class UserProfile {
     required this.lastName,
     required this.phoneNumber,
     required this.emailRemindersEnabled,
+    required this.preferredLanguage,
     required this.roles,
     required this.isActive,
   });
@@ -233,6 +267,9 @@ class UserProfile {
         // "on", the server's own default, so echoing it back cannot turn a
         // preference off that nobody asked to change.
         emailRemindersEnabled: json['emailRemindersEnabled'] as bool? ?? true,
+        // Same reasoning: an older API build has no such field yet, so fall
+        // back to the clinic's own default rather than an empty/invalid value.
+        preferredLanguage: json['preferredLanguage'] as String? ?? 'bs',
         roles: (json['roles'] as List<dynamic>? ?? []).map((e) => '$e').toList(),
         isActive: json['isActive'] as bool? ?? true,
       );
@@ -243,6 +280,7 @@ class UserProfile {
         phoneNumber: phoneNumber,
       );
 }
+
 
 /// Result of a successful login/register - mirrors the backend's
 /// `LoginResponseDto`.

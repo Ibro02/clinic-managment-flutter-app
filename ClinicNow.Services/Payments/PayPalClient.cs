@@ -78,8 +78,8 @@ public class PayPalClient : IPayPalClient
         }
         catch (ApiException ex)
         {
-            LogPayPalError("CreateOrder", ex);
-            throw new BusinessException("Plaćanje trenutno nije moguće. Pokušajte ponovo kasnije.");
+            var detail = LogPayPalError("CreateOrder", ex);
+            throw new BusinessException($"Plaćanje trenutno nije moguće ({detail}). Pokušajte ponovo kasnije.");
         }
 
         var approveUrl = order.Links?.FirstOrDefault(l => l.Rel == "approve")?.Href
@@ -152,8 +152,8 @@ public class PayPalClient : IPayPalClient
         }
         catch (ApiException ex)
         {
-            LogPayPalError("RefundCapture", ex, captureId);
-            throw new BusinessException("Povrat sredstava trenutno nije moguć. Pokušajte ponovo kasnije.");
+            var detail = LogPayPalError("RefundCapture", ex, captureId);
+            throw new BusinessException($"Povrat sredstava trenutno nije moguć ({detail}). Pokušajte ponovo kasnije.");
         }
 
         return refund.Id!;
@@ -162,14 +162,21 @@ public class PayPalClient : IPayPalClient
     // --- diagnostics -----------------------------------------------------------
 
     /// <summary>
-    /// Logs only the SDK's already-parsed diagnostic fields (<c>Name</c>,
-    /// <c>DebugId</c>, <c>Details[].Issue</c> for an <see cref="ErrorException"/>,
-    /// or <c>Error</c>/<c>ErrorDescription</c> for an <see cref="OAuthProviderException"/>)
-    /// - never the raw response body, which carries the payer's real email
-    /// address and PayPal account id on capture/refund responses and has no
-    /// business in application logs.
+    /// Logs, and returns, only the SDK's already-parsed diagnostic fields
+    /// (<c>Name</c>, <c>DebugId</c>, <c>Details[].Issue</c> for an
+    /// <see cref="ErrorException"/>, or <c>Error</c>/<c>ErrorDescription</c> for
+    /// an <see cref="OAuthProviderException"/>) - never the raw response body,
+    /// which carries the payer's real email address and PayPal account id on
+    /// capture/refund responses and has no business in application logs.
+    ///
+    /// The return value is folded into the <see cref="BusinessException"/> the
+    /// caller throws: collapsing every possible PayPal failure (invalid
+    /// resource, permission, currency mismatch, already refunded, ...) into one
+    /// identical generic sentence made a real failure undiagnosable from the UI
+    /// - staff had no way to tell "PayPal rejected this" from "the capture id
+    /// was never real" without server-log access.
     /// </summary>
-    private void LogPayPalError(string operation, ApiException ex, string? subjectId = null)
+    private string LogPayPalError(string operation, ApiException ex, string? subjectId = null)
     {
         var description = ex switch
         {
@@ -186,6 +193,8 @@ public class PayPalClient : IPayPalClient
         {
             _logger.LogWarning("PayPal {Operation} failed for {SubjectId} ({Status}): {Error}", operation, subjectId, ex.ResponseCode, description);
         }
+
+        return description;
     }
 
     private static string DescribeErrorException(ErrorException error)

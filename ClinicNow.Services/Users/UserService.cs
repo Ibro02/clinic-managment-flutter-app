@@ -267,6 +267,35 @@ public class UserService : IUserService
         return _mapper.Map<UserDto>(user);
     }
 
+    public async Task<UserDto> AdminUpdateEmailAsync(int id, AdminUpdateEmailRequest request, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        var errors = new Dictionary<string, string[]>();
+        ContactRules.RequireEmail(errors, "email", request.Email);
+        if (errors.Count > 0)
+        {
+            throw new ValidationException(errors);
+        }
+
+        var user = await _context.Users
+            .Include(u => u.UserRoles).ThenInclude(ur => ur.Role)
+            .SingleOrDefaultAsync(u => u.Id == id, cancellationToken)
+            ?? throw new NotFoundException(nameof(User), id);
+
+        var normalizedEmail = request.Email.Trim().ToLowerInvariant();
+        var emailTaken = await _context.Users.AnyAsync(u => u.Id != id && u.Email == normalizedEmail, cancellationToken);
+        if (emailTaken)
+        {
+            throw new ValidationException("email", "Korisnik sa ovom email adresom već postoji.");
+        }
+
+        user.Email = normalizedEmail;
+        await _context.SaveChangesAsync(cancellationToken);
+
+        return _mapper.Map<UserDto>(user);
+    }
+
     public async Task<LoginResponseDto> ChangeCurrentUserPasswordAsync(ChangePasswordRequest request, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
@@ -362,10 +391,10 @@ public class UserService : IUserService
         // rather than wrong - the user simply asks for another one, and the
         // failure is logged by the publisher.
         //
-        // In the patient's own language (review item 7): only a Patient
-        // account's mobile profile ever changes PreferredLanguage away from
-        // the "bs" default, so a Doctor/Staff/Administrator always resolves
-        // to Bosnian here regardless.
+        // In the account's own PreferredLanguage (review item 7). Both the
+        // mobile profile screen and the desktop "Moj profil" dialog expose the
+        // "Jezik aplikacije" dropdown that sets this, so any role can end up
+        // with "en" here, not just Patient.
         var message = PatientMessages.PasswordResetCode(user.PreferredLanguage, code, ResetCodeLifetime.TotalMinutes);
         await _emailPublisher.PublishAsync(new EmailMessage
         {

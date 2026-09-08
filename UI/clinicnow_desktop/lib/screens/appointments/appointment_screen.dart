@@ -516,6 +516,13 @@ class _AppointmentScreenState extends State<AppointmentScreen> {
             title: 'Termini',
             subtitle: 'Zakazivanje, potvrda i naplata termina.',
             actions: [
+              OutlinedButton.icon(
+                onPressed: _isLoading ? null : _load,
+                icon: _isLoading
+                    ? const SizedBox(height: 14, width: 14, child: CircularProgressIndicator(strokeWidth: 2))
+                    : const Icon(Icons.refresh_rounded, size: 16),
+                label: const Text('Osvježi'),
+              ),
               if (canSchedule)
                 FilledButton.icon(
                   onPressed: _openScheduleDialog,

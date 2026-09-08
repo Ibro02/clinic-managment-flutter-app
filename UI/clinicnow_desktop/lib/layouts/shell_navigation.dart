@@ -2,7 +2,7 @@
 /// sidebar happens to render (rulebook Part II §D: no magic strings). A screen
 /// inside the shell asks for one of these; the shell decides which index that
 /// currently maps to, since the list depends on the signed-in user's role.
-enum ShellDestination { home, patients, doctors, appointments, news, reports, codebooks }
+enum ShellDestination { home, patients, doctors, appointments, news, reports, codebooks, staff }
 
 /// Lets a screen move the user to another destination without knowing anything
 /// about the sidebar - the dashboard's KPI cards drilling into the list they

@@ -337,9 +337,9 @@ public class AppointmentService : IAppointmentService
         var reloaded = await ReloadAsync(appointment.Id, cancellationToken);
 
         // Cancellation notifies both sides (rulebook Part II §G: rejection/
-        // cancellation must trigger a notification with the reason). The
-        // doctor-facing copy stays Bosnian - PreferredLanguage is a patient-only
-        // setting (review item 7).
+        // cancellation must trigger a notification with the reason). Only the
+        // patient's own copy is localized via PreferredLanguage (review item
+        // 7) - the doctor notification below stays Bosnian regardless.
         if (reloaded.Patient.User is not null)
         {
             var message = PatientMessages.AppointmentCancelled(
