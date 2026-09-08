@@ -72,7 +72,7 @@ class ChartCard extends StatelessWidget {
                     ],
                   ),
                 ),
-                if (trailing != null) trailing!,
+                ?trailing,
               ],
             ),
             if (value != null) ...[

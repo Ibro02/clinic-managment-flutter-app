@@ -9,7 +9,6 @@ using ClinicNow.Services.Database;
 using ClinicNow.Services.Database.Entities;
 using MapsterMapper;
 using Microsoft.AspNetCore.Http;
-using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 
@@ -20,7 +19,6 @@ public class NotificationService : INotificationService
     private readonly ClinicNowContext _context;
     private readonly IMapper _mapper;
     private readonly IHttpContextAccessor _httpContextAccessor;
-    private readonly IHubContext<NotificationsHub, INotificationsClient> _hubContext;
     private readonly IPushPublisher _pushPublisher;
     private readonly ILogger<NotificationService> _logger;
 
@@ -28,14 +26,12 @@ public class NotificationService : INotificationService
         ClinicNowContext context,
         IMapper mapper,
         IHttpContextAccessor httpContextAccessor,
-        IHubContext<NotificationsHub, INotificationsClient> hubContext,
         IPushPublisher pushPublisher,
         ILogger<NotificationService> logger)
     {
         _context = context;
         _mapper = mapper;
         _httpContextAccessor = httpContextAccessor;
-        _hubContext = hubContext;
         _pushPublisher = pushPublisher;
         _logger = logger;
     }
@@ -136,42 +132,23 @@ public class NotificationService : INotificationService
         _context.Notifications.Add(notification);
         await _context.SaveChangesAsync(cancellationToken);
 
-        var dto = _mapper.Map<NotificationDto>(notification);
-
-        // Best-effort real-time push, and now actually best-effort (review item
-        // C15). The notification is already committed by this point, so a hub
-        // that is unreachable, a transport that just dropped, or a caller whose
-        // request was cancelled mid-flight must not turn a succeeded operation
-        // - a booking, a cancellation, a captured payment - into an error the
-        // caller sees. Clients re-read the list on their own poll regardless,
-        // so the cost of a lost push is latency, never a lost notification.
-        //
-        // Deliberately no CancellationToken: cancelling the *caller's* request
-        // is not a reason to skip informing the user about work that already
-        // committed.
-        try
-        {
-            await _hubContext.Clients.User(userId.ToString()).NotificationCreated(dto);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex,
-                "Real-time push of notification {NotificationId} to user {UserId} failed; it is persisted and will appear on the client's next refresh.",
-                notification.Id, userId);
-        }
-
+        // No real-time hub push: both Flutter clients get their auto-refresh
+        // from NotificationCenter's own polling of this same list (review item
+        // 15 explicitly permits "SignalR ili polling" - a hub with no
+        // connecting client was dead code, not a working feature, so it was
+        // removed rather than left unused).
         await PublishDevicePushAsync(notification, userId);
     }
 
     /// <summary>
     /// Queues the same notification as a device push, so it reaches the user
-    /// when the app is closed - the one thing SignalR and polling cannot do,
-    /// since both need the app to be running.
+    /// when the app is closed - the one thing in-app polling cannot do, since
+    /// that needs the app to be running.
     ///
-    /// Best-effort for the same reason the hub push above is: the notification
-    /// is already committed, and a broker outage must not turn a completed
-    /// booking into an error. No token means no push and nothing to log loudly
-    /// about - most staff accounts will never register one.
+    /// Best-effort: the notification is already committed by this point, and a
+    /// broker outage must not turn a completed booking into an error. No token
+    /// means no push and nothing to log loudly about - most staff accounts
+    /// will never register one.
     /// </summary>
     private async Task PublishDevicePushAsync(Notification notification, int userId)
     {

@@ -3,8 +3,8 @@ namespace ClinicNow.Services.Database.Entities;
 /// <summary>
 /// An in-app notification for a single user (booking/confirmation/cancellation/
 /// status-change/payment events - rulebook Part II §G). Auto-refreshed on the
-/// client via SignalR (<see cref="ClinicNow.API.Hubs.NotificationsHub"/>), never
-/// requiring a manual refresh.
+/// client by polling this list (<c>NotificationCenter</c> in both Flutter apps),
+/// never requiring a manual refresh.
 /// </summary>
 public class Notification
 {

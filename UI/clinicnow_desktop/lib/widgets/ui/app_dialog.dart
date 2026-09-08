@@ -172,7 +172,7 @@ Future<T?> showAppDialog<T>({
     barrierLabel: MaterialLocalizations.of(context).modalBarrierDismissLabel,
     barrierColor: c.shadowColor.withValues(alpha: context.isDarkMode ? 0.62 : 0.42),
     transitionDuration: const Duration(milliseconds: 140),
-    pageBuilder: (context, _, __) => builder(context),
+    pageBuilder: (context, _, _) => builder(context),
     transitionBuilder: (context, animation, _, child) {
       final curved = CurvedAnimation(parent: animation, curve: Curves.easeOutCubic);
       return FadeTransition(

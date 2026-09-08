@@ -163,12 +163,6 @@ QuestPDF.Settings.License = LicenseType.Community;
 builder.Services.AddScoped<IDashboardService, DashboardService>();
 builder.Services.AddScoped<IReportService, ReportService>();
 
-// SignalR for real-time notification auto-refresh (rulebook Part II §G) - the JWT
-// is delivered via the `access_token` query string since browsers/WebSockets can't
-// set an Authorization header on the initial handshake (wired below, OnMessageReceived).
-builder.Services.AddSignalR();
-builder.Services.AddSingleton<Microsoft.AspNetCore.SignalR.IUserIdProvider, NotificationUserIdProvider>();
-
 // --- Controllers + centralized exception handling ------------------------------
 builder.Services.AddControllers(options =>
 {
@@ -244,21 +238,6 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
         };
         options.Events = new JwtBearerEvents
         {
-            // SignalR/WebSocket clients can't set an Authorization header on the
-            // initial handshake, so the JWT arrives via the `access_token` query
-            // string instead for hub requests specifically (never for regular API
-            // calls - AccessTokenProvider on the client only sets this for the hub
-            // connection URL).
-            OnMessageReceived = context =>
-            {
-                var accessToken = context.Request.Query["access_token"];
-                var path = context.HttpContext.Request.Path;
-                if (!string.IsNullOrEmpty(accessToken) && path.StartsWithSegments("/hubs"))
-                {
-                    context.Token = accessToken;
-                }
-                return Task.CompletedTask;
-            },
             OnTokenValidated = async context =>
             {
                 var jti = context.Principal?.FindFirstValue(System.IdentityModel.Tokens.Jwt.JwtRegisteredClaimNames.Jti);
@@ -303,7 +282,6 @@ builder.Services.AddAuthorization();
 
 // --- Rate limiting on auth endpoints (global rule: "Add rate limiting on auth and
 // write operations") - a fixed window keeps this simple while still meaningfully
-// slowing down credential-stuffing/brute-force attempts against /api/auth/login.
 // slowing down credential-stuffing/brute-force attempts against /api/auth/login.
 //
 // Every policy here is PARTITIONED. AddFixedWindowLimiter without a partition key
@@ -412,7 +390,6 @@ app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapControllers();
-app.MapHub<ClinicNow.Services.Notifications.NotificationsHub>("/hubs/notifications");
 
 // Health endpoint required for every service (CLAUDE.md "Observability"). Verifies
 // real DB connectivity rather than just returning a static 200, so it's useful for
