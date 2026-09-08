@@ -14,11 +14,6 @@ public class PayPalOptions : EnvOptionsBase
     public string ClientSecret { get; }
     public string Mode { get; }
 
-    /// <summary>Sandbox vs live REST API base URL - never hardcoded elsewhere.</summary>
-    public string BaseUrl => Mode.Equals("live", StringComparison.OrdinalIgnoreCase)
-        ? "https://api-m.paypal.com"
-        : "https://api-m.sandbox.paypal.com";
-
     public PayPalOptions()
     {
         ClientId = GetOrDefault("PAYPAL_CLIENT_ID", string.Empty);

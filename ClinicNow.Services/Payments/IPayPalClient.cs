@@ -1,10 +1,10 @@
 namespace ClinicNow.Services.Payments;
 
 /// <summary>
-/// Thin wrapper over PayPal's REST Orders v2 API (design doc §4). No PayPal
-/// SDK package - a handful of well-understood REST calls via `IHttpClientFactory`
-/// is simpler and matches CLAUDE.md's "wrap external API calls in a clean
-/// service layer" rule better than an opaque third-party client.
+/// Wraps the official PayPal Server SDK (`PayPalServerSDK` NuGet package;
+/// design doc §4) behind the shapes <see cref="Payments.PaymentService"/>
+/// actually needs, per CLAUDE.md's "wrap external API calls in a clean
+/// service layer" rule - PaymentService never sees an SDK type directly.
 /// </summary>
 public interface IPayPalClient
 {
