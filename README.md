@@ -129,17 +129,19 @@ The full feature set from the seminar spec is implemented end to end, on both cl
   patient's record. Uploads are validated server-side against **both** the declared MIME type
   **and** the file's actual magic bytes, and legally-retained health data is soft-delete only,
   never hard-deleted. Ownership is enforced server-side regardless of what filter the client sends.
-- **Payments** — real PayPal sandbox checkout and refunds: a server-owned price catalog, one
-  active payment per appointment, idempotent capture reconciliation against what PayPal actually
-  returned, and a durable refund-failure state when an automatic refund can't complete.
+- **Payments** — real PayPal sandbox checkout and refunds via the official **PayPal Server SDK**
+  (`PayPalServerSDK` NuGet package, not a hand-rolled REST client): a server-owned price catalog,
+  one active payment per appointment, idempotent capture reconciliation against what PayPal
+  actually returned, and a durable refund-failure state when an automatic refund can't complete.
 - **Recommender** — ML.NET content-based suggestions over the patient's own booking history, with
   a human-readable reason attached to every suggestion (`recommender-dokumentacija.md`).
 - **Reports & dashboard** — server-generated PDF appointment and revenue reports (with a
   service-type filter and a chart view), and a desktop dashboard with auto-refresh and
   drill-through KPI cards.
-- **Notifications & news** — in-app notifications with real-time SignalR push (best-effort — a
-  push failure never fails the write that created the notification) and image-carrying
-  news/announcements.
+- **Notifications & news** — in-app notifications that auto-refresh via polling (badge and list
+  both, every 20s with backoff, paused while the app is backgrounded — the rulebook accepts
+  SignalR *or* polling for this), plus Android push via Firebase Cloud Messaging from the Worker,
+  and image-carrying news/announcements.
 
 Desktop covers every screen listed above. Mobile has a "Dokumenti" section with three tabs —
 Dokumenti (files), Nalazi (lab findings), Uputnice (referrals) — plus booking, payments,
@@ -147,16 +149,11 @@ notifications, news, and the recommender. The one screen mobile does not have is
 ("medicinski karton") editor/viewer — that stays desktop-only (Administrator/Doctor tooling, not a
 patient-facing view).
 
-The one backend item not yet landed: `PayPalClient` is a hand-rolled REST client over
-`IHttpClientFactory` rather than the official PayPal SDK — every correctness fix around payments
-(duplicate-charge prevention, capture reconciliation, refund-failure tracking) is in; only the SDK
-swap itself is outstanding, and nothing about that gap is user-visible.
-
 ## Architecture
 
 ```
 ClinicNow/
-  ClinicNow.sln / ClinicNow.slnx
+  ClinicNow.slnx
   docker-compose.yml          # SQL Server + RabbitMQ + API + Worker
   Dockerfile.api
   Dockerfile.worker

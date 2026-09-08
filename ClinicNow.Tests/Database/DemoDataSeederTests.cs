@@ -21,21 +21,29 @@ public class DemoDataSeederTests
     private static DemoDataSeeder BuildSeeder(ClinicNowContext context) =>
         new(context, new PasswordHasher(), NullLogger<DemoDataSeeder>.Instance);
 
+    /// <summary>
+    /// Deliberately does not assert an appointment dated "today" on the
+    /// calendar - the actual invariant the dashboard needs is "something
+    /// starts in the next 24h" (asserted precisely by
+    /// <see cref="SeedAsync_CreatesAtLeastTwoAppointmentsInTheNext24Hours"/>),
+    /// and a 24h window measured from "now" routinely spans into tomorrow's
+    /// calendar date once it's past a doctor's last working hour today. Pinning
+    /// the guarantee to "today" specifically was the same category of bug as
+    /// K1 (a calendar-date guarantee that can already be stale by the time a
+    /// reviewer opens the app), just scoped to a single row instead of the
+    /// whole future half.
+    /// </summary>
     [Fact]
-    public async Task SeedAsync_CreatesAppointmentForToday()
+    public async Task SeedAsync_CreatesANonCancelledAppointment()
     {
         using var context = TestContextFactory.CreateContext();
         var seeder = BuildSeeder(context);
 
         await seeder.SeedAsync(CancellationToken.None);
 
-        var today = DateOnly.FromDateTime(ClinicTimeZone.NowLocal);
-        var hasAppointmentToday = await context.Appointments
+        var hasNonCancelledAppointment = await context.Appointments
             .AnyAsync(a => a.Status != AppointmentStatus.Cancelled);
-        Assert.True(hasAppointmentToday);
-
-        var appointments = await context.Appointments.ToListAsync();
-        Assert.Contains(appointments, a => ClinicTimeZone.LocalDateOf(a.StartUtc) == today);
+        Assert.True(hasNonCancelledAppointment);
     }
 
     [Fact]
@@ -62,6 +70,91 @@ public class DemoDataSeederTests
             .Distinct()
             .CountAsync();
         Assert.True(distinctUsersWithInteractions >= 3);
+    }
+
+    /// <summary>
+    /// The actual regression this seeder shipped with (caught in the pre-
+    /// submission review, not by any prior test): a single shared target
+    /// walking chronologically from today-60 exhausted itself on past
+    /// appointments before the loop ever reached "today", so the future half
+    /// - including every <see cref="AppointmentStatus.Pending"/> row - was
+    /// silently empty on every real review date. <see cref="SeedAsync_ProducesADemoableAmountOfData"/>
+    /// only asserted a combined total, which stayed "in range" throughout.
+    /// </summary>
+    [Fact]
+    public async Task SeedAsync_HasAppointmentsInTheFuture()
+    {
+        using var context = TestContextFactory.CreateContext();
+        var seeder = BuildSeeder(context);
+
+        await seeder.SeedAsync(CancellationToken.None);
+
+        var nowUtc = DateTime.UtcNow;
+        var futureCount = await context.Appointments.CountAsync(a => a.StartUtc > nowUtc);
+        Assert.True(futureCount >= 15, $"Expected at least 15 future appointments, found {futureCount}.");
+    }
+
+    /// <summary>
+    /// Feeds the dashboard's "Sljedeći termini" table, which queries a 24h
+    /// window (<c>dashboard_screen.dart</c>'s <c>_upcomingWindow</c>) - a
+    /// guarantee only of "some appointment today" is not equivalent, since a
+    /// same-day slot at a fixed local time can already be in the past by the
+    /// time a reviewer opens the app later in the day.
+    /// </summary>
+    [Fact]
+    public async Task SeedAsync_CreatesAtLeastTwoAppointmentsInTheNext24Hours()
+    {
+        using var context = TestContextFactory.CreateContext();
+        var seeder = BuildSeeder(context);
+
+        await seeder.SeedAsync(CancellationToken.None);
+
+        var nowUtc = DateTime.UtcNow;
+        var windowEndUtc = nowUtc.AddHours(24);
+        var within24h = await context.Appointments.CountAsync(a => a.StartUtc >= nowUtc && a.StartUtc < windowEndUtc);
+        Assert.True(within24h >= 2, $"Expected at least 2 appointments in the next 24h, found {within24h}.");
+    }
+
+    /// <summary>
+    /// Without a future <see cref="AppointmentStatus.Pending"/> row, staff has
+    /// nothing to demonstrate the Pending → Confirmed transition on - every
+    /// Pending row from a fixed HasData date is already in the past, and
+    /// <see cref="ClinicNow.Services.Appointments.AppointmentStateMachine.ScheduledAppointmentState.ConfirmAsync"/>
+    /// rejects confirming an appointment whose time has already passed.
+    /// </summary>
+    [Fact]
+    public async Task SeedAsync_CreatesPendingAppointmentsInTheFuture()
+    {
+        using var context = TestContextFactory.CreateContext();
+        var seeder = BuildSeeder(context);
+
+        await seeder.SeedAsync(CancellationToken.None);
+
+        var nowUtc = DateTime.UtcNow;
+        var futurePending = await context.Appointments
+            .CountAsync(a => a.Status == AppointmentStatus.Pending && a.StartUtc > nowUtc);
+        Assert.True(futurePending >= 3, $"Expected at least 3 future Pending appointments, found {futurePending}.");
+    }
+
+    /// <summary>
+    /// Patient 1 (<c>PatientConfiguration</c>'s <c>HasData</c> row) is the
+    /// account behind the mobile demo login <c>patient@clinicnow.test</c> -
+    /// reschedule/cancel/pay all need a future appointment to act on, and the
+    /// 48h cancellation cutoff specifically needs one further out than that
+    /// to demonstrate cancelling at all.
+    /// </summary>
+    [Fact]
+    public async Task SeedAsync_GivesTheMobileDemoPatientAFutureAppointmentBeyondTheCancellationCutoff()
+    {
+        using var context = TestContextFactory.CreateContext();
+        var seeder = BuildSeeder(context);
+
+        await seeder.SeedAsync(CancellationToken.None);
+
+        var cutoffUtc = DateTime.UtcNow.AddHours(48);
+        var hasAppointmentBeyondCutoff = await context.Appointments
+            .AnyAsync(a => a.PatientId == 1 && a.StartUtc > cutoffUtc);
+        Assert.True(hasAppointmentBeyondCutoff, "Expected patient 1 to have a future appointment more than 48h out.");
     }
 
     [Fact]

@@ -351,14 +351,24 @@ public class DemoDataSeeder
     /// Books roughly every third eligible working day per doctor across a
     /// today-60..today+21 window (deterministic, no <see cref="Random"/>, so a
     /// re-seed of a fresh database always produces the same shape of demo
-    /// data). Stops once <paramref name="target"/> rows exist, which - given
-    /// 5 doctors working 2-5 days/week over an 82-day window - lands
-    /// comfortably inside the 40-60 range the rulebook wants demonstrated.
+    /// data).
+    ///
+    /// Past and future are capped by <em>separate</em> targets
+    /// (<paramref name="pastTarget"/>/<paramref name="futureTarget"/>) rather
+    /// than one combined total. A single shared target is what caused the
+    /// original bug: the loop walked chronologically from today-60 and, with
+    /// 5 doctors averaging ~5.3 booked slots/week, a combined target of 45
+    /// appointments was already exhausted by the past 60-day half before the
+    /// loop ever reached "today" - so on every real review date the future
+    /// half (including every <see cref="AppointmentStatus.Pending"/> row) was
+    /// empty. Verified by simulating the old single-target loop across six
+    /// different "today" dates: 45/45 past, 0 future, every time.
     /// </summary>
     private (List<Appointment> Appointments, List<AppointmentAuditLog> AuditLogs) BuildAppointments(
         DateTime nowUtc, DateOnly today, int firstAppointmentId, out (Appointment Appointment, AppointmentAuditLog AuditLog) referralResultAppointment)
     {
-        const int target = 45;
+        const int pastTarget = 30;
+        const int futureTarget = 18;
         var startDate = today.AddDays(-60);
         var endDate = today.AddDays(21);
 
@@ -367,13 +377,20 @@ public class DemoDataSeeder
         var perDoctorWorkingDayCount = new Dictionary<int, int>();
         var pastCounter = 0;
         var futureCounter = 0;
+        var pastBooked = 0;
+        var futureBooked = 0;
         var nextId = firstAppointmentId;
 
-        for (var date = startDate; date <= endDate && appointments.Count < target; date = date.AddDays(1))
+        for (var date = startDate; date <= endDate; date = date.AddDays(1))
         {
+            if (pastBooked >= pastTarget && futureBooked >= futureTarget)
+            {
+                break;
+            }
+
             var dayOffset = date.DayNumber - startDate.DayNumber;
 
-            for (var doctorIndex = 0; doctorIndex < DoctorProfiles.Length && appointments.Count < target; doctorIndex++)
+            for (var doctorIndex = 0; doctorIndex < DoctorProfiles.Length; doctorIndex++)
             {
                 var profile = DoctorProfiles[doctorIndex];
                 var window = Array.Find(profile.Windows, w => w.Day == date.DayOfWeek);
@@ -387,22 +404,38 @@ public class DemoDataSeeder
                 perDoctorWorkingDayCount[profile.DoctorId] = count;
 
                 // Throttle: only every 3rd eligible working day actually gets
-                // booked, which is what keeps the total near the target
+                // booked, which is what keeps each half near its own target
                 // instead of packing every single working day for 82 days.
                 if (count % 3 != 1)
                 {
                     continue;
                 }
 
+                var startUtc = ClinicTimeZone.ToUtc(date, window.Start);
+                var isPast = startUtc < nowUtc;
+
+                // Once a half's own target is full, stop adding to it - but
+                // keep iterating dates/doctors, since the other half may still
+                // need rows (e.g. the past 60 days fill up long before the
+                // loop reaches "today").
+                if (isPast && pastBooked >= pastTarget)
+                {
+                    continue;
+                }
+
+                if (!isPast && futureBooked >= futureTarget)
+                {
+                    continue;
+                }
+
                 var serviceId = profile.ServiceIds[(count / 3) % profile.ServiceIds.Length];
                 var patientId = PatientPool[(dayOffset + doctorIndex) % PatientPool.Length];
-                var startUtc = ClinicTimeZone.ToUtc(date, window.Start);
                 var endUtc = startUtc.AddMinutes(ServiceDurationMinutes[serviceId]);
 
                 AppointmentStatus status;
                 string? cancellationReason = null;
 
-                if (startUtc < nowUtc)
+                if (isPast)
                 {
                     pastCounter++;
                     // Every 7th past appointment is cancelled instead of
@@ -417,19 +450,22 @@ public class DemoDataSeeder
                     {
                         status = AppointmentStatus.Completed;
                     }
+
+                    pastBooked++;
                 }
                 else if (date == today)
                 {
-                    // Guarantees the dashboard's "termini danas" and the
-                    // upcoming-appointments table are never empty on a clean
-                    // database, regardless of which weekday the container
-                    // first boots on.
+                    // Always Confirmed, never Pending - a same-day slot has
+                    // already passed the point where staff would still be
+                    // waiting to confirm it.
                     status = AppointmentStatus.Confirmed;
+                    futureBooked++;
                 }
                 else
                 {
                     futureCounter++;
                     status = futureCounter % 2 == 0 ? AppointmentStatus.Pending : AppointmentStatus.Confirmed;
+                    futureBooked++;
                 }
 
                 var appointmentId = nextId++;
@@ -460,43 +496,18 @@ public class DemoDataSeeder
             }
         }
 
-        // Belt-and-braces: the throttle above is deterministic but not
-        // guaranteed to land exactly on "today" for every possible boot date,
-        // and "today" is the one date the dashboard actually needs non-empty.
-        if (!appointments.Any(a => ClinicTimeZone.LocalDateOf(a.StartUtc) == today))
+        // The throttle above is deterministic but, depending on which weekday
+        // "today" happens to be, can leave the dashboard's 24h "Sljedeći
+        // termini" window empty (e.g. a boot on Saturday/Sunday, when no
+        // DoctorProfiles entry works at all). Top up to at least two
+        // appointments inside [nowUtc, nowUtc+24h) explicitly, rather than
+        // just guaranteeing one row somewhere on "today" as before - a single
+        // guaranteed slot at a fixed local time can itself already be in the
+        // past by the time a reviewer opens the app later in the day.
+        foreach (var (guaranteedAppointment, guaranteedAuditLog) in BuildGuaranteedNearTermAppointments(nowUtc, today, appointments, ref nextId))
         {
-            var fallbackProfile = Array.Find(DoctorProfiles, p => Array.Exists(p.Windows, w => w.Day == today.DayOfWeek));
-            var hasWorkingDayToday = fallbackProfile != default;
-            var profile = hasWorkingDayToday ? fallbackProfile : DoctorProfiles[0];
-            var startTime = hasWorkingDayToday
-                ? Array.Find(fallbackProfile.Windows, w => w.Day == today.DayOfWeek).Start
-                : new TimeOnly(9, 0);
-            var startUtc = ClinicTimeZone.ToUtc(today, startTime);
-            var serviceId = profile.ServiceIds[0];
-            var appointmentId = nextId++;
-
-            appointments.Add(new Appointment
-            {
-                Id = appointmentId,
-                PatientId = PatientPool[0],
-                DoctorId = profile.DoctorId,
-                MedicalServiceId = serviceId,
-                LocationId = profile.LocationId,
-                StartUtc = startUtc,
-                EndUtc = startUtc.AddMinutes(ServiceDurationMinutes[serviceId]),
-                Status = AppointmentStatus.Confirmed,
-                CreatedByUserId = profile.CreatedByUserId,
-                CreatedAtUtc = startUtc.AddDays(-2)
-            });
-            auditLogs.Add(new AppointmentAuditLog
-            {
-                Id = appointmentId,
-                AppointmentId = appointmentId,
-                Status = AppointmentStatus.Confirmed,
-                ActingUserId = profile.CreatedByUserId,
-                OccurredAtUtc = startUtc.AddDays(-2),
-                Description = DescribeStatus(AppointmentStatus.Confirmed)
-            });
+            appointments.Add(guaranteedAppointment);
+            auditLogs.Add(guaranteedAuditLog);
         }
 
         // The referral demo's "continue to booking" appointment (review item
@@ -532,6 +543,100 @@ public class DemoDataSeeder
         referralResultAppointment = (referralAppointment, referralAuditLog);
 
         return (appointments, auditLogs);
+    }
+
+    /// <summary>
+    /// Tops up <paramref name="alreadyBuilt"/> to at least two appointments
+    /// starting inside the next 24 hours - the exact window
+    /// <c>dashboard_screen.dart</c>'s "Sljedeći termini" table queries. Looks
+    /// for a real <see cref="DoctorProfiles"/> window on "today" or "tomorrow"
+    /// first, so a guaranteed slot still matches a doctor's actual working
+    /// hours whenever the calendar allows it; only falls back to a time
+    /// relative to <paramref name="nowUtc"/> with no matching
+    /// <see cref="WorkingHours"/> row when neither day has any doctor working
+    /// at all (every <see cref="DoctorProfiles"/> entry is Monday-Friday, so
+    /// this only triggers when "today" and "tomorrow" are both weekend days) -
+    /// the same working-hours compromise the single-appointment version of
+    /// this fallback already made.
+    /// </summary>
+    private static List<(Appointment Appointment, AppointmentAuditLog AuditLog)> BuildGuaranteedNearTermAppointments(
+        DateTime nowUtc, DateOnly today, List<Appointment> alreadyBuilt, ref int nextId)
+    {
+        const int requiredWithin24h = 2;
+        var windowEndUtc = nowUtc.AddHours(24);
+
+        var alreadyWithinWindow = alreadyBuilt.Count(a => a.StartUtc >= nowUtc && a.StartUtc < windowEndUtc);
+        var missing = requiredWithin24h - alreadyWithinWindow;
+        var results = new List<(Appointment, AppointmentAuditLog)>();
+        if (missing <= 0)
+        {
+            return results;
+        }
+
+        var candidates = new List<(DoctorBookingProfile Profile, DateTime StartUtc)>();
+        foreach (var dayOffset in new[] { 0, 1 })
+        {
+            var date = today.AddDays(dayOffset);
+            foreach (var profile in DoctorProfiles)
+            {
+                var window = Array.Find(profile.Windows, w => w.Day == date.DayOfWeek);
+                if (window == default)
+                {
+                    continue;
+                }
+
+                var startUtc = ClinicTimeZone.ToUtc(date, window.Start);
+                if (startUtc >= nowUtc && startUtc < windowEndUtc)
+                {
+                    candidates.Add((profile, startUtc));
+                }
+            }
+        }
+
+        var syntheticOffsets = new[] { TimeSpan.FromHours(3), TimeSpan.FromHours(20) };
+
+        for (var i = 0; i < missing; i++)
+        {
+            DoctorBookingProfile profile;
+            DateTime startUtc;
+            if (i < candidates.Count)
+            {
+                (profile, startUtc) = candidates[i];
+            }
+            else
+            {
+                profile = DoctorProfiles[i % DoctorProfiles.Length];
+                startUtc = nowUtc.Add(syntheticOffsets[i % syntheticOffsets.Length]);
+            }
+
+            var serviceId = profile.ServiceIds[0];
+            var appointmentId = nextId++;
+            var appointment = new Appointment
+            {
+                Id = appointmentId,
+                PatientId = PatientPool[i % PatientPool.Length],
+                DoctorId = profile.DoctorId,
+                MedicalServiceId = serviceId,
+                LocationId = profile.LocationId,
+                StartUtc = startUtc,
+                EndUtc = startUtc.AddMinutes(ServiceDurationMinutes[serviceId]),
+                Status = AppointmentStatus.Confirmed,
+                CreatedByUserId = profile.CreatedByUserId,
+                CreatedAtUtc = nowUtc.AddDays(-2)
+            };
+            var auditLog = new AppointmentAuditLog
+            {
+                Id = appointmentId,
+                AppointmentId = appointmentId,
+                Status = AppointmentStatus.Confirmed,
+                ActingUserId = profile.CreatedByUserId,
+                OccurredAtUtc = nowUtc.AddDays(-2),
+                Description = DescribeStatus(AppointmentStatus.Confirmed)
+            };
+            results.Add((appointment, auditLog));
+        }
+
+        return results;
     }
 
     private static DateOnly NextOccurrenceOfWeekday(DateOnly from, DayOfWeek day)

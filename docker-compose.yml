@@ -94,6 +94,27 @@ services:
     depends_on:
       rabbitmq:
         condition: service_healthy
+      mailhog:
+        condition: service_started
+    networks:
+      - clinicnow-net
+
+  # SMTP test server for local/dev use (never for the submitted build - the
+  # rulebook doesn't require real email delivery, but a demo/defense should
+  # still be able to point SMTP_HOST/PORT in .env at real credentials
+  # instead). Every email the Worker sends is caught here and viewable at
+  # http://localhost:8025 - nothing actually leaves the machine. Not
+  # overridden via `environment:` like RABBITMQ_HOST/DB_CONNECTION_STRING
+  # above: unlike those, SMTP deliberately stays driven by whatever .env
+  # says, so switching to real SMTP for a demo is a one-file .env edit, not
+  # a docker-compose.yml edit.
+  mailhog:
+    image: mailhog/mailhog:v1.0.1
+    container_name: clinicnow-mailhog
+    restart: unless-stopped
+    ports:
+      - "1025:1025" # SMTP - host-mapped so a bare `dotnet run` Worker can reach it too
+      - "8025:8025" # web UI - view caught mail here
     networks:
       - clinicnow-net
 
