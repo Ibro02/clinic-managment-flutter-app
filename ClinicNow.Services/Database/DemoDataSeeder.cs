@@ -72,6 +72,7 @@ public class DemoDataSeeder
         var today = DateOnly.FromDateTime(nowLocal);
 
         var users = BuildUsers();
+        var userRoles = BuildUserRoles();
         var doctors = BuildDoctors();
         var doctorSpecializations = BuildDoctorSpecializations();
         var workingHours = BuildWorkingHours();
@@ -138,6 +139,16 @@ public class DemoDataSeeder
             await using var disposableTransaction = transaction;
 
             await InsertWithExplicitIdsAsync(_context.Users, users, "Users", cancellationToken);
+
+            // Composite key (UserId, RoleId), not an identity column - no
+            // IDENTITY_INSERT involved. Without this, a seeded account logs
+            // in fine (authentication only needs a password hash) but its
+            // JWT carries no role claim at all, so every role-gated action
+            // - including every one of this doctor/patient's own screens -
+            // fails in whatever way an absent role happens to be treated.
+            _context.UserRoles.AddRange(userRoles);
+            await _context.SaveChangesAsync(cancellationToken);
+
             await InsertWithExplicitIdsAsync(_context.Doctors, doctors, "Doctors", cancellationToken);
 
             // Composite key (DoctorId, SpecializationId), not an identity column -
@@ -237,6 +248,22 @@ public class DemoDataSeeder
             new User { Id = 111, Email = "patient3@clinicnow.test", PasswordHash = passwordHash, FirstName = "Kenan", LastName = "Hodžić", PhoneNumber = "+38762000111", IsActive = true, CreatedAtUtc = DateTime.UtcNow }
         ];
     }
+
+    /// <summary>
+    /// Without this, an account authenticates fine (login only needs a
+    /// password hash) but its JWT carries no role claim at all - see
+    /// <see cref="Model.Security.Roles"/>/<c>RoleConfiguration</c> for the
+    /// fixed role ids (3 = Doctor, 4 = Patient) every other seeded account
+    /// already gets via <c>UserRoleConfiguration.HasData</c>.
+    /// </summary>
+    private static List<UserRole> BuildUserRoles() =>
+    [
+        new UserRole { UserId = 100, RoleId = 3 },
+        new UserRole { UserId = 101, RoleId = 3 },
+        new UserRole { UserId = 102, RoleId = 3 },
+        new UserRole { UserId = 110, RoleId = 4 },
+        new UserRole { UserId = 111, RoleId = 4 }
+    ];
 
     private static List<Doctor> BuildDoctors() =>
     [

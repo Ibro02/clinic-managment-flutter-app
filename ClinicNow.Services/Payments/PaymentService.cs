@@ -567,6 +567,16 @@ public class PaymentService : IPaymentService
         var principal = CurrentUser();
         if (principal.IsInRole(Roles.Administrator) || principal.IsInRole(Roles.Staff)) return;
 
+        // A Doctor is neither Staff/Admin nor a Patient - falling through to
+        // GetOwnPatientIdAsync for one throws a confusing "no medical record
+        // for this account" (a Doctor's User row has no linked Patient at
+        // all) instead of the real reason, which is that payments simply
+        // aren't part of the doctor-facing surface.
+        if (principal.IsInRole(Roles.Doctor))
+        {
+            throw new ForbiddenException(forbiddenMessage);
+        }
+
         var ownPatientId = await GetOwnPatientIdAsync(CurrentUserId(principal), cancellationToken);
         var appointment = await _context.Appointments.SingleOrDefaultAsync(a => a.Id == appointmentId, cancellationToken)
             ?? throw new NotFoundException(nameof(Database.Entities.Appointment), appointmentId);

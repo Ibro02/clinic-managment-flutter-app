@@ -79,6 +79,34 @@ public class DemoDataSeederTests
         Assert.Equal(countAfterFirstRun, countAfterSecondRun);
     }
 
+    /// <summary>
+    /// A real bug this exact seeder shipped with: the new doctor/patient
+    /// accounts authenticated fine (login only needs a password hash) but
+    /// carried no role at all, since nothing ever wrote their UserRole rows -
+    /// every role-gated action they tried then failed in whatever way an
+    /// absent role happens to be treated, instead of a clean "wrong role".
+    /// </summary>
+    [Fact]
+    public async Task SeedAsync_AssignsARoleToEveryNewAccount()
+    {
+        using var context = TestContextFactory.CreateContext();
+        var seeder = BuildSeeder(context);
+
+        await seeder.SeedAsync(CancellationToken.None);
+
+        foreach (var doctorUserId in new[] { 100, 101, 102 })
+        {
+            var roleIds = await context.UserRoles.Where(ur => ur.UserId == doctorUserId).Select(ur => ur.RoleId).ToListAsync();
+            Assert.Equal([3], roleIds); // Doctor
+        }
+
+        foreach (var patientUserId in new[] { 110, 111 })
+        {
+            var roleIds = await context.UserRoles.Where(ur => ur.UserId == patientUserId).Select(ur => ur.RoleId).ToListAsync();
+            Assert.Equal([4], roleIds); // Patient
+        }
+    }
+
     [Fact]
     public async Task SeedAsync_HashesNewPasswordsWithTheSamePasswordHasherAsHasData()
     {
