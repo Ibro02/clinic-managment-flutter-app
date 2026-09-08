@@ -11,6 +11,10 @@
 #     git add -f .env-tajne.zip
 .env-tajne.zip
 
+# Superseded duplicate secrets archive - env-tajne.zip is the one and only
+# archive the rulebook wants shipped; don't let a stray re-zip resurrect this.
+.env.zip
+
 # Firebase service-account key (FCM sender credential). Contains a live RSA
 # private key; it belongs in .env as FIREBASE_SERVICE_ACCOUNT_BASE64 and must
 # never be committed as a file, whatever it gets renamed to.
@@ -31,6 +35,7 @@ CLAUDE.md
 GOALS.md
 PLAN.md
 TESTING.md
+docs/superpowers/
 
 # =============================================================================
 # .NET

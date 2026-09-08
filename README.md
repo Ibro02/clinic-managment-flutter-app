@@ -24,12 +24,33 @@ every core CRUD/booking flow works without them.
 
 ### Step 1 — start the backend
 
+The repository root **is** this project — there's no nested `ClinicNow/` folder to `cd` into after
+cloning.
+
 ```bash
 git clone <this-repo-url>
-cd ClinicNow
-cp .env.example .env
+unzip -P <password from the submission system> env-tajne.zip
 docker-compose up --build
 ```
+
+(No `unzip` on your `PATH`? On Windows, double-click `env-tajne.zip` in File Explorer — it opens
+natively, no 7-Zip required — and extract `.env` into the repo root when prompted for the
+password.)
+
+`env-tajne.zip` (committed at the repo root, per rulebook §9.2) is the password-protected archive
+containing this project's real `.env` — JWT key, SMTP, PayPal sandbox credentials, Firebase — so
+the app runs with no further configuration. The password is supplied separately on the submission
+system, never in this repo.
+
+No password, or want to run with your own credentials instead? Fall back to the template and fill
+it in yourself (see [Configuration](#1-configuration)):
+
+```bash
+cp .env.example .env
+```
+
+Every core CRUD/booking flow works either way; only PayPal checkout and SMTP/push notifications
+need real credentials to fully function.
 
 Leave this terminal running. Before starting either client, confirm the API answers:
 
@@ -92,36 +113,44 @@ under [Test accounts](#test-accounts) further down.
 
 ## Project status
 
-This repository is at **Phase 6 (Medical Documentation)** of the plan. JWT auth (Phase 1), the
-four codebooks (Phase 2), `Patient`/`Doctor`/`WorkingHours`/`ScheduleBlock` (Phase 3), the full
-appointment state machine (Phase 4), and notifications/news/async email (Phase 5) are all in
-place. Phase 6 adds:
+The full feature set from the seminar spec is implemented end to end, on both clients:
 
+- **Booking core** — JWT auth with role-based access (Administrator/Staff/Doctor/Patient); the
+  reference codebooks (Specialization, MedicalService, Location, City); `Patient`/`Doctor` records
+  with `WorkingHours`/`ScheduleBlock`; a centralized appointment state machine
+  (`Pending → Confirmed → Completed`, `Cancelled` from any non-terminal state) with a full audit
+  trail, server-side doctor↔service compatibility checks, and timezone-correct slot generation.
+  **Reschedule** re-runs the same server-side availability checks as a new booking.
+- **Clinical records** — a per-patient medical file (`MedicalRecord`/`MedicalRecordEntry`: a
+  Doctor can only append, an Administrator has full CRUD), **lab findings** tied to a specific
+  appointment, and **specialist referrals** ("uputnice") that a booking can be continued from
+  directly.
 - **`MedicalDocument`** — a file (PDF/PNG/JPEG) plus an optional finding note attached to a
   patient's record. Uploads are validated server-side against **both** the declared MIME type
-  **and** the file's actual magic bytes (a renamed file can't fake its way past the check), and
-  legally-retained health data is soft-delete only, never hard-deleted.
-- Ownership enforced server-side: Administrator/Staff/Doctor can view/upload for any patient; a
-  Patient can only ever see (and download) their **own** documents, regardless of what filter the
-  client sends.
-- Desktop: attach/view/download/delete on a patient's record (a new "Dokumenti" row action on the
-  Patients screen), using `file_picker` for a real pick-a-file/save-a-file flow. Mobile: a
-  read-only "Dokumenti" tab where a patient views and downloads only their own files.
+  **and** the file's actual magic bytes, and legally-retained health data is soft-delete only,
+  never hard-deleted. Ownership is enforced server-side regardless of what filter the client sends.
+- **Payments** — real PayPal sandbox checkout and refunds: a server-owned price catalog, one
+  active payment per appointment, idempotent capture reconciliation against what PayPal actually
+  returned, and a durable refund-failure state when an automatic refund can't complete.
+- **Recommender** — ML.NET content-based suggestions over the patient's own booking history, with
+  a human-readable reason attached to every suggestion (`recommender-dokumentacija.md`).
+- **Reports & dashboard** — server-generated PDF appointment and revenue reports (with a
+  service-type filter and a chart view), and a desktop dashboard with auto-refresh and
+  drill-through KPI cards.
+- **Notifications & news** — in-app notifications with real-time SignalR push (best-effort — a
+  push failure never fails the write that created the notification) and image-carrying
+  news/announcements.
 
-Since Phase 6, a full patient **medical file ("medicinski karton")** was added — distinct from
-`MedicalDocument`'s file attachments:
+Desktop covers every screen listed above. Mobile has a "Dokumenti" section with three tabs —
+Dokumenti (files), Nalazi (lab findings), Uputnice (referrals) — plus booking, payments,
+notifications, news, and the recommender. The one screen mobile does not have is a `MedicalRecord`
+("medicinski karton") editor/viewer — that stays desktop-only (Administrator/Doctor tooling, not a
+patient-facing view).
 
-- **`MedicalRecord`** — exactly one per patient (DB-level unique index), with a header (name, age,
-  gender, address, email, phone — all denormalized onto one response), an allergies/notes section,
-  and a **`MedicalRecordEntry`** treatment-history table (Date/Treatment/Description, all required).
-- A **Doctor can only ever add content** — append to allergies/notes, add a history row — never
-  edit or delete anything already applied to the file; this is enforced structurally (there is no
-  Doctor-reachable code path that overwrites/removes prior content), not just a role check.
-- **Administrator has full CRUD** over the same content (replace notes, edit/delete any entry).
-- Desktop: a new "medicinski karton" row action on the Patients screen opens the full
-  view/editor. No mobile UI for this yet (out of scope for now).
-
-The recommender and payments start at Phase 7+.
+The one backend item not yet landed: `PayPalClient` is a hand-rolled REST client over
+`IHttpClientFactory` rather than the official PayPal SDK — every correctness fix around payments
+(duplicate-charge prevention, capture reconciliation, refund-failure tracking) is in; only the SDK
+swap itself is outstanding, and nothing about that gap is user-visible.
 
 ## Architecture
 
@@ -131,7 +160,7 @@ ClinicNow/
   docker-compose.yml          # SQL Server + RabbitMQ + API + Worker
   Dockerfile.api
   Dockerfile.worker
-  .env.example                 # copy to .env and fill in real values
+  .env.example                 # template; unzip env-tajne.zip to .env instead, or copy+fill this
   ClinicNow.Model/              # DTOs, requests, search objects, exceptions, shared config
   ClinicNow.Services/           # EF Core entities + DbContext, business services
   ClinicNow.API/                # Controllers, Program.cs, OpenAPI + Scalar UI
@@ -143,8 +172,7 @@ ClinicNow/
 ```
 
 Layering is strict: **Controller → Service → DbContext**. Controllers never contain business
-logic or touch the database directly. See the repository's `CLAUDE.md`/`PLAN.md` (kept alongside
-this project, not committed here) for the full engineering rules this codebase follows.
+logic or touch the database directly.
 
 ## Prerequisites
 
@@ -164,16 +192,23 @@ blocks the APK. Neither blocks the browser fallback below.
 ## 1. Configuration
 
 All configuration lives in a single `.env` file at the repository root — never in
-`appsettings.json`, never hardcoded (see `CLAUDE.md` Part II §C).
+`appsettings.json`, never hardcoded (rulebook Part II §C).
+
+The primary path is the archive from [Step 1](#step-1--start-the-backend):
+
+```bash
+unzip -P <password from the submission system> env-tajne.zip
+```
+
+To run with your own credentials instead, use the template and fill in real values (JWT key,
+SMTP, PayPal sandbox keys, etc. — see the comments in `.env.example`):
 
 ```bash
 cp .env.example .env
 ```
 
-Then fill in real values (JWT key, SMTP, PayPal sandbox keys, etc. — see the comments in
-`.env.example`). `DB_SA_PASSWORD` and `DB_NAME` are the single source of truth for the database:
-docker-compose uses them both to start the SQL Server container and to build the API/Worker's
-connection string.
+`DB_SA_PASSWORD` and `DB_NAME` are the single source of truth for the database: docker-compose
+uses them both to start the SQL Server container and to build the API/Worker's connection string.
 
 ## 2. Running the backend
 
@@ -194,12 +229,23 @@ startup — no manual DB setup needed.
 
 ### Option B — running the API/Worker directly on your machine (local dev)
 
-Useful when Docker isn't available. Point `DB_CONNECTION_STRING` in `.env` at a SQL Server /
-SQL Server LocalDB instance you have locally, then:
+Useful for a faster inner dev loop, or when you can't run the full stack under Docker. Bring up
+just the dependencies:
+
+```bash
+docker-compose up clinicnow-sql rabbitmq
+```
+
+`.env.example`'s `DB_CONNECTION_STRING` (`Server=localhost,1433;...`) already matches the host port
+`clinicnow-sql` publishes (`ports: 1433:1433` in `docker-compose.yml`), so no edit is needed for
+that case. If you'd rather point at your own SQL Server / LocalDB instance instead, change
+`DB_CONNECTION_STRING` in `.env` to match its host/port. Either way, `RABBITMQ_HOST`/`RABBITMQ_PORT`
+in `.env` also need to say `localhost`/`5673` — the container hostname `rabbitmq` docker-compose.yml
+sets for the containerized API/Worker doesn't resolve on your host. Then:
 
 ```bash
 dotnet run --project ClinicNow.API
-dotnet run --project ClinicNow.Worker   # separate terminal - needs a reachable RabbitMQ
+dotnet run --project ClinicNow.Worker   # separate terminal
 ```
 
 ### Migrations
