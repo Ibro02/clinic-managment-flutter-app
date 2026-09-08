@@ -57,6 +57,12 @@ public class LabFindingService : ILabFindingService
             }
         }
 
+        if (!string.IsNullOrWhiteSpace(search.Search))
+        {
+            var term = search.Search.Trim();
+            query = query.Where(f => f.Result.Contains(term) || f.FileName.Contains(term));
+        }
+
         query = query.OrderByDescending(f => f.CreatedAtUtc);
 
         var count = await query.CountAsync(cancellationToken);

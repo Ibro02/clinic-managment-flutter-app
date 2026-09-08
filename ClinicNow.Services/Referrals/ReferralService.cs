@@ -63,6 +63,12 @@ public class ReferralService : IReferralService
             query = query.Where(r => r.PatientId == search.PatientId.Value);
         }
 
+        if (!string.IsNullOrWhiteSpace(search.Search))
+        {
+            var term = search.Search.Trim();
+            query = query.Where(r => r.Reason.Contains(term) || r.TargetSpecialization.Name.Contains(term));
+        }
+
         query = query.OrderByDescending(r => r.CreatedAtUtc);
 
         var count = await query.CountAsync(cancellationToken);

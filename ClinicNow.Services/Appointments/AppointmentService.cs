@@ -115,13 +115,18 @@ public class AppointmentService : IAppointmentService
         return new ClinicNow.Model.Common.PagedResult<AppointmentDto>
         {
             Count = count,
-            ResultList = entities.Select(MapToDto).ToList()
+            ResultList = entities.Select(a => MapToDto(a)).ToList()
         };
     }
 
     public async Task<AppointmentDto?> GetByIdAsync(int id, CancellationToken cancellationToken = default)
     {
-        var appointment = await IncludeAll(_context.Appointments.AsQueryable()).SingleOrDefaultAsync(a => a.Id == id, cancellationToken);
+        // AuditLogs is included only here, never in IncludeAll (used by the
+        // paged list too) - the rulebook keeps list DTOs display-only, and this
+        // is the one caller that needs the history (AppointmentDto.AuditLogs).
+        var appointment = await IncludeAll(_context.Appointments.AsQueryable())
+            .Include(a => a.AuditLogs).ThenInclude(l => l.ActingUser)
+            .SingleOrDefaultAsync(a => a.Id == id, cancellationToken);
         if (appointment is null)
         {
             return null;
@@ -129,7 +134,7 @@ public class AppointmentService : IAppointmentService
 
         await EnsureOwnershipAsync(appointment, cancellationToken);
 
-        return MapToDto(appointment);
+        return MapToDto(appointment, includeAuditLogs: true);
     }
 
     public async Task<AppointmentDto> ScheduleAsync(AppointmentInsertRequest request, CancellationToken cancellationToken = default)
@@ -697,7 +702,7 @@ public class AppointmentService : IAppointmentService
         return actions;
     }
 
-    private AppointmentDto MapToDto(Appointment appointment)
+    private AppointmentDto MapToDto(Appointment appointment, bool includeAuditLogs = false)
     {
         var dto = _mapper.Map<AppointmentDto>(appointment);
 
@@ -750,6 +755,22 @@ public class AppointmentService : IAppointmentService
                     or Model.Common.PaymentStatus.RequiresReconciliation
                 && remaining > 0;
             dto.RefundFailed = currentPayment.RefundFailedAtUtc is not null;
+        }
+
+        if (includeAuditLogs)
+        {
+            dto.AuditLogs = appointment.AuditLogs
+                .OrderByDescending(l => l.OccurredAtUtc)
+                .Select(l => new AppointmentAuditLogDto
+                {
+                    Id = l.Id,
+                    ActingUserName = l.ActingUser.FirstName + " " + l.ActingUser.LastName,
+                    Status = l.Status,
+                    StatusName = l.Status.ToDisplayName(),
+                    OccurredAtUtc = l.OccurredAtUtc,
+                    Description = l.Description
+                })
+                .ToList();
         }
 
         return dto;

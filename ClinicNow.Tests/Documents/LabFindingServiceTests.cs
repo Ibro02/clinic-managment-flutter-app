@@ -130,6 +130,30 @@ public class LabFindingServiceTests
     }
 
     [Fact]
+    public async Task GetPagedAsync_FilteredBySearch_MatchesResultOrFileName()
+    {
+        await using var context = ContextWithAccessor(3, Roles.Doctor, out var service);
+        await service.CreateAsync(new LabFindingInsertRequest
+        {
+            AppointmentId = 2,
+            Result = "Povišen šećer u krvi.",
+            FileName = "glukoza.pdf",
+            ContentType = "application/pdf",
+            FileBase64 = ValidPdfBase64
+        });
+
+        // Seeded LabFinding Id=1 ("Kompletna krvna slika...", nalaz-kks.pdf)
+        // must not match either search term below.
+        var byResult = await service.GetPagedAsync(new LabFindingSearchObject { Search = "šećer" });
+        Assert.Single(byResult.ResultList);
+        Assert.Equal("glukoza.pdf", byResult.ResultList[0].FileName);
+
+        var byFileName = await service.GetPagedAsync(new LabFindingSearchObject { Search = "glukoza" });
+        Assert.Single(byFileName.ResultList);
+        Assert.Equal("glukoza.pdf", byFileName.ResultList[0].FileName);
+    }
+
+    [Fact]
     public async Task GetPagedAsync_PatientRole_OnlySeesOwnFindings()
     {
         // Patient 1's User is Id=4 (Hana, per PatientConfiguration/AddIdentity seed).

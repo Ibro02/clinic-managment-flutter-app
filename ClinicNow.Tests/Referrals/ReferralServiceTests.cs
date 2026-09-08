@@ -103,6 +103,28 @@ public class ReferralServiceTests
     }
 
     [Fact]
+    public async Task GetPagedAsync_FilteredBySearch_MatchesReasonOrSpecializationName()
+    {
+        var service = NewService(3, Roles.Doctor);
+        await service.CreateAsync(new ReferralInsertRequest
+        {
+            SourceAppointmentId = 4,
+            TargetSpecializationId = 4, // Kardiologija
+            Reason = "Sumnja na aritmiju, potrebna kardiološka evaluacija."
+        });
+
+        // Seeded Referral Id=1 ("Povišen krvni pritisak...", Kardiologija too)
+        // also matches "kardio" - both hits are expected, not just the new one.
+        var byReason = await service.GetPagedAsync(new ReferralSearchObject { Search = "aritmiju" });
+        Assert.Single(byReason.ResultList);
+        Assert.Contains("aritmiju", byReason.ResultList[0].Reason);
+
+        var bySpecialization = await service.GetPagedAsync(new ReferralSearchObject { Search = "Kardiologija" });
+        Assert.True(bySpecialization.ResultList.Count >= 2);
+        Assert.All(bySpecialization.ResultList, r => Assert.Equal("Kardiologija", r.TargetSpecializationName));
+    }
+
+    [Fact]
     public async Task GetPagedAsync_PatientRole_OnlySeesOwnReferrals()
     {
         // Patient 1's User is Id=4 (Hana, per PatientConfiguration/AddIdentity seed).

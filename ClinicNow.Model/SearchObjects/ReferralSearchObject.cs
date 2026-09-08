@@ -14,6 +14,9 @@ public class ReferralSearchObject : BaseSearchObject
     /// </summary>
     public bool OnlyArchived { get; set; }
 
+    /// <summary>Case-insensitive partial match against the reason/diagnosis or the target specialist's specialization name (rulebook §2.2: every list needs at least one search parameter).</summary>
+    public string? Search { get; set; }
+
     /// <inheritdoc />
     protected override ISet<string> SortableColumns { get; } =
         new HashSet<string>(StringComparer.OrdinalIgnoreCase)

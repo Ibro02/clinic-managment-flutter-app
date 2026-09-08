@@ -35,6 +35,11 @@ public class AppointmentMappingConfig : IRegister
             // pattern as PaymentMappingConfig's ApproveUrl.
             .Ignore(dest => dest.PaymentStatus!)
             .Ignore(dest => dest.PaymentId!)
-            .Ignore(dest => dest.CanRefund);
+            .Ignore(dest => dest.CanRefund)
+            // Same reasoning as AllowedActions: populating this needs the
+            // ActingUser's name and the status display name, which
+            // AppointmentService.MapToDto fills in as a post-mapping step -
+            // and only for the detail endpoint (see AuditLogs's own doc comment).
+            .Ignore(dest => dest.AuditLogs);
     }
 }

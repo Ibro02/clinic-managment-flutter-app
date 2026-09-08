@@ -30,11 +30,12 @@ public class ContactValidationConsistencyTests
     private const string MalformedPhone = "not-a-number";
 
     private static PatientService NewPatientService(ClinicNowContext context) =>
-        new(context, TestContextFactory.CreateMapper(), TestContextFactory.CreateHttpContextAccessor(1));
+        new(context, TestContextFactory.CreateMapper(), TestContextFactory.CreateHttpContextAccessor(1),
+            new UnusedTokenBlocklistService());
 
     private static DoctorService NewDoctorService(ClinicNowContext context) =>
         new(context, TestContextFactory.CreateMapper(), new PasswordHasher(),
-            TestContextFactory.CreateHttpContextAccessor(1));
+            TestContextFactory.CreateHttpContextAccessor(1), new UnusedTokenBlocklistService());
 
     private static UserService NewUserService(ClinicNowContext context) =>
         new(context, TestContextFactory.CreateMapper(), new PasswordHasher(),

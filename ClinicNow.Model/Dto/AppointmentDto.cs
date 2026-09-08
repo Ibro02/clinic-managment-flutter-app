@@ -76,4 +76,12 @@ public class AppointmentDto
     /// wherever a cancelled appointment appears, without a second call.
     /// </summary>
     public bool RefundFailed { get; set; }
+
+    /// <summary>
+    /// Full status-change history - who/when/why (rulebook §7's audit trail).
+    /// Populated only by <c>GET /api/Appointment/{id}</c> (the detail view);
+    /// left empty on the paged list endpoint (rulebook Part II §8.2: list DTOs
+    /// exclude data that isn't display data).
+    /// </summary>
+    public List<AppointmentAuditLogDto> AuditLogs { get; set; } = [];
 }

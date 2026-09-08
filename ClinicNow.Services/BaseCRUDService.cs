@@ -102,8 +102,17 @@ public abstract class BaseCRUDService<TModel, TSearch, TDbEntity, TInsert, TUpda
             throw new BusinessException(
                 "Zapis se ne može obrisati jer je povezan sa drugim podacima u sistemu.", ex);
         }
+
+        await AfterDeleteAsync(entity, cancellationToken);
     }
 
     /// <summary>Guard hook: throw <see cref="BusinessException"/> if the entity is still referenced elsewhere.</summary>
     protected virtual Task BeforeDeleteAsync(TDbEntity entity, CancellationToken cancellationToken) => Task.CompletedTask;
+
+    /// <summary>
+    /// Runs after the delete/archive has been committed - e.g. evicting a cache
+    /// entry that must reflect what was just persisted, not what SaveChangesAsync
+    /// is about to overwrite.
+    /// </summary>
+    protected virtual Task AfterDeleteAsync(TDbEntity entity, CancellationToken cancellationToken) => Task.CompletedTask;
 }
