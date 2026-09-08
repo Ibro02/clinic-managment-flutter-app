@@ -17,8 +17,7 @@ import 'error_text.dart';
 /// store now drives the badge and the list from the same tick, which is strictly
 /// less code than the timer it replaces plus a Dart SignalR client, and adds no
 /// third-party package to a release build that has to run unmodified when it is
-/// graded. The server still pushes over `/hubs/notifications`; nothing here
-/// prevents a hub client being added later.
+/// graded.
 ///
 /// Two things keep the polling honest rather than wasteful:
 ///

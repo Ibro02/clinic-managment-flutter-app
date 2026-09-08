@@ -697,6 +697,17 @@ public class AppointmentService : IAppointmentService
         return actions;
     }
 
+    public IReadOnlyList<AppointmentStatusInfoDto> GetStatusInfo() =>
+        Enum.GetValues<AppointmentStatus>()
+            .Select(status => new AppointmentStatusInfoDto
+            {
+                Status = status,
+                StatusName = status.ToDisplayName(),
+                Description = status.ToDescription(),
+                AllowedActions = StructurallyAllowed(status).Select(a => a.ToString()).ToList()
+            })
+            .ToList();
+
     private AppointmentDto MapToDto(Appointment appointment, bool includeAuditLogs = false)
     {
         var dto = _mapper.Map<AppointmentDto>(appointment);

@@ -29,4 +29,18 @@ public static class AppointmentStatusExtensions
         AppointmentStatus.Cancelled => "Otkazan",
         _ => status.ToString()
     };
+
+    /// <summary>
+    /// One-line explanation of what this status means, for the read-only
+    /// "Statusi termina" codebook tab (review item S2) - a pure function for
+    /// the same reason as <see cref="ToDisplayName"/>.
+    /// </summary>
+    public static string ToDescription(this AppointmentStatus status) => status switch
+    {
+        AppointmentStatus.Pending => "Termin zakazan, čeka potvrdu.",
+        AppointmentStatus.Confirmed => "Termin potvrđen.",
+        AppointmentStatus.Completed => "Termin obavljen.",
+        AppointmentStatus.Cancelled => "Termin otkazan.",
+        _ => string.Empty
+    };
 }

@@ -25,4 +25,12 @@ public interface IAppointmentService : IService<AppointmentDto, AppointmentSearc
 
     /// <summary>Real, currently-free start times for a doctor+service on a given day - never a client-computed guess (rulebook §7: "only real free slots offered").</summary>
     Task<List<DateTime>> GetAvailableSlotsAsync(int doctorId, int medicalServiceId, DateOnly date, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Every <c>AppointmentStatus</c> with its description and the transitions
+    /// legal from it right now, for the read-only "Statusi termina" codebook tab
+    /// (review item S2). No DB access - a pure read of the state machine, so it's
+    /// synchronous rather than faking an async signature.
+    /// </summary>
+    IReadOnlyList<AppointmentStatusInfoDto> GetStatusInfo();
 }

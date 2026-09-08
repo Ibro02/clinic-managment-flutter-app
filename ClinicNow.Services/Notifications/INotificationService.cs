@@ -21,6 +21,6 @@ public interface INotificationService
 
     Task MarkAllAsReadAsync(CancellationToken cancellationToken = default);
 
-    /// <summary>Creates a notification for <paramref name="userId"/> and pushes it over SignalR. Called by other services, never directly by a controller.</summary>
+    /// <summary>Creates a notification for <paramref name="userId"/> and queues a device push. Called by other services, never directly by a controller. Both clients pick up the new row via polling (rulebook Part II §G permits SignalR or polling).</summary>
     Task CreateAsync(int userId, string title, string text, CancellationToken cancellationToken = default);
 }

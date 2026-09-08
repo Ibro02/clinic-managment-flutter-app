@@ -64,4 +64,9 @@ public class AppointmentController : BaseController<AppointmentDto, AppointmentS
     public async Task<ActionResult<List<DateTime>>> GetAvailableSlots(
         [FromQuery] int doctorId, [FromQuery] int medicalServiceId, [FromQuery] DateOnly date, CancellationToken cancellationToken) =>
         Ok(await _appointmentService.GetAvailableSlotsAsync(doctorId, medicalServiceId, date, cancellationToken));
+
+    /// <summary>The read-only "Statusi termina" codebook tab (review item S2) - live state-machine data, not a hardcoded list.</summary>
+    [HttpGet("statuses")]
+    public ActionResult<IReadOnlyList<AppointmentStatusInfoDto>> GetStatusInfo() =>
+        Ok(_appointmentService.GetStatusInfo());
 }

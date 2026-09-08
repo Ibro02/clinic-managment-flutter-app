@@ -5,6 +5,7 @@ import 'dart:convert';
 import '../core/auth_session.dart';
 import '../core/base_provider.dart';
 import '../models/appointment.dart';
+import '../models/appointment_status_info.dart';
 
 class AppointmentProvider extends BaseProvider<Appointment> {
   AppointmentProvider(AuthSession authSession) : super('Appointment', authSession);
@@ -58,5 +59,15 @@ class AppointmentProvider extends BaseProvider<Appointment> {
     );
     final list = decode(response) as List<dynamic>;
     return list.map((e) => DateTime.parse(e as String).toLocal()).toList();
+  }
+
+  /// Every appointment status with its description and the transitions
+  /// legal from it right now - drives the read-only "Statusi termina"
+  /// codebook tab (review item S2). Live state-machine data, not a
+  /// hardcoded list in Flutter.
+  Future<List<AppointmentStatusInfo>> statuses() async {
+    final response = await apiGet(buildUri('api/Appointment/statuses'), headers: authHeaders());
+    final list = decode(response) as List<dynamic>;
+    return list.map((e) => AppointmentStatusInfo.fromJson(e as Map<String, dynamic>)).toList();
   }
 }

@@ -29,15 +29,15 @@ cloning.
 
 ```bash
 git clone <this-repo-url>
-unzip -P <password from the submission system> env-tajne.zip
+unzip -P <password from the submission system> .env-tajne.zip
 docker-compose up --build
 ```
 
-(No `unzip` on your `PATH`? On Windows, double-click `env-tajne.zip` in File Explorer — it opens
+(No `unzip` on your `PATH`? On Windows, double-click `.env-tajne.zip` in File Explorer — it opens
 natively, no 7-Zip required — and extract `.env` into the repo root when prompted for the
 password.)
 
-`env-tajne.zip` (committed at the repo root, per rulebook §9.2) is the password-protected archive
+`.env-tajne.zip` (committed at the repo root, per rulebook §9.2) is the password-protected archive
 containing this project's real `.env` — JWT key, SMTP, PayPal sandbox credentials, Firebase — so
 the app runs with no further configuration. The password is supplied separately on the submission
 system, never in this repo.
@@ -161,7 +161,7 @@ ClinicNow/
   docker-compose.yml          # SQL Server + RabbitMQ + MailHog + API + Worker
   Dockerfile.api
   Dockerfile.worker
-  .env.example                 # template; unzip env-tajne.zip to .env instead, or copy+fill this
+  .env.example                 # template; unzip .env-tajne.zip to .env instead, or copy+fill this
   ClinicNow.Model/              # DTOs, requests, search objects, exceptions, shared config
   ClinicNow.Services/           # EF Core entities + DbContext, business services
   ClinicNow.API/                # Controllers, Program.cs, OpenAPI + Scalar UI
@@ -198,7 +198,7 @@ All configuration lives in a single `.env` file at the repository root — never
 The primary path is the archive from [Step 1](#step-1--start-the-backend):
 
 ```bash
-unzip -P <password from the submission system> env-tajne.zip
+unzip -P <password from the submission system> .env-tajne.zip
 ```
 
 To run with your own credentials instead, use the template and fill in real values (JWT key,
@@ -423,17 +423,17 @@ flutter pub get
 ## Test accounts
 
 Seeded via the `AddIdentity` migration (`ClinicNow.Services/Database/Configurations/UserConfiguration.cs`).
-All four demo accounts use the password `test`; the desktop app accepts Administrator/Staff/Doctor
+All demo accounts use the password `test`; the desktop app accepts Administrator/Staff/Doctor
 accounts only, the mobile app accepts Patient accounts only (checked client-side after login, and
-independently enforced per-endpoint on the backend).
+independently enforced per-endpoint on the backend). Login is by **email**, not a bare username —
+the table below follows the rulebook §5 credentials table's *Context / Username / Password* shape,
+with the email that plays each role in the "Username" column:
 
-| Context | Email | Password |
+| Context (rulebook §5) | Username (email) | Password |
 |---|---|---|
-| Desktop — Administrator | `administrator@clinicnow.test` | `test` |
-| Desktop — Staff | `staff@clinicnow.test` | `test` |
-| Desktop — Doctor | `doctor@clinicnow.test` | `test` |
-| Desktop — Doctor (2nd, Kardiologija) | `doctor2@clinicnow.test` | `test` |
-| Mobile — Patient | `patient@clinicnow.test` | `test` |
+| Desktop version | `administrator@clinicnow.test` (Administrator) | `test` |
+| Mobile version | `patient@clinicnow.test` (Patient) | `test` |
+| Additional user roles | `staff@clinicnow.test` (Staff) · `doctor@clinicnow.test` (Doctor) · `doctor2@clinicnow.test` (Doctor, 2nd, Kardiologija) | `test` |
 
 New patient accounts can also self-register from the mobile app's "Registruj se" link
 (`POST api/auth/register`) - registration always creates a Patient-role account; the server never
