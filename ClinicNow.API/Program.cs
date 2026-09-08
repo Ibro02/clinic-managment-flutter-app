@@ -426,6 +426,15 @@ if (!EF.IsDesignTime)
             "Database not ready yet (attempt {Attempt}/{Max}). Retrying in {Delay}...",
             attempt, RetryHelper.DefaultBackoffDelays.Length, delay),
         cancellationToken: CancellationToken.None);
+
+    // Grows the seed to a demoable size and, unlike the migration HasData
+    // rows above (constant by construction), anchors every time-sensitive
+    // row it adds to "now" - see DemoDataSeeder's remarks for why HasData
+    // alone can't fix a seed that goes stale the moment the calendar moves
+    // past it (rulebook §3.1).
+    var passwordHasher = scope.ServiceProvider.GetRequiredService<IPasswordHasher>();
+    var seederLogger = scope.ServiceProvider.GetRequiredService<ILogger<DemoDataSeeder>>();
+    await new DemoDataSeeder(context, passwordHasher, seederLogger).SeedAsync(CancellationToken.None);
 }
 
 app.Run();
