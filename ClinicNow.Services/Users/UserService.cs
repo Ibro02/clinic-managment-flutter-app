@@ -3,6 +3,7 @@ using System.Security.Claims;
 using System.Security.Cryptography;
 using ClinicNow.Model.Dto;
 using ClinicNow.Model.Exceptions;
+using ClinicNow.Model.Localization;
 using ClinicNow.Model.Messaging;
 using ClinicNow.Model.Requests;
 using ClinicNow.Model.Security;
@@ -220,6 +221,14 @@ public class UserService : IUserService
         ContactRules.RequireText(errors, "firstName", request.FirstName, ContactRules.MaxNameLength, "Ime");
         ContactRules.RequireText(errors, "lastName", request.LastName, ContactRules.MaxNameLength, "Prezime");
         ContactRules.OptionalPhone(errors, "phoneNumber", request.PhoneNumber);
+        // Never trust the client to only ever send "bs"/"en" - a stray value
+        // would otherwise sail through Normalize's fallback and silently do
+        // nothing, which is exactly the "dropdown that changes nothing" the
+        // review letter warns against.
+        if (!PatientLanguage.IsSupported(request.PreferredLanguage))
+        {
+            errors["preferredLanguage"] = ["Podržani jezici su: bosanski (bs) i engleski (en)."];
+        }
         if (errors.Count > 0)
         {
             throw new ValidationException(errors);
@@ -236,6 +245,7 @@ public class UserService : IUserService
         user.LastName = request.LastName.Trim();
         user.PhoneNumber = string.IsNullOrWhiteSpace(request.PhoneNumber) ? null : request.PhoneNumber.Trim();
         user.EmailRemindersEnabled = request.EmailRemindersEnabled;
+        user.PreferredLanguage = request.PreferredLanguage;
 
         // The patient's medical record carries its own copy of these fields
         // (they exist for walk-in patients with no account at all), so a
@@ -351,13 +361,17 @@ public class UserService : IUserService
         // system (CLAUDE.md §9). A broker outage means the code is unusable
         // rather than wrong - the user simply asks for another one, and the
         // failure is logged by the publisher.
+        //
+        // In the patient's own language (review item 7): only a Patient
+        // account's mobile profile ever changes PreferredLanguage away from
+        // the "bs" default, so a Doctor/Staff/Administrator always resolves
+        // to Bosnian here regardless.
+        var message = PatientMessages.PasswordResetCode(user.PreferredLanguage, code, ResetCodeLifetime.TotalMinutes);
         await _emailPublisher.PublishAsync(new EmailMessage
         {
             To = user.Email,
-            Subject = "ClinicNow - kod za resetovanje lozinke",
-            Body = $"Vaš kod za resetovanje lozinke je: {code}\n\n"
-                + $"Kod vrijedi {ResetCodeLifetime.TotalMinutes:0} minuta i može se iskoristiti samo jednom.\n"
-                + "Ako niste tražili resetovanje lozinke, zanemarite ovu poruku - vaša lozinka nije promijenjena."
+            Subject = message.Title,
+            Body = message.Body
         }, cancellationToken);
     }
 

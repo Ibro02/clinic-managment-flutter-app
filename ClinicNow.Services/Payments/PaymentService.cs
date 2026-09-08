@@ -2,6 +2,7 @@ using System.Security.Claims;
 using ClinicNow.Model.Common;
 using ClinicNow.Model.Dto;
 using ClinicNow.Model.Exceptions;
+using ClinicNow.Model.Localization;
 using ClinicNow.Model.Requests;
 using ClinicNow.Model.Security;
 using ClinicNow.Services.Database;
@@ -265,13 +266,15 @@ public class PaymentService : IPaymentService
         payment.PaidAtUtc = DateTime.UtcNow;
         await _context.SaveChangesAsync(cancellationToken);
 
-        var appointment = await _context.Appointments.Include(a => a.Patient).SingleAsync(a => a.Id == payment.AppointmentId, cancellationToken);
-        if (appointment.Patient?.UserId is int patientUserId)
+        var appointment = await _context.Appointments.Include(a => a.Patient).ThenInclude(p => p!.User)
+            .SingleAsync(a => a.Id == payment.AppointmentId, cancellationToken);
+        if (appointment.Patient?.User is { } patientUser)
         {
             // Reports what was actually charged, not what was ordered - those
             // are the same number except in exactly the case C13a exists for.
-            await _notificationService.CreateAsync(patientUserId, "Plaćanje uspješno",
-                $"Vaša uplata od {capturedAmountEur:F2} EUR je uspješno evidentirana.", cancellationToken);
+            // In the patient's own PreferredLanguage (review item 7).
+            var message = PatientMessages.PaymentSuccessful(patientUser.PreferredLanguage, capturedAmountEur);
+            await _notificationService.CreateAsync(patientUser.Id, message.Title, message.Body, cancellationToken);
         }
 
         return _mapper.Map<PaymentDto>(payment);
@@ -405,16 +408,15 @@ public class PaymentService : IPaymentService
             payment.RefundFailureReason = reason.Length > 500 ? reason[..500] : reason;
             await _context.SaveChangesAsync(cancellationToken);
 
-            var appointment = await _context.Appointments.Include(a => a.Patient)
+            var appointment = await _context.Appointments.Include(a => a.Patient).ThenInclude(p => p!.User)
                 .SingleOrDefaultAsync(a => a.Id == payment.AppointmentId, cancellationToken);
-            if (appointment?.Patient?.UserId is int patientUserId)
+            if (appointment?.Patient?.User is { } patientUser)
             {
                 // "Visible to both staff and patient" - without this the patient
                 // is told their appointment is cancelled and hears nothing at
-                // all about the money.
-                await _notificationService.CreateAsync(patientUserId, "Povrat sredstava u obradi",
-                    "Vaš termin je otkazan, ali automatski povrat sredstava nije uspio. Klinika će povrat izvršiti ručno u najkraćem roku.",
-                    cancellationToken);
+                // all about the money. In the patient's own language (review item 7).
+                var message = PatientMessages.RefundPending(patientUser.PreferredLanguage);
+                await _notificationService.CreateAsync(patientUser.Id, message.Title, message.Body, cancellationToken);
             }
         }
         catch (Exception ex)
@@ -529,11 +531,12 @@ public class PaymentService : IPaymentService
             // log "staff must refund manually" for a refund that succeeded.
             try
             {
-                var appointment = await _context.Appointments.Include(a => a.Patient).SingleAsync(a => a.Id == payment.AppointmentId, cancellationToken);
-                if (appointment.Patient?.UserId is int patientUserId)
+                var appointment = await _context.Appointments.Include(a => a.Patient).ThenInclude(p => p!.User)
+                    .SingleAsync(a => a.Id == payment.AppointmentId, cancellationToken);
+                if (appointment.Patient?.User is { } patientUser)
                 {
-                    await _notificationService.CreateAsync(patientUserId, "Povrat sredstava",
-                        $"Izvršen je povrat od {amount:F2} EUR za vaš termin. Razlog: {reason}", cancellationToken);
+                    var message = PatientMessages.RefundCompleted(patientUser.PreferredLanguage, amount, reason);
+                    await _notificationService.CreateAsync(patientUser.Id, message.Title, message.Body, cancellationToken);
                 }
             }
             catch (Exception ex)

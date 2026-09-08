@@ -1,4 +1,5 @@
 using ClinicNow.Model.Common;
+using ClinicNow.Model.Localization;
 using ClinicNow.Model.Messaging;
 using ClinicNow.Services.Database;
 using ClinicNow.Services.Messaging;
@@ -110,7 +111,11 @@ public class PreAppointmentReminderHostedService : BackgroundService
         foreach (var appointment in upcoming)
         {
             var doctorName = $"{appointment.Doctor.User.FirstName} {appointment.Doctor.User.LastName}";
-            var text = $"Podsjetnik: imate zakazan termin kod dr. {doctorName} za {appointment.StartUtc:dd.MM.yyyy HH:mm} UTC.";
+            // In the patient's own PreferredLanguage (review item 7); Bosnian
+            // for a walk-in patient with no account (appointment.Patient.User
+            // is null - Normalize inside PatientMessages falls back to it).
+            var message = PatientMessages.AppointmentReminder(
+                appointment.Patient.User?.PreferredLanguage ?? PatientLanguage.Bosnian, doctorName, appointment.StartUtc);
 
             // The email goes first, deliberately (review item C16). This
             // appointment is only marked as reminded once the broker has
@@ -130,8 +135,8 @@ public class PreAppointmentReminderHostedService : BackgroundService
                 || await emailPublisher.PublishAsync(new EmailMessage
                 {
                     To = appointment.Patient.User!.Email,
-                    Subject = "ClinicNow - podsjetnik za termin",
-                    Body = text
+                    Subject = $"ClinicNow - {message.Title}",
+                    Body = message.Body
                 }, cancellationToken);
 
             if (!published)
@@ -147,7 +152,7 @@ public class PreAppointmentReminderHostedService : BackgroundService
 
             if (appointment.Patient.UserId is int patientUserId)
             {
-                await notificationService.CreateAsync(patientUserId, "Podsjetnik za termin", text, cancellationToken);
+                await notificationService.CreateAsync(patientUserId, message.Title, message.Body, cancellationToken);
             }
 
             appointment.ReminderSentAtUtc = now;

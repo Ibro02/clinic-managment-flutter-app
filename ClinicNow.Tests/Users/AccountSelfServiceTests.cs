@@ -1,4 +1,5 @@
 using ClinicNow.Model.Exceptions;
+using ClinicNow.Model.Localization;
 using ClinicNow.Model.Requests;
 using ClinicNow.Model.Security;
 using ClinicNow.Services.Database;
@@ -87,6 +88,58 @@ public class AccountSelfServiceTests
         // Nobody else was touched - the id came from the token, not the body.
         var otherUser = await context.Users.SingleAsync(u => u.Id == 1);
         Assert.Equal("Administratorović", otherUser.LastName);
+    }
+
+    /// <summary>
+    /// Review item 7: the prijava's "jezik aplikacije" setting must have a real
+    /// backend effect, not just persist a flag nobody reads - PreferredLanguage
+    /// is what <see cref="ClinicNow.Model.Localization.PatientMessages"/> reads
+    /// when rendering every notification/email this account later receives.
+    /// </summary>
+    [Fact]
+    public async Task Profile_edit_persists_the_chosen_language()
+    {
+        using var context = TestContextFactory.CreateContext();
+        var (service, _) = Build(context);
+
+        var updated = await service.UpdateCurrentUserAsync(new UpdateProfileRequest
+        {
+            FirstName = "Hana",
+            LastName = "Pacijentić",
+            EmailRemindersEnabled = true,
+            PreferredLanguage = PatientLanguage.English
+        });
+
+        Assert.Equal(PatientLanguage.English, updated.PreferredLanguage);
+
+        var user = await context.Users.SingleAsync(u => u.Id == PatientUserId);
+        Assert.Equal(PatientLanguage.English, user.PreferredLanguage);
+    }
+
+    /// <summary>
+    /// A stray/unsupported value must be rejected server-side rather than
+    /// silently falling back to Bosnian - the client could otherwise think the
+    /// change took effect when nothing actually changed.
+    /// </summary>
+    [Fact]
+    public async Task Profile_edit_rejects_an_unsupported_language()
+    {
+        using var context = TestContextFactory.CreateContext();
+        var (service, _) = Build(context);
+
+        var exception = await Assert.ThrowsAsync<ValidationException>(() =>
+            service.UpdateCurrentUserAsync(new UpdateProfileRequest
+            {
+                FirstName = "Hana",
+                LastName = "Pacijentić",
+                EmailRemindersEnabled = true,
+                PreferredLanguage = "de"
+            }));
+
+        Assert.Contains("preferredLanguage", exception.Errors.Keys);
+
+        var user = await context.Users.SingleAsync(u => u.Id == PatientUserId);
+        Assert.Equal(PatientLanguage.Bosnian, user.PreferredLanguage);
     }
 
     [Fact]

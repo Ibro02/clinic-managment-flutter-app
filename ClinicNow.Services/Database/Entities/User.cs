@@ -1,3 +1,5 @@
+using ClinicNow.Model.Localization;
+
 namespace ClinicNow.Services.Database.Entities;
 
 /// <summary>
@@ -36,6 +38,17 @@ public class User
     public bool EmailRemindersEnabled { get; set; } = true;
 
     /// <summary>
+    /// The mobile app's "jezik aplikacije" preference (review item 7 - kept from
+    /// the submitted topic proposal, so it needs a real effect): <c>"bs"</c> or
+    /// <c>"en"</c>, see <see cref="ClinicNow.Model.Localization.PatientLanguage"/>.
+    /// Drives the language of every notification/email this account subsequently
+    /// receives (<see cref="ClinicNow.Model.Localization.PatientMessages"/>) -
+    /// only ever read for a Patient account, since Doctor/Staff/Administrator
+    /// have no settings screen that sets it.
+    /// </summary>
+    public string PreferredLanguage { get; set; } = PatientLanguage.Bosnian;
+
+    /// <summary>
     /// BCrypt hash of the current password-reset code, or null when no reset is
     /// pending (rulebook Part II §F: reset tokens are never stored in plain
     /// text and always expire). Cleared the moment a reset succeeds, which is
@@ -61,4 +74,24 @@ public class User
     public DateTime CreatedAtUtc { get; set; }
 
     public ICollection<UserRole> UserRoles { get; set; } = [];
+
+    /// <summary>
+    /// Stamps <see cref="TokensValidFromUtc"/> to now, rejecting every access token
+    /// issued before this call regardless of its own expiry - the one place this
+    /// cutoff is computed, so a password change (<c>UserService</c>) and archiving
+    /// a <c>Patient</c>/<c>Doctor</c>'s linked account can't drift apart on it.
+    ///
+    /// Truncated to whole seconds on purpose. A JWT's <c>iat</c> claim has one-second
+    /// resolution, so an untruncated cutoff of 12:00:00.500 would be *after* the
+    /// <c>iat</c> of a token minted in that same second (12:00:00) and could reject
+    /// a token issued moments later in the same request. The cost is a sub-second
+    /// window in which an older token from the same second survives, which is the
+    /// standard trade for second-resolution claims.
+    /// </summary>
+    public void RevokeOutstandingTokens()
+    {
+        var now = DateTime.UtcNow;
+        TokensValidFromUtc = new DateTime(
+            now.Year, now.Month, now.Day, now.Hour, now.Minute, now.Second, DateTimeKind.Utc);
+    }
 }

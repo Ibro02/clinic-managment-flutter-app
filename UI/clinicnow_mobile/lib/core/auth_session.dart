@@ -18,6 +18,7 @@ class AuthSession extends ChangeNotifier {
   String? _lastName;
   String? _phoneNumber;
   bool _emailRemindersEnabled = true;
+  String _preferredLanguage = 'bs';
   List<String> _roles = const [];
 
   String? get token => _token;
@@ -33,6 +34,11 @@ class AuthSession extends ChangeNotifier {
   String? get phoneNumber => _phoneNumber;
 
   bool get emailRemindersEnabled => _emailRemindersEnabled;
+
+  /// "bs" or "en" - review item 7's "jezik aplikacije" from the prijava.
+  /// Drives the language of notifications/emails this account receives
+  /// (server-side, via `PatientMessages`); see the profile screen's dropdown.
+  String get preferredLanguage => _preferredLanguage;
   List<String> get roles => List.unmodifiable(_roles);
   bool get isLoggedIn => _token != null;
 
@@ -47,6 +53,7 @@ class AuthSession extends ChangeNotifier {
     required String lastName,
     String? phoneNumber,
     bool emailRemindersEnabled = true,
+    String preferredLanguage = 'bs',
     required List<String> roles,
   }) {
     _token = token;
@@ -57,6 +64,7 @@ class AuthSession extends ChangeNotifier {
     _lastName = lastName;
     _phoneNumber = phoneNumber;
     _emailRemindersEnabled = emailRemindersEnabled;
+    _preferredLanguage = preferredLanguage;
     _roles = roles;
     notifyListeners();
   }
@@ -70,11 +78,13 @@ class AuthSession extends ChangeNotifier {
     required String lastName,
     String? phoneNumber,
     required bool emailRemindersEnabled,
+    required String preferredLanguage,
   }) {
     _firstName = firstName;
     _lastName = lastName;
     _phoneNumber = phoneNumber;
     _emailRemindersEnabled = emailRemindersEnabled;
+    _preferredLanguage = preferredLanguage;
     notifyListeners();
   }
 
@@ -90,6 +100,7 @@ class AuthSession extends ChangeNotifier {
     _lastName = null;
     _phoneNumber = null;
     _emailRemindersEnabled = true;
+    _preferredLanguage = 'bs';
     _roles = const [];
     notifyListeners();
   }

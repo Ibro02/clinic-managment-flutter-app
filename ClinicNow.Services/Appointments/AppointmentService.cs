@@ -3,6 +3,7 @@ using System.Security.Claims;
 using ClinicNow.Model.Common;
 using ClinicNow.Model.Dto;
 using ClinicNow.Model.Exceptions;
+using ClinicNow.Model.Localization;
 using ClinicNow.Model.Requests;
 using ClinicNow.Model.SearchObjects;
 using ClinicNow.Model.Security;
@@ -243,22 +244,21 @@ public class AppointmentService : IAppointmentService
 
         var reloaded = await ReloadAsync(appointment.Id, cancellationToken);
 
-        if (reloaded.Patient.UserId is int patientUserId)
-        {
-            await _notificationService.CreateAsync(
-                patientUserId,
-                "Termin potvrđen",
-                $"Vaš termin kod dr. {reloaded.Doctor.User.FirstName} {reloaded.Doctor.User.LastName} za {reloaded.StartUtc:dd.MM.yyyy HH:mm} UTC je potvrđen.",
-                cancellationToken);
-        }
-
         if (reloaded.Patient.User is not null)
         {
+            // Review item 7: rendered in the patient's own PreferredLanguage,
+            // not hard-coded Bosnian - the same LocalizedMessage backs both
+            // the in-app notification and the email so the two never drift.
+            var message = PatientMessages.AppointmentConfirmed(
+                reloaded.Patient.User.PreferredLanguage, $"{reloaded.Doctor.User.FirstName} {reloaded.Doctor.User.LastName}", reloaded.StartUtc);
+
+            await _notificationService.CreateAsync(reloaded.Patient.User.Id, message.Title, message.Body, cancellationToken);
+
             await _emailPublisher.PublishAsync(new EmailMessage
             {
                 To = reloaded.Patient.User.Email,
-                Subject = "ClinicNow - termin potvrđen",
-                Body = $"Vaš termin kod dr. {reloaded.Doctor.User.FirstName} {reloaded.Doctor.User.LastName} za {reloaded.StartUtc:dd.MM.yyyy HH:mm} UTC je potvrđen."
+                Subject = $"ClinicNow - {message.Title}",
+                Body = message.Body
             }, cancellationToken);
         }
 
@@ -281,13 +281,11 @@ public class AppointmentService : IAppointmentService
 
         var reloaded = await ReloadAsync(appointment.Id, cancellationToken);
 
-        if (reloaded.Patient.UserId is int patientUserId)
+        if (reloaded.Patient.User is not null)
         {
-            await _notificationService.CreateAsync(
-                patientUserId,
-                "Termin završen",
-                $"Vaš termin kod dr. {reloaded.Doctor.User.FirstName} {reloaded.Doctor.User.LastName} je označen kao završen.",
-                cancellationToken);
+            var message = PatientMessages.AppointmentCompleted(
+                reloaded.Patient.User.PreferredLanguage, $"{reloaded.Doctor.User.FirstName} {reloaded.Doctor.User.LastName}");
+            await _notificationService.CreateAsync(reloaded.Patient.User.Id, message.Title, message.Body, cancellationToken);
         }
 
         return MapToDto(reloaded);
@@ -339,14 +337,23 @@ public class AppointmentService : IAppointmentService
         var reloaded = await ReloadAsync(appointment.Id, cancellationToken);
 
         // Cancellation notifies both sides (rulebook Part II §G: rejection/
-        // cancellation must trigger a notification with the reason).
-        if (reloaded.Patient.UserId is int patientUserId)
+        // cancellation must trigger a notification with the reason). The
+        // doctor-facing copy stays Bosnian - PreferredLanguage is a patient-only
+        // setting (review item 7).
+        if (reloaded.Patient.User is not null)
         {
-            await _notificationService.CreateAsync(
-                patientUserId,
-                "Termin otkazan",
-                $"Vaš termin kod dr. {reloaded.Doctor.User.FirstName} {reloaded.Doctor.User.LastName} za {reloaded.StartUtc:dd.MM.yyyy HH:mm} UTC je otkazan. Razlog: {request.Reason}",
-                cancellationToken);
+            var message = PatientMessages.AppointmentCancelled(
+                reloaded.Patient.User.PreferredLanguage, $"{reloaded.Doctor.User.FirstName} {reloaded.Doctor.User.LastName}",
+                reloaded.StartUtc, request.Reason);
+
+            await _notificationService.CreateAsync(reloaded.Patient.User.Id, message.Title, message.Body, cancellationToken);
+
+            await _emailPublisher.PublishAsync(new EmailMessage
+            {
+                To = reloaded.Patient.User.Email,
+                Subject = $"ClinicNow - {message.Title}",
+                Body = message.Body
+            }, cancellationToken);
         }
 
         await _notificationService.CreateAsync(
@@ -354,16 +361,6 @@ public class AppointmentService : IAppointmentService
             "Termin otkazan",
             $"Termin sa pacijentom {reloaded.Patient.FirstName} {reloaded.Patient.LastName} za {reloaded.StartUtc:dd.MM.yyyy HH:mm} UTC je otkazan. Razlog: {request.Reason}",
             cancellationToken);
-
-        if (reloaded.Patient.User is not null)
-        {
-            await _emailPublisher.PublishAsync(new EmailMessage
-            {
-                To = reloaded.Patient.User.Email,
-                Subject = "ClinicNow - termin otkazan",
-                Body = $"Vaš termin kod dr. {reloaded.Doctor.User.FirstName} {reloaded.Doctor.User.LastName} za {reloaded.StartUtc:dd.MM.yyyy HH:mm} UTC je otkazan. Razlog: {request.Reason}"
-            }, cancellationToken);
-        }
 
         return MapToDto(reloaded);
     }
@@ -424,13 +421,21 @@ public class AppointmentService : IAppointmentService
         // A moved appointment is a status change (back to Pending) affecting
         // both sides, exactly the kind of event the rulebook requires a
         // notification for (Part II §G) - same shape as Schedule/Confirm/Cancel.
-        if (reloaded.Patient.UserId is int patientUserId)
+        // The doctor-facing copy stays Bosnian (review item 7's language
+        // preference is patient-only).
+        if (reloaded.Patient.User is not null)
         {
-            await _notificationService.CreateAsync(
-                patientUserId,
-                "Termin premješten",
-                $"Vaš termin kod dr. {reloaded.Doctor.User.FirstName} {reloaded.Doctor.User.LastName} je premješten na {reloaded.StartUtc:dd.MM.yyyy HH:mm} UTC.",
-                cancellationToken);
+            var message = PatientMessages.AppointmentRescheduled(
+                reloaded.Patient.User.PreferredLanguage, $"{reloaded.Doctor.User.FirstName} {reloaded.Doctor.User.LastName}", reloaded.StartUtc);
+
+            await _notificationService.CreateAsync(reloaded.Patient.User.Id, message.Title, message.Body, cancellationToken);
+
+            await _emailPublisher.PublishAsync(new EmailMessage
+            {
+                To = reloaded.Patient.User.Email,
+                Subject = $"ClinicNow - {message.Title}",
+                Body = message.Body
+            }, cancellationToken);
         }
 
         await _notificationService.CreateAsync(
@@ -438,16 +443,6 @@ public class AppointmentService : IAppointmentService
             "Termin premješten",
             $"Termin sa pacijentom {reloaded.Patient.FirstName} {reloaded.Patient.LastName} je premješten na {reloaded.StartUtc:dd.MM.yyyy HH:mm} UTC.",
             cancellationToken);
-
-        if (reloaded.Patient.User is not null)
-        {
-            await _emailPublisher.PublishAsync(new EmailMessage
-            {
-                To = reloaded.Patient.User.Email,
-                Subject = "ClinicNow - termin premješten",
-                Body = $"Vaš termin kod dr. {reloaded.Doctor.User.FirstName} {reloaded.Doctor.User.LastName} je premješten na {reloaded.StartUtc:dd.MM.yyyy HH:mm} UTC."
-            }, cancellationToken);
-        }
 
         return MapToDto(reloaded);
     }

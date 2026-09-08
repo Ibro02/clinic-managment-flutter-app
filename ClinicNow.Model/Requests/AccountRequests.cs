@@ -20,6 +20,14 @@ public class UpdateProfileRequest
 
     /// <summary>Whether to receive the pre-appointment reminder by email.</summary>
     public bool EmailRemindersEnabled { get; set; }
+
+    /// <summary>
+    /// The mobile app's "jezik aplikacije" preference (review item 7) - one of
+    /// <see cref="Localization.PatientLanguage.Supported"/>. Validated and
+    /// normalized server-side; never trust the client to only ever send a
+    /// supported value.
+    /// </summary>
+    public string PreferredLanguage { get; set; } = Localization.PatientLanguage.Bosnian;
 }
 
 /// <summary>

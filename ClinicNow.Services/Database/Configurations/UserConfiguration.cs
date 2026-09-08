@@ -1,3 +1,4 @@
+using ClinicNow.Model.Localization;
 using ClinicNow.Services.Database.Entities;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
@@ -31,6 +32,14 @@ public class UserConfiguration : IEntityTypeConfiguration<User>
         // this column would backfill every existing account with `false` and
         // silently switch off reminders for people who never asked for that.
         builder.Property(u => u.EmailRemindersEnabled).IsRequired().HasDefaultValue(true);
+
+        // Two-letter code (PatientLanguage.Bosnian/English) - length 5 leaves
+        // room for a region tag (e.g. "en-US") without a schema change, even
+        // though nothing generates one today. Same "opt-out needs a DB default"
+        // reasoning as EmailRemindersEnabled above: without it, adding this
+        // column would backfill every existing account with an empty string
+        // rather than the clinic's actual default language.
+        builder.Property(u => u.PreferredLanguage).IsRequired().HasMaxLength(5).HasDefaultValue(PatientLanguage.Bosnian);
 
         // A BCrypt hash, same size as PasswordHash - never the code itself.
         builder.Property(u => u.PasswordResetTokenHash).HasMaxLength(200);

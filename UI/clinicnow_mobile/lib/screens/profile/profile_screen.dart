@@ -39,6 +39,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   late final TextEditingController _lastName;
   late final TextEditingController _phoneNumber;
   late bool _emailRemindersEnabled;
+  late String _preferredLanguage;
 
   bool _isSaving = false;
   String? _error;
@@ -53,6 +54,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     _lastName = TextEditingController(text: session.lastName ?? '');
     _phoneNumber = TextEditingController(text: session.phoneNumber ?? '');
     _emailRemindersEnabled = session.emailRemindersEnabled;
+    _preferredLanguage = session.preferredLanguage;
   }
 
   @override
@@ -81,6 +83,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
         lastName: _lastName.text,
         phoneNumber: _phoneNumber.text,
         emailRemindersEnabled: _emailRemindersEnabled,
+        preferredLanguage: _preferredLanguage,
       );
       if (!mounted) return;
       // Apply what the server returned, not what was typed - trailing spaces
@@ -90,7 +93,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
       _firstName.text = profile.firstName;
       _lastName.text = profile.lastName;
       _phoneNumber.text = profile.phoneNumber ?? '';
-      setState(() => _emailRemindersEnabled = profile.emailRemindersEnabled);
+      setState(() {
+        _emailRemindersEnabled = profile.emailRemindersEnabled;
+        _preferredLanguage = profile.preferredLanguage;
+      });
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Vaši podaci su sačuvani.')),
       );
@@ -186,7 +192,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('Obavijesti', style: context.text.titleMedium),
+                  Text('Obavijesti i jezik', style: context.text.titleMedium),
                   const SizedBox(height: AppSpacing.xs),
                   SwitchListTile(
                     contentPadding: EdgeInsets.zero,
@@ -197,6 +203,26 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       'Šaljemo ga dan prije termina. Obavijesti u aplikaciji dobijate '
                       'i kada je ovo isključeno.',
                     ),
+                  ),
+                  const SizedBox(height: AppSpacing.md),
+                  // Review item 7: this must actually change something, not
+                  // just persist unread - the server renders every
+                  // notification/email this account receives afterwards
+                  // (confirmation, cancellation, reminder, payment, ...) in
+                  // whichever language is selected here.
+                  DropdownButtonFormField<String>(
+                    initialValue: _preferredLanguage,
+                    decoration: const InputDecoration(
+                      labelText: 'Jezik aplikacije',
+                      helperText: 'Obavijesti i email poruke ćete primati na odabranom jeziku.',
+                    ),
+                    items: const [
+                      DropdownMenuItem(value: 'bs', child: Text('Bosanski')),
+                      DropdownMenuItem(value: 'en', child: Text('English')),
+                    ],
+                    onChanged: (value) {
+                      if (value != null) setState(() => _preferredLanguage = value);
+                    },
                   ),
                 ],
               ),

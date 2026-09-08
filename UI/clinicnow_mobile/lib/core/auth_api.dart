@@ -92,6 +92,7 @@ class AuthApi {
     required String lastName,
     String? phoneNumber,
     required bool emailRemindersEnabled,
+    required String preferredLanguage,
   }) async {
     final response = await _put(
       _uri('api/auth/me'),
@@ -101,6 +102,7 @@ class AuthApi {
         'lastName': lastName,
         'phoneNumber': (phoneNumber != null && phoneNumber.trim().isNotEmpty) ? phoneNumber.trim() : null,
         'emailRemindersEnabled': emailRemindersEnabled,
+        'preferredLanguage': preferredLanguage,
       }),
     );
 
@@ -250,6 +252,7 @@ class UserProfile {
   final String lastName;
   final String? phoneNumber;
   final bool emailRemindersEnabled;
+  final String preferredLanguage;
   final List<String> roles;
 
   const UserProfile({
@@ -259,6 +262,7 @@ class UserProfile {
     required this.lastName,
     required this.phoneNumber,
     required this.emailRemindersEnabled,
+    required this.preferredLanguage,
     required this.roles,
   });
 
@@ -272,6 +276,9 @@ class UserProfile {
         // "on", which is the server's own default, rather than showing the
         // switch off and inviting the user to "fix" something that isn't wrong.
         emailRemindersEnabled: json['emailRemindersEnabled'] as bool? ?? true,
+        // Same reasoning: an older API build has no such field yet, so fall
+        // back to the clinic's own default rather than an empty/invalid value.
+        preferredLanguage: json['preferredLanguage'] as String? ?? 'bs',
         roles: (json['roles'] as List<dynamic>? ?? []).map((e) => '$e').toList(),
       );
 
@@ -280,6 +287,7 @@ class UserProfile {
         lastName: lastName,
         phoneNumber: phoneNumber,
         emailRemindersEnabled: emailRemindersEnabled,
+        preferredLanguage: preferredLanguage,
       );
 }
 
@@ -294,6 +302,7 @@ class AuthResult {
   final String lastName;
   final String? phoneNumber;
   final bool emailRemindersEnabled;
+  final String preferredLanguage;
   final List<String> roles;
 
   AuthResult({
@@ -305,6 +314,7 @@ class AuthResult {
     required this.lastName,
     required this.phoneNumber,
     required this.emailRemindersEnabled,
+    required this.preferredLanguage,
     required this.roles,
   });
 
@@ -319,6 +329,7 @@ class AuthResult {
       lastName: user.lastName,
       phoneNumber: user.phoneNumber,
       emailRemindersEnabled: user.emailRemindersEnabled,
+      preferredLanguage: user.preferredLanguage,
       roles: user.roles,
     );
   }
@@ -333,6 +344,7 @@ class AuthResult {
       lastName: lastName,
       phoneNumber: phoneNumber,
       emailRemindersEnabled: emailRemindersEnabled,
+      preferredLanguage: preferredLanguage,
       roles: roles,
     );
   }
