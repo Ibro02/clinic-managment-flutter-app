@@ -1,4 +1,4 @@
-import 'package:http/http.dart' as http;
+import '../core/api_http.dart';
 
 import '../core/auth_session.dart';
 import '../core/base_provider.dart';
@@ -15,25 +15,25 @@ class NotificationProvider {
   Future<List<NotificationItem>> getPaged({bool? isRead}) async {
     final query = <String, dynamic>{'pageSize': 50};
     if (isRead != null) query['isRead'] = isRead;
-    final response = await http.get(_base.buildUri('api/Notification', query), headers: _base.authHeaders());
+    final response = await apiGet(_base.buildUri('api/Notification', query), headers: _base.authHeaders());
     final data = _base.decode(response) as Map<String, dynamic>;
     final list = (data['resultList'] as List).cast<Map<String, dynamic>>();
     return list.map(NotificationItem.fromJson).toList();
   }
 
   Future<int> getUnreadCount() async {
-    final response = await http.get(_base.buildUri('api/Notification/unread-count'), headers: _base.authHeaders());
+    final response = await apiGet(_base.buildUri('api/Notification/unread-count'), headers: _base.authHeaders());
     final decoded = _base.decode(response);
     return decoded is int ? decoded : int.tryParse('$decoded') ?? 0;
   }
 
   Future<void> markAsRead(int id) async {
-    final response = await http.post(_base.buildUri('api/Notification/$id/mark-read'), headers: _base.authHeaders());
+    final response = await apiPost(_base.buildUri('api/Notification/$id/mark-read'), headers: _base.authHeaders());
     _base.decode(response, allowEmptyBody: true);
   }
 
   Future<void> markAllAsRead() async {
-    final response = await http.post(_base.buildUri('api/Notification/mark-all-read'), headers: _base.authHeaders());
+    final response = await apiPost(_base.buildUri('api/Notification/mark-all-read'), headers: _base.authHeaders());
     _base.decode(response, allowEmptyBody: true);
   }
 }

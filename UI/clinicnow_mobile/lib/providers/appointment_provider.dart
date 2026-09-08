@@ -1,6 +1,6 @@
+import '../core/api_http.dart';
 import 'dart:convert';
 
-import 'package:http/http.dart' as http;
 
 import '../core/auth_session.dart';
 import '../core/base_provider.dart';
@@ -13,17 +13,17 @@ class AppointmentProvider extends BaseProvider<Appointment> {
   Appointment fromJson(Map<String, dynamic> json) => Appointment.fromJson(json);
 
   Future<Appointment> confirm(int id) async {
-    final response = await http.post(buildUri('api/Appointment/$id/confirm'), headers: authHeaders());
+    final response = await apiPost(buildUri('api/Appointment/$id/confirm'), headers: authHeaders());
     return fromJson(decode(response) as Map<String, dynamic>);
   }
 
   Future<Appointment> complete(int id) async {
-    final response = await http.post(buildUri('api/Appointment/$id/complete'), headers: authHeaders());
+    final response = await apiPost(buildUri('api/Appointment/$id/complete'), headers: authHeaders());
     return fromJson(decode(response) as Map<String, dynamic>);
   }
 
   Future<Appointment> cancel(int id, String reason) async {
-    final response = await http.post(
+    final response = await apiPost(
       buildUri('api/Appointment/$id/cancel'),
       headers: authHeaders(),
       body: jsonEncode({'reason': reason}),
@@ -36,7 +36,7 @@ class AppointmentProvider extends BaseProvider<Appointment> {
   /// (working hours, blocks, overlap, doctor↔service compatibility) exactly
   /// as it does for a new booking.
   Future<Appointment> reschedule(int id, {required int doctorId, required DateTime startUtc}) async {
-    final response = await http.post(
+    final response = await apiPost(
       buildUri('api/Appointment/$id/reschedule'),
       headers: authHeaders(),
       body: jsonEncode({'doctorId': doctorId, 'startUtc': startUtc.toUtc().toIso8601String()}),
@@ -52,7 +52,7 @@ class AppointmentProvider extends BaseProvider<Appointment> {
     required DateTime date,
   }) async {
     final dateOnly = '${date.year.toString().padLeft(4, '0')}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
-    final response = await http.get(
+    final response = await apiGet(
       buildUri('api/Appointment/available-slots', {'doctorId': doctorId, 'medicalServiceId': medicalServiceId, 'date': dateOnly}),
       headers: authHeaders(),
     );

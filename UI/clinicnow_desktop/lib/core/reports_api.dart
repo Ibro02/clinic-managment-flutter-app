@@ -1,3 +1,4 @@
+import '../core/api_http.dart';
 import 'dart:convert';
 
 import 'package:http/http.dart' as http;
@@ -126,7 +127,8 @@ class ReportsApi {
   /// signals "no response received", matched by no real HTTP status).
   Future<http.Response> _get(Uri uri) async {
     try {
-      return await http.get(uri, headers: _headers);
+      return await apiGet(uri, headers: _headers,
+        timeout: BaseProvider.fileTransferTimeout);
     } catch (_) {
       throw ApiException(
         statusCode: 0,

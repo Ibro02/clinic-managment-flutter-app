@@ -1,6 +1,6 @@
+import '../core/api_http.dart';
 import 'dart:convert';
 
-import 'package:http/http.dart' as http;
 
 import '../core/auth_session.dart';
 import '../core/base_provider.dart';
@@ -17,13 +17,13 @@ class MedicalRecordProvider {
   MedicalRecordProvider(AuthSession authSession) : _base = _MedicalRecordBaseProvider(authSession);
 
   Future<MedicalRecord> getByPatientId(int patientId) async {
-    final response = await http.get(_base.buildUri('api/MedicalRecord/patient/$patientId'), headers: _base.authHeaders());
+    final response = await apiGet(_base.buildUri('api/MedicalRecord/patient/$patientId'), headers: _base.authHeaders());
     return MedicalRecord.fromJson(_base.decode(response) as Map<String, dynamic>);
   }
 
   /// Doctor-only: appends (never replaces) text onto Allergies/MedicalNotes.
   Future<MedicalRecord> appendNotes(int patientId, {String? allergiesToAppend, String? medicalNotesToAppend}) async {
-    final response = await http.post(
+    final response = await apiPost(
       _base.buildUri('api/MedicalRecord/patient/$patientId/notes/append'),
       headers: _base.authHeaders(),
       body: jsonEncode({
@@ -36,7 +36,7 @@ class MedicalRecordProvider {
 
   /// Administrator-only: full replace of Allergies/MedicalNotes.
   Future<MedicalRecord> replaceNotes(int patientId, {String? allergies, String? medicalNotes}) async {
-    final response = await http.put(
+    final response = await apiPut(
       _base.buildUri('api/MedicalRecord/patient/$patientId/notes'),
       headers: _base.authHeaders(),
       body: jsonEncode({'allergies': allergies, 'medicalNotes': medicalNotes}),
@@ -52,7 +52,7 @@ class MedicalRecordProvider {
     required String treatment,
     required String description,
   }) async {
-    final response = await http.post(
+    final response = await apiPost(
       _base.buildUri('api/MedicalRecord/patient/$patientId/entries'),
       headers: _base.authHeaders(),
       body: jsonEncode({
@@ -73,7 +73,7 @@ class MedicalRecordProvider {
     required String treatment,
     required String description,
   }) async {
-    final response = await http.put(
+    final response = await apiPut(
       _base.buildUri('api/MedicalRecord/entries/$entryId'),
       headers: _base.authHeaders(),
       body: jsonEncode({
@@ -88,7 +88,7 @@ class MedicalRecordProvider {
 
   /// Administrator-only: removes a treatment-history row.
   Future<void> deleteEntry(int entryId) async {
-    final response = await http.delete(_base.buildUri('api/MedicalRecord/entries/$entryId'), headers: _base.authHeaders());
+    final response = await apiDelete(_base.buildUri('api/MedicalRecord/entries/$entryId'), headers: _base.authHeaders());
     _base.decode(response, allowEmptyBody: true);
   }
 

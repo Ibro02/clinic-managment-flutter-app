@@ -1,6 +1,6 @@
+import '../core/api_http.dart';
 import 'dart:convert';
 
-import 'package:http/http.dart' as http;
 
 import '../core/auth_session.dart';
 import '../core/base_provider.dart';
@@ -13,7 +13,7 @@ class RecommendationProvider extends BaseProvider<AppointmentRecommendation> {
   AppointmentRecommendation fromJson(Map<String, dynamic> json) => AppointmentRecommendation.fromJson(json);
 
   Future<List<AppointmentRecommendation>> getRecommendations() async {
-    final response = await http.get(buildUri('api/Recommendation/appointments'), headers: authHeaders());
+    final response = await apiGet(buildUri('api/Recommendation/appointments'), headers: authHeaders());
     final list = decode(response) as List<dynamic>;
     return list.map((e) => fromJson(e as Map<String, dynamic>)).toList();
   }
@@ -23,7 +23,7 @@ class RecommendationProvider extends BaseProvider<AppointmentRecommendation> {
   /// wrap this in a try/catch that swallows errors, same pattern as
   /// `AppShell._refreshUnreadCount`'s background poll.
   Future<void> logInteraction({required InteractionType type, int? doctorId, int? medicalServiceId}) async {
-    final response = await http.post(
+    final response = await apiPost(
       buildUri('api/Recommendation/interaction'),
       headers: authHeaders(),
       body: jsonEncode({

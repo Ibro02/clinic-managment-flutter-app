@@ -1,4 +1,4 @@
-import 'package:http/http.dart' as http;
+import '../core/api_http.dart';
 
 import '../core/auth_session.dart';
 import '../core/base_provider.dart';
@@ -13,7 +13,7 @@ class LabFindingProvider {
   LabFindingProvider(AuthSession authSession) : _base = _LabFindingBaseProvider(authSession);
 
   Future<List<LabFinding>> getPaged() async {
-    final response = await http.get(_base.buildUri('api/LabFinding', {'pageSize': 50}), headers: _base.authHeaders());
+    final response = await apiGet(_base.buildUri('api/LabFinding', {'pageSize': 50}), headers: _base.authHeaders());
     final data = _base.decode(response) as Map<String, dynamic>;
     final list = (data['resultList'] as List).cast<Map<String, dynamic>>();
     return list.map(LabFinding.fromJson).toList();

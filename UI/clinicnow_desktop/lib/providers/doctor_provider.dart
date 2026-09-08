@@ -1,4 +1,4 @@
-import 'package:http/http.dart' as http;
+import '../core/api_http.dart';
 
 import '../core/auth_session.dart';
 import '../core/base_provider.dart';
@@ -14,7 +14,7 @@ class DoctorProvider extends BaseProvider<Doctor> {
   /// their user id but not their doctor id, so [getById] is no use here - and
   /// the server resolving it from the token is the point, not a convenience.
   Future<Doctor> getOwn() async {
-    final response = await http.get(buildUri('api/Doctor/me'), headers: authHeaders());
+    final response = await apiGet(buildUri('api/Doctor/me'), headers: authHeaders());
     return fromJson(decode(response) as Map<String, dynamic>);
   }
 }

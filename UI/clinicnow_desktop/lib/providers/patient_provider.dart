@@ -1,4 +1,4 @@
-import 'package:http/http.dart' as http;
+import '../core/api_http.dart';
 
 import '../core/auth_session.dart';
 import '../core/base_provider.dart';
@@ -12,7 +12,7 @@ class PatientProvider extends BaseProvider<Patient> {
 
   /// Un-archives a soft-deleted patient. See `ArchivedPatientsScreen`.
   Future<Patient> restore(int id) async {
-    final response = await http.post(buildUri('api/Patient/$id/restore'), headers: authHeaders());
+    final response = await apiPost(buildUri('api/Patient/$id/restore'), headers: authHeaders());
     return fromJson(decode(response) as Map<String, dynamic>);
   }
 }

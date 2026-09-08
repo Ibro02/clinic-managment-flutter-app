@@ -1,6 +1,7 @@
+import '../../core/base_provider.dart';
+import '../../core/api_http.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 
@@ -84,9 +85,10 @@ class _MyDocumentsTabState extends State<_MyDocumentsTab> {
 
   Future<void> _download(MedicalDocument document) async {
     try {
-      final response = await http.get(
+      final response = await apiGet(
         Uri.parse(_provider.absoluteDownloadUrl(document)),
         headers: _provider.authHeaders(),
+        timeout: BaseProvider.fileTransferTimeout,
       );
       if (response.statusCode != 200) {
         throw Exception('HTTP ${response.statusCode}');
@@ -184,9 +186,10 @@ class _MyLabFindingsTabState extends State<_MyLabFindingsTab> {
 
   Future<void> _download(LabFinding finding) async {
     try {
-      final response = await http.get(
+      final response = await apiGet(
         Uri.parse(_provider.absoluteDownloadUrl(finding)),
         headers: _provider.authHeaders(),
+        timeout: BaseProvider.fileTransferTimeout,
       );
       if (response.statusCode != 200) {
         throw Exception('HTTP ${response.statusCode}');

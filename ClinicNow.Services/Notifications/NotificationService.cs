@@ -54,7 +54,14 @@ public class NotificationService : INotificationService
         query = query.OrderByDescending(n => n.CreatedAtUtc);
 
         var count = await query.CountAsync(cancellationToken);
+
+        // AsNoTracking: a read path, and the busiest one in the system - both
+        // clients poll this list, so it pays for a change-tracker snapshot per
+        // notification more often than any other query. This service overrides
+        // GetPagedAsync rather than inheriting BaseService's, so it does not pick
+        // up that class's no-tracking read automatically.
         var entities = await query
+            .AsNoTracking()
             .Skip((search.Page - 1) * search.PageSize)
             .Take(search.PageSize)
             .ToListAsync(cancellationToken);

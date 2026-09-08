@@ -1,4 +1,4 @@
-import 'package:http/http.dart' as http;
+import '../core/api_http.dart';
 
 import '../core/auth_session.dart';
 import '../core/base_provider.dart';
@@ -16,7 +16,7 @@ class PaymentProvider extends BaseProvider<Payment> {
   Future<Payment> create(int appointmentId) => insert({'appointmentId': appointmentId});
 
   Future<Payment> capture(int paymentId) async {
-    final response = await http.post(buildUri('api/Payment/$paymentId/capture'), headers: authHeaders());
+    final response = await apiPost(buildUri('api/Payment/$paymentId/capture'), headers: authHeaders());
     return fromJson(decode(response) as Map<String, dynamic>);
   }
 
@@ -25,7 +25,7 @@ class PaymentProvider extends BaseProvider<Payment> {
   /// duplicate (review item C12). Best-effort by design - if it never arrives
   /// the server's own staleness window covers the same case, just later.
   Future<void> abandon(int paymentId) async {
-    final response = await http.post(buildUri('api/Payment/$paymentId/abandon'), headers: authHeaders());
+    final response = await apiPost(buildUri('api/Payment/$paymentId/abandon'), headers: authHeaders());
     decode(response);
   }
 }

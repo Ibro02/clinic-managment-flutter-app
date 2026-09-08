@@ -1,8 +1,9 @@
+import '../../core/base_provider.dart';
+import '../../core/api_http.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_form_builder/flutter_form_builder.dart';
 import 'package:form_builder_validators/form_builder_validators.dart';
-import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 
@@ -244,9 +245,10 @@ class _ReferralsScreenState extends State<ReferralsScreen> {
 
   Future<void> _downloadFinding(LabFinding finding) async {
     try {
-      final response = await http.get(
+      final response = await apiGet(
         Uri.parse(_labFindingProvider.absoluteDownloadUrl(finding)),
         headers: _labFindingProvider.authHeaders(),
+        timeout: BaseProvider.fileTransferTimeout,
       );
       if (response.statusCode != 200) {
         throw Exception('HTTP ${response.statusCode}');

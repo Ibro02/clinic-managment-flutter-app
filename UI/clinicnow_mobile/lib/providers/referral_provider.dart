@@ -1,4 +1,4 @@
-import 'package:http/http.dart' as http;
+import '../core/api_http.dart';
 
 import '../core/auth_session.dart';
 import '../core/base_provider.dart';
@@ -12,7 +12,7 @@ class ReferralProvider {
   ReferralProvider(AuthSession authSession) : _base = _ReferralBaseProvider(authSession);
 
   Future<List<Referral>> getPaged({bool onlyArchived = false}) async {
-    final response = await http.get(
+    final response = await apiGet(
       _base.buildUri('api/Referral', {'pageSize': 50, 'onlyArchived': onlyArchived}),
       headers: _base.authHeaders(),
     );

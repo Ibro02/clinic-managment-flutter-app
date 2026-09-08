@@ -1,7 +1,7 @@
+import '../core/api_http.dart';
 import 'dart:convert';
 import 'dart:typed_data';
 
-import 'package:http/http.dart' as http;
 
 import '../core/auth_session.dart';
 import '../core/base_provider.dart';
@@ -25,7 +25,7 @@ class MedicalDocumentProvider {
     if (patientId != null) query['patientId'] = patientId;
     final trimmedFileName = fileName?.trim();
     if (trimmedFileName != null && trimmedFileName.isNotEmpty) query['fileName'] = trimmedFileName;
-    final response = await http.get(_base.buildUri('api/MedicalDocument', query), headers: _base.authHeaders());
+    final response = await apiGet(_base.buildUri('api/MedicalDocument', query), headers: _base.authHeaders());
     final data = _base.decode(response) as Map<String, dynamic>;
     final list = (data['resultList'] as List).cast<Map<String, dynamic>>();
     return list.map(MedicalDocument.fromJson).toList();
@@ -38,7 +38,7 @@ class MedicalDocumentProvider {
     required Uint8List bytes,
     String? description,
   }) async {
-    final response = await http.post(
+    final response = await apiPost(
       _base.buildUri('api/MedicalDocument'),
       headers: _base.authHeaders(),
       body: jsonEncode({
@@ -48,12 +48,13 @@ class MedicalDocumentProvider {
         'fileBase64': base64Encode(bytes),
         'description': description,
       }),
+      timeout: BaseProvider.fileTransferTimeout,
     );
     return MedicalDocument.fromJson(_base.decode(response) as Map<String, dynamic>);
   }
 
   Future<void> delete(int id) async {
-    final response = await http.delete(_base.buildUri('api/MedicalDocument/$id'), headers: _base.authHeaders());
+    final response = await apiDelete(_base.buildUri('api/MedicalDocument/$id'), headers: _base.authHeaders());
     _base.decode(response, allowEmptyBody: true);
   }
 

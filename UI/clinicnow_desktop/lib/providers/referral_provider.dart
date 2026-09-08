@@ -1,6 +1,6 @@
+import '../core/api_http.dart';
 import 'dart:convert';
 
-import 'package:http/http.dart' as http;
 
 import '../core/auth_session.dart';
 import '../core/base_provider.dart';
@@ -17,7 +17,7 @@ class ReferralProvider {
   Future<List<Referral>> getPaged({int? patientId, bool onlyArchived = false}) async {
     final query = <String, dynamic>{'pageSize': 50, 'onlyArchived': onlyArchived};
     if (patientId != null) query['patientId'] = patientId;
-    final response = await http.get(_base.buildUri('api/Referral', query), headers: _base.authHeaders());
+    final response = await apiGet(_base.buildUri('api/Referral', query), headers: _base.authHeaders());
     final data = _base.decode(response) as Map<String, dynamic>;
     final list = (data['resultList'] as List).cast<Map<String, dynamic>>();
     return list.map(Referral.fromJson).toList();
@@ -28,7 +28,7 @@ class ReferralProvider {
     required int targetSpecializationId,
     required String reason,
   }) async {
-    final response = await http.post(
+    final response = await apiPost(
       _base.buildUri('api/Referral'),
       headers: _base.authHeaders(),
       body: jsonEncode({
@@ -43,7 +43,7 @@ class ReferralProvider {
   /// Administrator-only override to remove a mistaken referral (soft-delete
   /// server-side, never a physical removal).
   Future<void> delete(int id) async {
-    final response = await http.delete(_base.buildUri('api/Referral/$id'), headers: _base.authHeaders());
+    final response = await apiDelete(_base.buildUri('api/Referral/$id'), headers: _base.authHeaders());
     _base.decode(response, allowEmptyBody: true);
   }
 }

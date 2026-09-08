@@ -1,6 +1,6 @@
+import '../core/api_http.dart';
 import 'dart:convert';
 
-import 'package:http/http.dart' as http;
 
 import '../core/auth_session.dart';
 import '../core/base_provider.dart';
@@ -19,7 +19,7 @@ class PaymentProvider extends BaseProvider<Payment> {
   /// has no non-Pending payment, surfaced as an [ApiException] like any other
   /// non-2xx response).
   Future<Payment> getByAppointmentId(int appointmentId) async {
-    final response = await http.get(
+    final response = await apiGet(
       buildUri('api/Payment/by-appointment/$appointmentId'),
       headers: authHeaders(),
     );
@@ -27,7 +27,7 @@ class PaymentProvider extends BaseProvider<Payment> {
   }
 
   Future<Payment> refund(int paymentId, double amount, String reason) async {
-    final response = await http.post(
+    final response = await apiPost(
       buildUri('api/Payment/$paymentId/refund'),
       headers: authHeaders(),
       body: jsonEncode({'amount': amount, 'reason': reason}),

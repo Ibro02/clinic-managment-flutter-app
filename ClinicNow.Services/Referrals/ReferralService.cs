@@ -66,7 +66,13 @@ public class ReferralService : IReferralService
         query = query.OrderByDescending(r => r.CreatedAtUtc);
 
         var count = await query.CountAsync(cancellationToken);
+
+        // AsNoTracking: a read path with four Includes, so tracking snapshots the
+        // whole related graph per row for nothing. This service overrides
+        // GetPagedAsync rather than inheriting BaseService's, so it does not pick
+        // up that class's no-tracking read automatically.
         var entities = await query
+            .AsNoTracking()
             .Skip((search.Page - 1) * search.PageSize)
             .Take(search.PageSize)
             .ToListAsync(cancellationToken);

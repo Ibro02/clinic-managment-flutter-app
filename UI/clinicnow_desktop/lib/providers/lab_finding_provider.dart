@@ -1,7 +1,7 @@
+import '../core/api_http.dart';
 import 'dart:convert';
 import 'dart:typed_data';
 
-import 'package:http/http.dart' as http;
 
 import '../core/auth_session.dart';
 import '../core/base_provider.dart';
@@ -20,7 +20,7 @@ class LabFindingProvider {
     final query = <String, dynamic>{'pageSize': 50};
     if (patientId != null) query['patientId'] = patientId;
     if (appointmentId != null) query['appointmentId'] = appointmentId;
-    final response = await http.get(_base.buildUri('api/LabFinding', query), headers: _base.authHeaders());
+    final response = await apiGet(_base.buildUri('api/LabFinding', query), headers: _base.authHeaders());
     final data = _base.decode(response) as Map<String, dynamic>;
     final list = (data['resultList'] as List).cast<Map<String, dynamic>>();
     return list.map(LabFinding.fromJson).toList();
@@ -33,7 +33,7 @@ class LabFindingProvider {
     required String contentType,
     required Uint8List bytes,
   }) async {
-    final response = await http.post(
+    final response = await apiPost(
       _base.buildUri('api/LabFinding'),
       headers: _base.authHeaders(),
       body: jsonEncode({
@@ -43,12 +43,13 @@ class LabFindingProvider {
         'contentType': contentType,
         'fileBase64': base64Encode(bytes),
       }),
+      timeout: BaseProvider.fileTransferTimeout,
     );
     return LabFinding.fromJson(_base.decode(response) as Map<String, dynamic>);
   }
 
   Future<void> delete(int id) async {
-    final response = await http.delete(_base.buildUri('api/LabFinding/$id'), headers: _base.authHeaders());
+    final response = await apiDelete(_base.buildUri('api/LabFinding/$id'), headers: _base.authHeaders());
     _base.decode(response, allowEmptyBody: true);
   }
 
