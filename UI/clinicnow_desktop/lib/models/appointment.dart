@@ -1,3 +1,31 @@
+/// Mirrors the backend's `AppointmentAuditLogDto` - one status-change entry
+/// (who, when, why). Only ever populated by the detail endpoint
+/// (`AppointmentProvider.getById`, review item 11/rulebook §7); the paged
+/// list leaves it empty, matching the backend's own list-vs-detail split.
+class AppointmentAuditLog {
+  final int id;
+  final String actingUserName;
+  final String statusName;
+  final DateTime occurredAtUtc;
+  final String? description;
+
+  AppointmentAuditLog({
+    required this.id,
+    required this.actingUserName,
+    required this.statusName,
+    required this.occurredAtUtc,
+    this.description,
+  });
+
+  factory AppointmentAuditLog.fromJson(Map<String, dynamic> json) => AppointmentAuditLog(
+        id: json['id'] as int,
+        actingUserName: json['actingUserName'] as String,
+        statusName: json['statusName'] as String,
+        occurredAtUtc: DateTime.parse(json['occurredAtUtc'] as String).toLocal(),
+        description: json['description'] as String?,
+      );
+}
+
 /// Mirrors the backend's `AppointmentDto`. `status` matches .NET's
 /// `AppointmentStatus` enum (0=Pending, 1=Confirmed, 2=Completed, 3=Cancelled).
 class Appointment {
@@ -31,6 +59,10 @@ class Appointment {
   /// to the patient (review item C14). Staff clear it by retrying the refund.
   final bool refundFailed;
 
+  /// Full status-change history - empty unless this came from
+  /// `AppointmentProvider.getById` (see [AppointmentAuditLog]).
+  final List<AppointmentAuditLog> auditLogs;
+
   Appointment({
     required this.id,
     required this.patientId,
@@ -53,6 +85,7 @@ class Appointment {
     this.paymentId,
     required this.canRefund,
     this.refundFailed = false,
+    this.auditLogs = const [],
   });
 
   bool get canConfirm => allowedActions.contains('Confirm');
@@ -87,5 +120,8 @@ class Appointment {
         paymentId: json['paymentId'] as int?,
         canRefund: json['canRefund'] as bool? ?? false,
         refundFailed: json['refundFailed'] as bool? ?? false,
+        auditLogs: (json['auditLogs'] as List<dynamic>? ?? [])
+            .map((e) => AppointmentAuditLog.fromJson(e as Map<String, dynamic>))
+            .toList(),
       );
 }

@@ -1,5 +1,7 @@
 import '../../core/base_provider.dart';
 import '../../core/api_http.dart';
+import 'dart:async';
+
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_form_builder/flutter_form_builder.dart';
@@ -23,6 +25,7 @@ import '../../widgets/ui/app_badge.dart';
 import '../../widgets/ui/app_card.dart';
 import '../../widgets/ui/app_data_table.dart';
 import '../../widgets/ui/app_dialog.dart';
+import '../../widgets/ui/app_fields.dart';
 import '../../widgets/ui/app_states.dart';
 import '../people/medical_record_screen.dart';
 
@@ -35,6 +38,10 @@ import '../people/medical_record_screen.dart';
 /// (Administrator-only, a soft-delete override for a mistaken entry - see
 /// [ReferralProvider.delete]) is the only exception to "stays part of the
 /// medical history".
+///
+/// Searching by reason or target specialization is a server-side filter
+/// (rulebook §2.2: every list needs at least one search parameter), same
+/// pattern as `PatientDocumentsScreen`.
 class ReferralsScreen extends StatefulWidget {
   final int patientId;
   final String patientName;
@@ -63,11 +70,19 @@ class _ReferralsScreenState extends State<ReferralsScreen> {
   /// without leaving to the full findings screen.
   static const _recentFindingsLimit = 3;
 
+  final _searchController = TextEditingController();
+  Timer? _debounce;
+
   bool _showArchived = false;
   List<Referral>? _referrals;
   List<Specialization> _specializations = [];
   List<Appointment> _appointments = [];
   String? _error;
+
+  /// The term the currently-displayed list was actually fetched with - see
+  /// `PatientDocumentsScreen` for why the empty state reads this instead of
+  /// the live controller text.
+  String _appliedSearch = '';
 
   @override
   void initState() {
@@ -81,10 +96,11 @@ class _ReferralsScreenState extends State<ReferralsScreen> {
   }
 
   Future<void> _load() async {
+    final term = _searchController.text.trim();
     setState(() => _error = null);
     try {
       final results = await Future.wait([
-        _referralProvider.getPaged(patientId: widget.patientId, onlyArchived: _showArchived),
+        _referralProvider.getPaged(patientId: widget.patientId, onlyArchived: _showArchived, search: term),
         _specializationProvider.getPaged({'pageSize': 100, 'orderBy': 'Name'}),
         _appointmentProvider.getPaged({
           'patientId': widget.patientId,
@@ -98,10 +114,36 @@ class _ReferralsScreenState extends State<ReferralsScreen> {
         _referrals = results[0] as List<Referral>;
         _specializations = (results[1] as dynamic).resultList as List<Specialization>;
         _appointments = (results[2] as dynamic).resultList as List<Appointment>;
+        _appliedSearch = term;
       });
     } on ApiException catch (e) {
-      if (mounted) setState(() => _error = e.message);
+      if (mounted) {
+        setState(() {
+          _error = e.message;
+          _appliedSearch = term;
+        });
+      }
     }
+  }
+
+  /// Same 350ms debounce every other searchable grid in the app uses.
+  void _onSearchChanged(String _) {
+    _debounce?.cancel();
+    _debounce = Timer(const Duration(milliseconds: 350), _load);
+  }
+
+  void _clearSearch() {
+    _debounce?.cancel();
+    if (_searchController.text.isEmpty) return;
+    _searchController.clear();
+    _load();
+  }
+
+  @override
+  void dispose() {
+    _debounce?.cancel();
+    _searchController.dispose();
+    super.dispose();
   }
 
   void _setShowArchived(bool value) {
@@ -148,6 +190,10 @@ class _ReferralsScreenState extends State<ReferralsScreen> {
                           reason: form.value['reason'] as String,
                         );
                         if (dialogContext.mounted) Navigator.of(dialogContext).pop();
+                        // A new referral has no reason to be hidden by a
+                        // filter the user forgot about (rulebook Part II §K).
+                        _debounce?.cancel();
+                        _searchController.clear();
                         await _load();
                       } on ApiException catch (e) {
                         setDialogState(() {
@@ -459,6 +505,19 @@ class _ReferralsScreenState extends State<ReferralsScreen> {
                 message: 'Pacijent nema nijedan termin - prvo zakažite termin da biste mogli izdati uputnicu.',
               ),
             ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(AppSpacing.xl, AppSpacing.md, AppSpacing.xl, 0),
+            child: AppToolbar(
+              filters: [
+                AppSearchField(
+                  controller: _searchController,
+                  hint: 'Pretraži po razlogu ili specijalizaciji…',
+                  onChanged: _onSearchChanged,
+                  onClear: _clearSearch,
+                ),
+              ],
+            ),
+          ),
           Expanded(
             child: _error != null
                 ? Padding(
@@ -470,20 +529,33 @@ class _ReferralsScreenState extends State<ReferralsScreen> {
                 : _referrals!.isEmpty
                 ? Padding(
                     padding: AppSpacing.page,
-                    child: AppEmptyState(
-                      icon: Icons.assignment_outlined,
-                      title: _showArchived ? 'Arhiva je prazna' : 'Nema uputnica',
-                      message: _showArchived
-                          ? 'Uputnice se ovdje pojavljuju čim se iskoriste za zakazivanje termina, ili budu uklonjene.'
-                          : 'Ovaj pacijent još nema izdatih uputnica specijalisti.',
-                      action: canAdd
-                          ? FilledButton.icon(
-                              onPressed: _openAddDialog,
-                              icon: const Icon(Icons.add, size: 18),
-                              label: const Text('Nova uputnica'),
-                            )
-                          : null,
-                    ),
+                    child: _appliedSearch.isNotEmpty
+                        ? AppEmptyState(
+                            icon: Icons.search_off_rounded,
+                            title: 'Nema rezultata pretrage',
+                            message:
+                                'Nijedna uputnica ne sadrži "$_appliedSearch" u razlogu ili specijalizaciji. '
+                                'Provjerite pojam ili očistite pretragu da vidite sve uputnice.',
+                            action: OutlinedButton.icon(
+                              onPressed: _clearSearch,
+                              icon: const Icon(Icons.close_rounded, size: 18),
+                              label: const Text('Očisti pretragu'),
+                            ),
+                          )
+                        : AppEmptyState(
+                            icon: Icons.assignment_outlined,
+                            title: _showArchived ? 'Arhiva je prazna' : 'Nema uputnica',
+                            message: _showArchived
+                                ? 'Uputnice se ovdje pojavljuju čim se iskoriste za zakazivanje termina, ili budu uklonjene.'
+                                : 'Ovaj pacijent još nema izdatih uputnica specijalisti.',
+                            action: canAdd
+                                ? FilledButton.icon(
+                                    onPressed: _openAddDialog,
+                                    icon: const Icon(Icons.add, size: 18),
+                                    label: const Text('Nova uputnica'),
+                                  )
+                                : null,
+                          ),
                   )
                 : ListView.separated(
                     padding: AppSpacing.page,

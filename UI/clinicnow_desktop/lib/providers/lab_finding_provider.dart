@@ -16,10 +16,11 @@ class LabFindingProvider {
 
   LabFindingProvider(AuthSession authSession) : _base = _LabFindingBaseProvider(authSession);
 
-  Future<List<LabFinding>> getPaged({int? patientId, int? appointmentId}) async {
+  Future<List<LabFinding>> getPaged({int? patientId, int? appointmentId, String? search}) async {
     final query = <String, dynamic>{'pageSize': 50};
     if (patientId != null) query['patientId'] = patientId;
     if (appointmentId != null) query['appointmentId'] = appointmentId;
+    if (search != null && search.isNotEmpty) query['search'] = search;
     final response = await apiGet(_base.buildUri('api/LabFinding', query), headers: _base.authHeaders());
     final data = _base.decode(response) as Map<String, dynamic>;
     final list = (data['resultList'] as List).cast<Map<String, dynamic>>();

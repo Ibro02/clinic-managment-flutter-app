@@ -14,9 +14,10 @@ class ReferralProvider {
 
   ReferralProvider(AuthSession authSession) : _base = _ReferralBaseProvider(authSession);
 
-  Future<List<Referral>> getPaged({int? patientId, bool onlyArchived = false}) async {
+  Future<List<Referral>> getPaged({int? patientId, bool onlyArchived = false, String? search}) async {
     final query = <String, dynamic>{'pageSize': 50, 'onlyArchived': onlyArchived};
     if (patientId != null) query['patientId'] = patientId;
+    if (search != null && search.isNotEmpty) query['search'] = search;
     final response = await apiGet(_base.buildUri('api/Referral', query), headers: _base.authHeaders());
     final data = _base.decode(response) as Map<String, dynamic>;
     final list = (data['resultList'] as List).cast<Map<String, dynamic>>();

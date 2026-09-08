@@ -217,6 +217,82 @@ class _AppointmentScreenState extends State<AppointmentScreen> {
     }
   }
 
+  /// "Historija termina" (review item 11/rulebook §7): the audit trail is
+  /// written correctly on every status transition but was never surfaced
+  /// anywhere - `AppointmentDto.AuditLogs` is only populated by the detail
+  /// endpoint, so it is fetched here rather than read off the row already in
+  /// [_appointments] (which came from the paged list, where it is always empty).
+  Future<void> _openHistory(Appointment appointment) async {
+    final Appointment detail;
+    try {
+      detail = await _appointmentProvider.getById(appointment.id);
+    } on ApiException catch (e) {
+      _showError(e.message);
+      return;
+    }
+    if (!mounted) return;
+
+    await showAppDialog<void>(
+      context: context,
+      builder: (dialogContext) => AppDialog(
+        title: 'Historija termina',
+        subtitle: '${appointment.patientName} kod ${appointment.doctorName}',
+        icon: Icons.history_rounded,
+        width: 480,
+        actions: [
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('Zatvori'),
+          ),
+        ],
+        child: detail.auditLogs.isEmpty
+            ? Text(
+                'Za ovaj termin još nema evidentiranih promjena statusa.',
+                style: TextStyle(color: dialogContext.colors.textMuted),
+              )
+            : Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  for (final entry in detail.auditLogs)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Padding(
+                            padding: const EdgeInsets.only(top: 2),
+                            child: AppStatusBadge(
+                              label: entry.statusName,
+                              tone: _statusToneByName(entry.statusName),
+                            ),
+                          ),
+                          const SizedBox(width: AppSpacing.sm),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text(
+                                  '${entry.actingUserName} · ${_dateTimeFormat.format(entry.occurredAtUtc)}',
+                                  style: dialogContext.text.bodySmall?.copyWith(
+                                    color: dialogContext.colors.textMuted,
+                                  ),
+                                ),
+                                if (entry.description != null && entry.description!.isNotEmpty)
+                                  Text(entry.description!),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                ],
+              ),
+      ),
+    );
+  }
+
   Future<void> _openLabFindings(Appointment appointment) async {
     await Navigator.of(context).push(
       MaterialPageRoute(
@@ -385,6 +461,18 @@ class _AppointmentScreenState extends State<AppointmentScreen> {
     _ => AppTone.neutral,
   };
 
+  /// Same mapping as [_statusTone], keyed by the display name instead of the
+  /// numeric code - `AppointmentAuditLogDto` only carries `StatusName`
+  /// (rulebook §7's audit trail is display text, not a status the UI re-drives
+  /// any logic from).
+  AppTone _statusToneByName(String statusName) => switch (statusName) {
+    'Na čekanju' => AppTone.warning,
+    'Potvrđen' => AppTone.info,
+    'Završen' => AppTone.success,
+    'Otkazan' => AppTone.danger,
+    _ => AppTone.neutral,
+  };
+
   /// Backend `PaymentStatusExtensions.ToDisplayName(...)` values - the
   /// appointment DTO carries the payment status only as its display name, so
   /// these are the values the tone mapping below has to recognise by text.
@@ -528,6 +616,11 @@ class _AppointmentScreenState extends State<AppointmentScreen> {
                   icon: Icons.assignment_outlined,
                   tooltip: 'Uputnice',
                   onPressed: () => _openReferrals(a),
+                ),
+                AppRowAction(
+                  icon: Icons.history_rounded,
+                  tooltip: 'Historija termina',
+                  onPressed: () => _openHistory(a),
                 ),
               ],
             ),

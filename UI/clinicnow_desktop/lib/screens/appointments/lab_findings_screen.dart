@@ -1,5 +1,7 @@
 import '../../core/base_provider.dart';
 import '../../core/api_http.dart';
+import 'dart:async';
+
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_form_builder/flutter_form_builder.dart';
@@ -19,6 +21,7 @@ import '../../widgets/ui/app_badge.dart';
 import '../../widgets/ui/app_card.dart';
 import '../../widgets/ui/app_data_table.dart';
 import '../../widgets/ui/app_dialog.dart';
+import '../../widgets/ui/app_fields.dart';
 import '../../widgets/ui/app_states.dart';
 
 /// Entry and review of a patient's lab findings ("laboratorijski nalazi",
@@ -31,6 +34,10 @@ import '../../widgets/ui/app_states.dart';
 /// entry point differs. Administrator/Staff/Doctor can enter a finding;
 /// deleting is Administrator/Staff only, mirroring `PatientDocumentsScreen`'s
 /// gates for the equivalent generic-document flow.
+///
+/// Searching by result text or file name is a server-side filter (rulebook
+/// §2.2: every list needs at least one search parameter), same pattern as
+/// `PatientDocumentsScreen`.
 class LabFindingsScreen extends StatefulWidget {
   final int patientId;
   final String patientName;
@@ -51,10 +58,17 @@ class _LabFindingsScreenState extends State<LabFindingsScreen> {
   late final LabFindingProvider _provider;
   late final AppointmentProvider _appointmentProvider;
   final _dateFormat = DateFormat('dd.MM.yyyy HH:mm');
+  final _searchController = TextEditingController();
+  Timer? _debounce;
 
   List<LabFinding>? _findings;
   List<Appointment> _appointments = [];
   String? _error;
+
+  /// The term the currently-displayed list was actually fetched with - see
+  /// `PatientDocumentsScreen` for why the empty state reads this instead of
+  /// the live controller text.
+  String _appliedSearch = '';
 
   static const _allowedExtensions = ['pdf', 'png', 'jpg', 'jpeg'];
   static const _contentTypeByExtension = {
@@ -74,10 +88,11 @@ class _LabFindingsScreenState extends State<LabFindingsScreen> {
   }
 
   Future<void> _load() async {
+    final term = _searchController.text.trim();
     setState(() => _error = null);
     try {
       final results = await Future.wait([
-        _provider.getPaged(patientId: widget.patientId),
+        _provider.getPaged(patientId: widget.patientId, search: term),
         _appointmentProvider.getPaged({
           'patientId': widget.patientId,
           'pageSize': 100,
@@ -89,10 +104,36 @@ class _LabFindingsScreenState extends State<LabFindingsScreen> {
       setState(() {
         _findings = results[0] as List<LabFinding>;
         _appointments = (results[1] as dynamic).resultList as List<Appointment>;
+        _appliedSearch = term;
       });
     } on ApiException catch (e) {
-      if (mounted) setState(() => _error = e.message);
+      if (mounted) {
+        setState(() {
+          _error = e.message;
+          _appliedSearch = term;
+        });
+      }
     }
+  }
+
+  /// Same 350ms debounce every other searchable grid in the app uses.
+  void _onSearchChanged(String _) {
+    _debounce?.cancel();
+    _debounce = Timer(const Duration(milliseconds: 350), _load);
+  }
+
+  void _clearSearch() {
+    _debounce?.cancel();
+    if (_searchController.text.isEmpty) return;
+    _searchController.clear();
+    _load();
+  }
+
+  @override
+  void dispose() {
+    _debounce?.cancel();
+    _searchController.dispose();
+    super.dispose();
   }
 
   Future<void> _openAddDialog() async {
@@ -148,6 +189,10 @@ class _LabFindingsScreenState extends State<LabFindingsScreen> {
                           bytes: bytes,
                         );
                         if (dialogContext.mounted) Navigator.of(dialogContext).pop();
+                        // A new finding has no reason to be hidden by a filter
+                        // the user forgot about (rulebook Part II §K).
+                        _debounce?.cancel();
+                        _searchController.clear();
                         await _load();
                       } on ApiException catch (e) {
                         setDialogState(() {
@@ -328,6 +373,19 @@ class _LabFindingsScreenState extends State<LabFindingsScreen> {
                 message: 'Pacijent nema nijedan termin - prvo zakažite termin da biste mogli unijeti nalaz.',
               ),
             ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(AppSpacing.xl, AppSpacing.md, AppSpacing.xl, 0),
+            child: AppToolbar(
+              filters: [
+                AppSearchField(
+                  controller: _searchController,
+                  hint: 'Pretraži po nalazu ili nazivu fajla…',
+                  onChanged: _onSearchChanged,
+                  onClear: _clearSearch,
+                ),
+              ],
+            ),
+          ),
           Expanded(
             child: _error != null
                 ? Padding(
@@ -339,18 +397,31 @@ class _LabFindingsScreenState extends State<LabFindingsScreen> {
                 : _findings!.isEmpty
                 ? Padding(
                     padding: AppSpacing.page,
-                    child: AppEmptyState(
-                      icon: Icons.biotech_outlined,
-                      title: 'Nema nalaza',
-                      message: 'Ovaj pacijent još nema nijedan laboratorijski nalaz.',
-                      action: canAdd
-                          ? FilledButton.icon(
-                              onPressed: _openAddDialog,
-                              icon: const Icon(Icons.add, size: 18),
-                              label: const Text('Novi nalaz'),
-                            )
-                          : null,
-                    ),
+                    child: _appliedSearch.isNotEmpty
+                        ? AppEmptyState(
+                            icon: Icons.search_off_rounded,
+                            title: 'Nema rezultata pretrage',
+                            message:
+                                'Nijedan nalaz ne sadrži "$_appliedSearch" u tekstu nalaza ili nazivu fajla. '
+                                'Provjerite pojam ili očistite pretragu da vidite sve nalaze.',
+                            action: OutlinedButton.icon(
+                              onPressed: _clearSearch,
+                              icon: const Icon(Icons.close_rounded, size: 18),
+                              label: const Text('Očisti pretragu'),
+                            ),
+                          )
+                        : AppEmptyState(
+                            icon: Icons.biotech_outlined,
+                            title: 'Nema nalaza',
+                            message: 'Ovaj pacijent još nema nijedan laboratorijski nalaz.',
+                            action: canAdd
+                                ? FilledButton.icon(
+                                    onPressed: _openAddDialog,
+                                    icon: const Icon(Icons.add, size: 18),
+                                    label: const Text('Novi nalaz'),
+                                  )
+                                : null,
+                          ),
                   )
                 : ListView.separated(
                     padding: AppSpacing.page,
