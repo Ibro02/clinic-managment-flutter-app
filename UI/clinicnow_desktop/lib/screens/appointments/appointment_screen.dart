@@ -75,7 +75,7 @@ class _AppointmentScreenState extends State<AppointmentScreen> {
 
   Future<void> _loadFilterOptions() async {
     final patients = await _patientProvider.getPaged({'pageSize': 100, 'orderBy': 'LastName'});
-    final doctors = await _doctorProvider.getPaged({'pageSize': 100, 'orderBy': 'LastName'});
+    final doctors = await _doctorProvider.getPaged({'pageSize': 100, 'orderBy': 'User.LastName'});
     if (!mounted) return;
     setState(() {
       _patients = patients.resultList;
@@ -502,6 +502,10 @@ class _AppointmentScreenState extends State<AppointmentScreen> {
     // - the button must not be shown to a role that would get a 403 on submit.
     final authSession = context.watch<AuthSession>();
     final canSchedule = authSession.hasRole(Roles.administrator) || authSession.hasRole(Roles.staff);
+    // Payments aren't part of the doctor-facing surface (the backend rejects
+    // a Doctor's refund attempt outright) - hiding the button avoids a
+    // guaranteed-to-fail action instead of surfacing the rejection.
+    final canRefundPayments = authSession.hasRole(Roles.administrator) || authSession.hasRole(Roles.staff);
 
     return Padding(
       padding: AppSpacing.page,
@@ -601,7 +605,7 @@ class _AppointmentScreenState extends State<AppointmentScreen> {
                   tooltip: a.canReschedule ? 'Premjesti' : 'Premještanje nije moguće u ovom statusu',
                   onPressed: a.canReschedule ? () => _reschedule(a) : null,
                 ),
-                if (a.canRefund)
+                if (a.canRefund && canRefundPayments)
                   AppRowAction(
                     icon: Icons.undo_rounded,
                     tooltip: 'Povrat sredstava',

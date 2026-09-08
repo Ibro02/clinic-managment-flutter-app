@@ -325,14 +325,14 @@ class _DoctorScreenState extends State<DoctorScreen> {
       title: 'Doktori',
       searchHint: 'Pretraga po imenu i prezimenu',
       provider: _doctorProvider,
-      orderBy: 'LastName',
+      orderBy: 'User.LastName',
       canWrite: canWrite,
       buildColumns: () => [
         // Rulebook §K wants an image beside the name; doctors have no photo in
         // the model, so an initials avatar carries the same scanning benefit.
         AppColumn(
           label: 'Ime i prezime',
-          sortKey: 'LastName',
+          sortKey: 'User.LastName',
           flex: 2,
           cell: (context, doctor) => Row(
             children: [

@@ -140,7 +140,7 @@ class _BookAppointmentScreenState extends State<BookAppointmentScreen> {
   }
 
   Future<void> _loadOptions() async {
-    final doctors = await _doctorProvider.getPaged({'pageSize': 100, 'orderBy': 'LastName'});
+    final doctors = await _doctorProvider.getPaged({'pageSize': 100, 'orderBy': 'User.LastName'});
     final services = await _fetchServices(widget.initialDoctorId);
     final ownReferrals = await _loadOwnReferrals();
     if (!mounted) return;

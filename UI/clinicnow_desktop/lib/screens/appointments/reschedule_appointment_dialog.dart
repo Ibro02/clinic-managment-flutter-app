@@ -85,7 +85,7 @@ class _RescheduleAppointmentDialogState extends State<RescheduleAppointmentDialo
     final service = await _serviceProvider.getById(widget.appointment.medicalServiceId);
     final doctors = await _doctorProvider.getPaged({
       'pageSize': 100,
-      'orderBy': 'LastName',
+      'orderBy': 'User.LastName',
       'specializationId': service.specializationId,
     });
     if (!mounted) return;

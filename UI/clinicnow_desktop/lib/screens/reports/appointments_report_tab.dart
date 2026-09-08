@@ -52,7 +52,7 @@ class _AppointmentsReportTabState extends State<AppointmentsReportTab> {
 
   Future<void> _loadDoctors() async {
     try {
-      final result = await _doctorProvider.getPaged({'pageSize': 100, 'orderBy': 'LastName'});
+      final result = await _doctorProvider.getPaged({'pageSize': 100, 'orderBy': 'User.LastName'});
       if (mounted) setState(() => _doctors = result.resultList);
     } on ApiException {
       // "Svi doktori" still works even if the dropdown list itself failed to load.

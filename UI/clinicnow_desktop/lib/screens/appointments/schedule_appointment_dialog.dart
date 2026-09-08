@@ -82,7 +82,7 @@ class _ScheduleAppointmentDialogState extends State<ScheduleAppointmentDialog> {
   Future<void> _loadOptions() async {
     final results = await Future.wait([
       _patientProvider.getPaged({'pageSize': 100, 'orderBy': 'LastName'}),
-      _doctorProvider.getPaged({'pageSize': 100, 'orderBy': 'LastName'}),
+      _doctorProvider.getPaged({'pageSize': 100, 'orderBy': 'User.LastName'}),
       _serviceProvider.getPaged({'pageSize': 100, 'orderBy': 'Name'}),
     ]);
     if (!mounted) return;
