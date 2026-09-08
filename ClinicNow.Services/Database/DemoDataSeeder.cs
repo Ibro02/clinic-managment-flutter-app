@@ -32,8 +32,18 @@ public class DemoDataSeeder
     /// <summary>Below this, an ID belongs to a migration's <c>HasData</c> row - never reused here.</summary>
     private const int FirstSeederId = 100;
 
-    /// <summary>Appointments/audit logs get their own higher range so they read as clearly generated, not confusable with the 1-5 HasData ones.</summary>
-    private const int FirstAppointmentId = 1000;
+    /// <summary>
+    /// Floor for the Appointments/AppointmentAuditLogs range - the actual
+    /// starting id is computed at seed time as the higher of this and
+    /// whatever real usage has already pushed those two tables past (see
+    /// <see cref="SeedAsync"/>). Unlike every other table this seeder writes
+    /// to, real usage creates new Appointment rows constantly (every booking),
+    /// so a literal like the other tables' <see cref="FirstSeederId"/> would
+    /// eventually collide with a real row - which is exactly what happened
+    /// here once the app had been exercised for a day or two before this
+    /// seeder's first successful run.
+    /// </summary>
+    private const int MinAppointmentId = 1000;
 
     private readonly ClinicNowContext _context;
     private readonly IPasswordHasher _passwordHasher;
@@ -68,7 +78,24 @@ public class DemoDataSeeder
         var patients = BuildPatients();
         var medicalRecords = BuildMedicalRecords(nowUtc);
 
-        var (appointments, auditLogs) = BuildAppointments(nowUtc, today, out var resultingReferralAppointment);
+        // Real usage books appointments constantly (unlike accounts/patients/
+        // doctors, which only staff create), so IDs can drift arbitrarily far
+        // past MinAppointmentId before this seeder ever gets a chance to run
+        // once. Starting from a fixed literal here is exactly what caused a
+        // real "duplicate key" / IDENTITY_INSERT collision against genuine
+        // booking data - this computes a floor that is always above every
+        // Appointment/AppointmentAuditLog id already in the database.
+        // The +100000 margin (not just +1) is deliberate: SQL Server advances
+        // an IDENTITY column's internal counter even for an insert that was
+        // ultimately rejected/rolled back (e.g. a prior run of this exact
+        // seeder that failed partway through before this class toggled
+        // IDENTITY_INSERT correctly), so MAX(Id) alone can already read lower
+        // than what the next real auto-generated value will be.
+        var maxExistingAppointmentId = await _context.Appointments.MaxAsync(a => (int?)a.Id, cancellationToken) ?? 0;
+        var maxExistingAuditLogId = await _context.AppointmentAuditLogs.MaxAsync(l => (int?)l.Id, cancellationToken) ?? 0;
+        var firstAppointmentId = Math.Max(MinAppointmentId, Math.Max(maxExistingAppointmentId, maxExistingAuditLogId) + 100000);
+
+        var (appointments, auditLogs) = BuildAppointments(nowUtc, today, firstAppointmentId, out var resultingReferralAppointment);
         appointments.Add(resultingReferralAppointment.Appointment);
         auditLogs.Add(resultingReferralAppointment.AuditLog);
 
@@ -80,23 +107,62 @@ public class DemoDataSeeder
         var newsItem = BuildNewsItem(nowUtc);
         var scheduleBlock = BuildScheduleBlock(nowLocal);
 
-        _context.Users.AddRange(users);
-        _context.Doctors.AddRange(doctors);
-        _context.DoctorSpecializations.AddRange(doctorSpecializations);
-        _context.WorkingHoursEntries.AddRange(workingHours);
-        _context.Patients.AddRange(patients);
-        _context.MedicalRecords.AddRange(medicalRecords);
-        _context.Appointments.AddRange(appointments);
-        _context.AppointmentAuditLogs.AddRange(auditLogs);
-        _context.Referrals.AddRange(referrals);
-        _context.LabFindings.AddRange(labFindings);
-        _context.MedicalRecordEntries.AddRange(medicalRecordEntries);
-        _context.RecommenderInteractions.AddRange(recommenderInteractions);
-        _context.Notifications.AddRange(notifications);
-        _context.NewsItems.Add(newsItem);
-        _context.ScheduleBlocks.Add(scheduleBlock);
+        // Unlike a migration's HasData (which the EF tooling wraps in
+        // generated `SET IDENTITY_INSERT ON/OFF` SQL automatically), a plain
+        // runtime SaveChangesAsync does NOT toggle that for an ordinary
+        // insert - every one of these entities has an explicitly-assigned,
+        // fixed Id going into an identity column, so SQL Server rejects the
+        // whole batch with "Cannot insert explicit value for identity column"
+        // unless this class does the toggling itself. One transaction so a
+        // failure partway through never leaves the idempotency check (User
+        // 100 exists) satisfied by a half-seeded database.
+        //
+        // Run through the context's own execution strategy (CLAUDE.md §8.2's
+        // "retry a deadlock/serialization conflict instead of a 500" applies
+        // just as much to a startup seed as to a booking): the API's SQL
+        // Server connection is configured with EnableRetryOnFailure, and that
+        // retrying strategy refuses a bare Database.BeginTransactionAsync
+        // outside of it, since it needs to retry the *whole* unit - including
+        // the BEGIN - on a transient failure.
+        var strategy = _context.Database.CreateExecutionStrategy();
+        await strategy.ExecuteAsync(async () =>
+        {
+            // Discards anything a previous, retried attempt left tracked as
+            // Added but never committed - the entity lists themselves are
+            // plain in-memory objects and are safe to re-add on retry.
+            _context.ChangeTracker.Clear();
 
-        await _context.SaveChangesAsync(cancellationToken);
+            var transaction = _context.Database.IsRelational()
+                ? await _context.Database.BeginTransactionAsync(cancellationToken)
+                : null;
+            await using var disposableTransaction = transaction;
+
+            await InsertWithExplicitIdsAsync(_context.Users, users, "Users", cancellationToken);
+            await InsertWithExplicitIdsAsync(_context.Doctors, doctors, "Doctors", cancellationToken);
+
+            // Composite key (DoctorId, SpecializationId), not an identity column -
+            // no IDENTITY_INSERT involved.
+            _context.DoctorSpecializations.AddRange(doctorSpecializations);
+            await _context.SaveChangesAsync(cancellationToken);
+
+            await InsertWithExplicitIdsAsync(_context.WorkingHoursEntries, workingHours, "WorkingHoursEntries", cancellationToken);
+            await InsertWithExplicitIdsAsync(_context.Patients, patients, "Patients", cancellationToken);
+            await InsertWithExplicitIdsAsync(_context.MedicalRecords, medicalRecords, "MedicalRecords", cancellationToken);
+            await InsertWithExplicitIdsAsync(_context.Appointments, appointments, "Appointments", cancellationToken);
+            await InsertWithExplicitIdsAsync(_context.AppointmentAuditLogs, auditLogs, "AppointmentAuditLogs", cancellationToken);
+            await InsertWithExplicitIdsAsync(_context.Referrals, referrals, "Referrals", cancellationToken);
+            await InsertWithExplicitIdsAsync(_context.LabFindings, labFindings, "LabFindings", cancellationToken);
+            await InsertWithExplicitIdsAsync(_context.MedicalRecordEntries, medicalRecordEntries, "MedicalRecordEntries", cancellationToken);
+            await InsertWithExplicitIdsAsync(_context.RecommenderInteractions, recommenderInteractions, "RecommenderInteractions", cancellationToken);
+            await InsertWithExplicitIdsAsync(_context.Notifications, notifications, "Notifications", cancellationToken);
+            await InsertWithExplicitIdsAsync(_context.NewsItems, [newsItem], "NewsItems", cancellationToken);
+            await InsertWithExplicitIdsAsync(_context.ScheduleBlocks, [scheduleBlock], "ScheduleBlocks", cancellationToken);
+
+            if (transaction is not null)
+            {
+                await transaction.CommitAsync(cancellationToken);
+            }
+        });
 
         _logger.LogInformation(
             "Seeded demo data: {Patients} patients, {Doctors} doctors, {Appointments} appointments, " +
@@ -104,6 +170,51 @@ public class DemoDataSeeder
             "{Interactions} recommender interactions.",
             patients.Count, doctors.Count, appointments.Count, labFindings.Count, referrals.Count,
             medicalRecordEntries.Count, recommenderInteractions.Count);
+    }
+
+    /// <summary>
+    /// Inserts a batch of rows carrying explicit, pre-assigned primary keys
+    /// into a table whose Id column is a SQL Server IDENTITY - toggling
+    /// IDENTITY_INSERT around the insert, which a runtime SaveChangesAsync
+    /// never does on its own (unlike EF migrations' HasData). SQL Server only
+    /// allows one table's IDENTITY_INSERT to be ON per connection at a time,
+    /// so this must run one table fully to completion (insert, then OFF)
+    /// before the next table's rows are added - never interleaved.
+    ///
+    /// The IDENTITY_INSERT toggle is relational-only SQL and unsupported (and
+    /// unnecessary - it has no identity-column restriction at all) on the
+    /// EF Core InMemory provider these tests run against, so it is skipped
+    /// there via <see cref="RelationalDatabaseFacadeExtensions.IsRelational"/>.
+    /// </summary>
+    private async Task InsertWithExplicitIdsAsync<TEntity>(
+        Microsoft.EntityFrameworkCore.DbSet<TEntity> set, IReadOnlyCollection<TEntity> entities, string tableName, CancellationToken cancellationToken)
+        where TEntity : class
+    {
+        if (entities.Count == 0)
+        {
+            return;
+        }
+
+        var isRelational = _context.Database.IsRelational();
+
+        // tableName is always one of this method's own hardcoded call-site
+        // literals (see SeedAsync) - never external input - and a table
+        // identifier can't be a SQL parameter in the first place, so
+        // ExecuteSqlAsync's parameterization wouldn't apply here anyway.
+#pragma warning disable EF1002
+        if (isRelational)
+        {
+            await _context.Database.ExecuteSqlRawAsync($"SET IDENTITY_INSERT [{tableName}] ON", cancellationToken);
+        }
+
+        set.AddRange(entities);
+        await _context.SaveChangesAsync(cancellationToken);
+
+        if (isRelational)
+        {
+            await _context.Database.ExecuteSqlRawAsync($"SET IDENTITY_INSERT [{tableName}] OFF", cancellationToken);
+        }
+#pragma warning restore EF1002
     }
 
     // --- identity: 3 new doctors + 2 new patients-with-login ------------------
@@ -218,7 +329,7 @@ public class DemoDataSeeder
     /// comfortably inside the 40-60 range the rulebook wants demonstrated.
     /// </summary>
     private (List<Appointment> Appointments, List<AppointmentAuditLog> AuditLogs) BuildAppointments(
-        DateTime nowUtc, DateOnly today, out (Appointment Appointment, AppointmentAuditLog AuditLog) referralResultAppointment)
+        DateTime nowUtc, DateOnly today, int firstAppointmentId, out (Appointment Appointment, AppointmentAuditLog AuditLog) referralResultAppointment)
     {
         const int target = 45;
         var startDate = today.AddDays(-60);
@@ -229,7 +340,7 @@ public class DemoDataSeeder
         var perDoctorWorkingDayCount = new Dictionary<int, int>();
         var pastCounter = 0;
         var futureCounter = 0;
-        var nextId = FirstAppointmentId;
+        var nextId = firstAppointmentId;
 
         for (var date = startDate; date <= endDate && appointments.Count < target; date = date.AddDays(1))
         {
