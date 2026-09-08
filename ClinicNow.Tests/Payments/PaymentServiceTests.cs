@@ -252,6 +252,42 @@ public class PaymentServiceTests
         Assert.Equal(PaymentStatus.Refunded, (PaymentStatus)dto.Status);
     }
 
+    // --- seeded demo payments must not attempt a real refund (V2) --------------
+
+    [Fact]
+    public async Task RefundAsync_OnASeededDemoPayment_IsRefusedWithoutCallingPayPal()
+    {
+        var (service, context, payPal) = Build();
+        var seeded = await SeedAttemptAsync(context, CleanAppointmentId, PaymentStatus.Paid, DateTime.UtcNow.AddMinutes(-30), captureId: "SEED-CAPTURE-0099");
+
+        var ex = await Assert.ThrowsAsync<BusinessException>(
+            () => service.RefundAsync(seeded.Id, new PaymentRefundRequest { Amount = seeded.AmountEur, Reason = "Test" }));
+
+        Assert.Equal(SeedPaymentPolicy.RefundBlockedReason, ex.Message);
+        Assert.Equal(0, payPal.RefundCalls);
+
+        var reloaded = await context.Payments.SingleAsync(p => p.Id == seeded.Id);
+        Assert.Equal(PaymentStatus.Paid, reloaded.Status);
+    }
+
+    [Fact]
+    public async Task RefundForCancelledAppointmentAsync_OnASeededDemoPayment_RecordsItAsAFailedRefundRatherThanCallingPayPal()
+    {
+        // The automatic path (cancellation) shares RefundCoreAsync with the
+        // manual one, so a seeded payment must be refused there too - recorded
+        // as a normal refund failure (C14), exactly as if PayPal itself had
+        // rejected it.
+        var (service, context, payPal) = Build();
+        var seeded = await SeedAttemptAsync(context, CleanAppointmentId, PaymentStatus.Paid, DateTime.UtcNow.AddMinutes(-30), captureId: "SEED-CAPTURE-0098");
+
+        await service.RefundForCancelledAppointmentAsync(CleanAppointmentId, actingUserId: 1);
+
+        Assert.Equal(0, payPal.RefundCalls);
+        var reloaded = await context.Payments.SingleAsync(p => p.Id == seeded.Id);
+        Assert.NotNull(reloaded.RefundFailedAtUtc);
+        Assert.Equal(SeedPaymentPolicy.RefundBlockedReason, reloaded.RefundFailureReason);
+    }
+
     // --- refund failure is durable (C14) ---------------------------------------
 
     [Fact]
@@ -373,10 +409,15 @@ public class PaymentServiceTests
         /// <summary>True reproduces PayPal being unreachable or rejecting the refund.</summary>
         public bool RefundThrows { get; set; }
 
-        public Task<string> RefundCaptureAsync(string captureId, decimal amountEur, string reason, CancellationToken cancellationToken = default) =>
-            RefundThrows
+        public int RefundCalls { get; private set; }
+
+        public Task<string> RefundCaptureAsync(string captureId, decimal amountEur, string reason, CancellationToken cancellationToken = default)
+        {
+            RefundCalls++;
+            return RefundThrows
                 ? throw new BusinessException("Povrat sredstava trenutno nije moguć. Pokušajte ponovo kasnije.")
                 : Task.FromResult("FAKE-REFUND");
+        }
     }
 
     private sealed class NoOpNotificationService : INotificationService

@@ -70,6 +70,16 @@ public class AppointmentDto
     public bool CanRefund { get; set; }
 
     /// <summary>
+    /// Set when a refund would otherwise be legal (see <see cref="CanRefund"/>)
+    /// but is blocked for a reason the user should see - currently only a
+    /// seeded demo payment (<see cref="Common.SeedPaymentPolicy"/>). Null in
+    /// every other case, including "nothing to refund at all", so the UI can
+    /// tell "no refund action applies here" apart from "one applies but is
+    /// disabled" (rulebook Part II §K: disabled actions need an explanation).
+    /// </summary>
+    public string? RefundBlockedReason { get; set; }
+
+    /// <summary>
     /// True while this appointment was cancelled but the automatic refund
     /// failed, so money is still owed to the patient (review item C14). Carried
     /// on the appointment - not just the payment - so both clients can show it

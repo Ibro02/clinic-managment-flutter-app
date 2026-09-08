@@ -612,11 +612,15 @@ class _AppointmentScreenState extends State<AppointmentScreen> {
                   tooltip: a.canReschedule ? 'Premjesti' : 'Premještanje nije moguće u ovom statusu',
                   onPressed: a.canReschedule ? () => _reschedule(a) : null,
                 ),
-                if (a.canRefund && canRefundPayments)
+                // Shown disabled-with-reason (rather than hidden) for a seeded
+                // demo payment - refundBlockedReason is only ever set for that
+                // case, never for "nothing to refund", so an appointment with
+                // no payment still shows no icon at all.
+                if (canRefundPayments && (a.canRefund || a.refundBlockedReason != null))
                   AppRowAction(
                     icon: Icons.undo_rounded,
-                    tooltip: 'Povrat sredstava',
-                    onPressed: () => _refund(a),
+                    tooltip: a.canRefund ? 'Povrat sredstava' : a.refundBlockedReason!,
+                    onPressed: a.canRefund ? () => _refund(a) : null,
                   ),
                 AppRowAction(
                   icon: Icons.biotech_outlined,

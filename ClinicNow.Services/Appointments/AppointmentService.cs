@@ -745,10 +745,21 @@ public class AppointmentService : IAppointmentService
             // too (review item C13a) - a mismatched capture is money that may
             // well need giving back, so staff must not be locked out of it.
             var remaining = (currentPayment.CapturedAmountEur ?? currentPayment.AmountEur) - currentPayment.Refunds.Sum(r => r.AmountEur);
-            dto.CanRefund = currentPayment.Status is Model.Common.PaymentStatus.Paid
+            var refundEligibleByStatus = currentPayment.Status is Model.Common.PaymentStatus.Paid
                     or Model.Common.PaymentStatus.PartiallyRefunded
                     or Model.Common.PaymentStatus.RequiresReconciliation
                 && remaining > 0;
+            // A seeded demo payment (review item V2) would otherwise pass every
+            // check above, but no real PayPal transaction backs it - refunding
+            // it always fails on the live API. Report it as blocked, with a
+            // reason, rather than offering an action that is guaranteed to fail
+            // (rulebook Part II §K); PaymentService.RefundAsync enforces the
+            // same rule server-side.
+            var isSeeded = Model.Common.SeedPaymentPolicy.IsSeeded(currentPayment.PayPalCaptureId);
+            dto.CanRefund = refundEligibleByStatus && !isSeeded;
+            dto.RefundBlockedReason = refundEligibleByStatus && isSeeded
+                ? Model.Common.SeedPaymentPolicy.RefundBlockedReason
+                : null;
             dto.RefundFailed = currentPayment.RefundFailedAtUtc is not null;
         }
 

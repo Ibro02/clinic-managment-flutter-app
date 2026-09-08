@@ -36,6 +36,7 @@ public class AppointmentMappingConfig : IRegister
             .Ignore(dest => dest.PaymentStatus!)
             .Ignore(dest => dest.PaymentId!)
             .Ignore(dest => dest.CanRefund)
+            .Ignore(dest => dest.RefundBlockedReason!)
             // Same reasoning as AllowedActions: populating this needs the
             // ActingUser's name and the status display name, which
             // AppointmentService.MapToDto fills in as a post-mapping step -

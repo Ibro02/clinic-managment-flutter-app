@@ -64,7 +64,13 @@ services:
       - DB_CONNECTION_STRING=Server=clinicnow-sql,1433;Database=${DB_NAME};User Id=sa;Password=${DB_SA_PASSWORD};TrustServerCertificate=True;ConnectRetryCount=5
       - RABBITMQ_HOST=rabbitmq
       - RABBITMQ_PORT=5672
-      - ASPNETCORE_ENVIRONMENT=Development
+      # Production by default (rulebook §5: the shipped container must not leak
+      # stack traces via ExceptionFilter - see CLAUDE.md and ../Ispravke/Zadaci-finalni/V3-aspnetcore-environment.md).
+      # The interactive API docs stay available regardless, via ENABLE_API_DOCS
+      # below - they are documentation, not a dev/test endpoint. Override with a
+      # real shell env var (ASPNETCORE_ENVIRONMENT=Development docker-compose up)
+      # for local debugging that wants ASP.NET's dev-only middleware.
+      - ASPNETCORE_ENVIRONMENT=${ASPNETCORE_ENVIRONMENT:-Production}
       - ASPNETCORE_URLS=http://+:5203
       # .env's relative default resolves against the container's WORKDIR
       # (/app), which the non-root "app" user cannot write to. Dockerfile.api

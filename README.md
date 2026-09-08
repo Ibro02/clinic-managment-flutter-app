@@ -56,6 +56,10 @@ Leave this terminal running. Before starting either client, confirm the API answ
 
 - API: `http://localhost:5203` — Scalar interactive docs at `/scalar/v1`, health check at `/health`.
 - RabbitMQ management UI: `http://localhost:15672` (guest/guest).
+- **MailHog** (catches every email the Worker sends): `http://localhost:8025`. Every seeded account
+  uses the `@clinicnow.test` domain, which doesn't exist, so real SMTP could never deliver to it —
+  MailHog catches the message locally instead. This is where a "Zaboravljena lozinka" reset code (or
+  any other notification email) actually shows up during review.
 
 **Neither client works until the API responds at `http://localhost:5203/health`.** A client
 started against a dead API shows a login screen that rejects every attempt — that is a missing
@@ -154,7 +158,7 @@ patient-facing view).
 ```
 ClinicNow/
   ClinicNow.slnx
-  docker-compose.yml          # SQL Server + RabbitMQ + API + Worker
+  docker-compose.yml          # SQL Server + RabbitMQ + MailHog + API + Worker
   Dockerfile.api
   Dockerfile.worker
   .env.example                 # template; unzip env-tajne.zip to .env instead, or copy+fill this
@@ -176,7 +180,7 @@ logic or touch the database directly.
 | Tool | Version | Needed for |
 |---|---|---|
 | [.NET SDK](https://dotnet.microsoft.com/download) | 10.0+ | building/running the API and Worker |
-| [Docker Desktop](https://www.docker.com/products/docker-desktop/) | with Compose v2 | running the full stack (SQL Server, RabbitMQ, API, Worker) |
+| [Docker Desktop](https://www.docker.com/products/docker-desktop/) | with Compose v2 | running the full stack (SQL Server, RabbitMQ, MailHog, API, Worker) |
 | [Flutter SDK](https://docs.flutter.dev/get-started/install) | latest stable (3.44+) | building/running either client |
 | Android Studio + Android SDK + at least one AVD | latest | building/running `clinicnow_mobile` |
 | Visual Studio 2022/2026 with the **"Desktop development with C++"** workload | latest | building `clinicnow_desktop` for Windows |
@@ -216,8 +220,9 @@ docker-compose up --build
 ```
 
 This starts, on one bridge network: SQL Server (`clinicnow-sql`), RabbitMQ (`clinicnow-rabbitmq`,
-management UI at `http://localhost:15672`), the API (`clinicnow-api`, `http://localhost:5203`),
-and the Worker (`clinicnow-worker`). The API applies pending EF Core migrations automatically on
+management UI at `http://localhost:15672`), MailHog (`clinicnow-mailhog`, catches every outbound
+email — web UI at `http://localhost:8025`), the API (`clinicnow-api`, `http://localhost:5203`), and
+the Worker (`clinicnow-worker`). The API applies pending EF Core migrations automatically on
 startup — no manual DB setup needed.
 
 - **API testing UI (Scalar)**: `http://localhost:5203/scalar/v1` — interactive request builder, reads the
@@ -434,18 +439,17 @@ New patient accounts can also self-register from the mobile app's "Registruj se"
 (`POST api/auth/register`) - registration always creates a Patient-role account; the server never
 accepts a client-supplied role (rulebook §5).
 
-## Demo payment data (read before trying a refund)
+## Demo payment data
 
 The seeded payments exist to demonstrate the **UI states** - the "Plaćeno" / "Djelomično vraćeno" /
-"Vraćeno" badges in the desktop appointment list, and the refund dialog opening with a real
-remaining balance. They are **not** backed by real PayPal transactions: their capture ids are
-synthetic placeholders (`SEED-CAPTURE-000x`).
+"Vraćeno" badges in the desktop appointment list. They are **not** backed by real PayPal
+transactions: their capture ids are synthetic placeholders (`SEED-CAPTURE-000x`).
 
-That means the seeded refundable rows - the partially-refunded **Appointment Id = 3** and the fully
-paid **Appointment Id = 1** - show an enabled orange Refund action, and the dialog opens and
-prefills its remaining balance correctly, but actually submitting the refund fails with a PayPal
-error: PayPal has no record of a capture by those ids. This is expected on a clean database, not a
-bug in the refund flow.
+Because of that, the Refund action on the seeded rows - the partially-refunded **Appointment Id = 3**
+and the fully paid **Appointment Id = 1** - is shown **disabled**, with a tooltip explaining why
+("Demo zapis — povrat nije moguć jer iza njega ne stoji stvarna PayPal transakcija..."). The backend
+enforces the same rule (`PaymentService.RefundAsync` rejects any capture id starting with
+`SEED-` before ever calling PayPal), so a direct API call can't bypass it either.
 
 To demo a **real** refund end to end:
 

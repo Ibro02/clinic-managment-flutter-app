@@ -57,6 +57,7 @@ var smtpOptions = new SmtpOptions();
 var payPalOptions = new PayPalOptions();
 var corsOptions = new CorsOptions();
 var recommenderOptions = new RecommenderOptions();
+var apiDocsOptions = new ApiDocsOptions();
 
 builder.Services.AddSingleton(databaseOptions);
 builder.Services.AddSingleton(jwtOptions);
@@ -65,6 +66,7 @@ builder.Services.AddSingleton(smtpOptions);
 builder.Services.AddSingleton(payPalOptions);
 builder.Services.AddSingleton(corsOptions);
 builder.Services.AddSingleton(recommenderOptions);
+builder.Services.AddSingleton(apiDocsOptions);
 
 // --- Database -----------------------------------------------------------------
 // ClinicNowContext (and every service built on top of it) is Scoped by default via
@@ -353,11 +355,15 @@ builder.Services.AddMemoryCache();
 
 var app = builder.Build();
 
-if (app.Environment.IsDevelopment())
+if (apiDocsOptions.Enabled)
 {
     // Swashbuckle still generates the OpenAPI JSON (it already knows about the
     // Bearer scheme configured above); Scalar replaces SwaggerUI as the actual
     // interactive testing surface - one UI instead of two pointing at the same doc.
+    // Gated by ENABLE_API_DOCS rather than IsDevelopment(): the shipped container
+    // runs ASPNETCORE_ENVIRONMENT=Production (rulebook §5 - no stack traces to the
+    // client), but the reviewer still needs the interactive docs, same as the
+    // reference repo's Swagger-in-Production setup.
     app.UseSwagger();
     app.MapScalarApiReference(options =>
     {

@@ -456,6 +456,17 @@ public class PaymentService : IPaymentService
                 throw new ValidationException("paymentId", "Ova uplata se ne može vratiti u ovom statusu.");
             }
 
+            // Review item V2: a seeded demo payment has no real PayPal
+            // transaction behind it, so RefundCaptureAsync below would always
+            // fail against the live API. Reject it here, before that call, with
+            // the same reason AppointmentService.MapToDto already surfaces as a
+            // disabled button - this is what stops a direct API call from
+            // reaching PayPal even when the UI action is disabled.
+            if (SeedPaymentPolicy.IsSeeded(payment.PayPalCaptureId))
+            {
+                throw new BusinessException(SeedPaymentPolicy.RefundBlockedReason);
+            }
+
             // C13a: the ceiling is what PayPal actually took, not what was
             // ordered. Refunding against the ordered amount after a mismatched
             // capture would either strand money PayPal is holding or ask PayPal

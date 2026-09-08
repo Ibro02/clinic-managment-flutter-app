@@ -55,6 +55,13 @@ class Appointment {
   final int? paymentId;
   final bool canRefund;
 
+  /// Set when a refund would otherwise be legal but is blocked for a reason
+  /// the user should see - currently only a seeded demo payment (review item
+  /// V2). Null whenever there's simply nothing to refund, so the UI can tell
+  /// "disabled, with a reason" apart from "no refund action here at all"
+  /// (rulebook Part II §K).
+  final String? refundBlockedReason;
+
   /// Cancelled, but the automatic refund failed and the money is still owed
   /// to the patient (review item C14). Staff clear it by retrying the refund.
   final bool refundFailed;
@@ -84,6 +91,7 @@ class Appointment {
     this.paymentStatus,
     this.paymentId,
     required this.canRefund,
+    this.refundBlockedReason,
     this.refundFailed = false,
     this.auditLogs = const [],
   });
@@ -119,6 +127,7 @@ class Appointment {
         paymentStatus: json['paymentStatus'] as String?,
         paymentId: json['paymentId'] as int?,
         canRefund: json['canRefund'] as bool? ?? false,
+        refundBlockedReason: json['refundBlockedReason'] as String?,
         refundFailed: json['refundFailed'] as bool? ?? false,
         auditLogs: (json['auditLogs'] as List<dynamic>? ?? [])
             .map((e) => AppointmentAuditLog.fromJson(e as Map<String, dynamic>))
