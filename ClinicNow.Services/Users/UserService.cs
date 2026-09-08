@@ -422,20 +422,10 @@ public class UserService : IUserService
     /// <summary>
     /// Stamps the cutoff that makes every access token issued before now invalid.
     /// The caller must <c>SaveChangesAsync</c> and then evict the cached value.
-    ///
-    /// Truncated to whole seconds on purpose. A JWT's <c>iat</c> claim has one-second
-    /// resolution, so an untruncated cutoff of 12:00:00.500 would be *after* the
-    /// <c>iat</c> of a token minted in that same second (12:00:00) and would reject
-    /// the replacement token this very operation hands back. The cost is a
-    /// sub-second window in which an older token from the same second survives,
-    /// which is the standard trade for second-resolution claims.
+    /// See <see cref="User.RevokeOutstandingTokens"/> for why the cutoff is
+    /// truncated to whole seconds.
     /// </summary>
-    private static void InvalidateOutstandingTokens(User user)
-    {
-        var now = DateTime.UtcNow;
-        user.TokensValidFromUtc = new DateTime(
-            now.Year, now.Month, now.Day, now.Hour, now.Minute, now.Second, DateTimeKind.Utc);
-    }
+    private static void InvalidateOutstandingTokens(User user) => user.RevokeOutstandingTokens();
 
     private static void ClearResetToken(User user)
     {

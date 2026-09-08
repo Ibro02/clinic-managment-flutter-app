@@ -24,15 +24,18 @@ public class DoctorService : BaseCRUDService<DoctorDto, DoctorSearchObject, Doct
 {
     private readonly IPasswordHasher _passwordHasher;
     private readonly IHttpContextAccessor _httpContextAccessor;
+    private readonly ITokenBlocklistService _tokenBlocklistService;
 
     public DoctorService(
         ClinicNowContext context,
         IMapper mapper,
         IPasswordHasher passwordHasher,
-        IHttpContextAccessor httpContextAccessor) : base(context, mapper)
+        IHttpContextAccessor httpContextAccessor,
+        ITokenBlocklistService tokenBlocklistService) : base(context, mapper)
     {
         _passwordHasher = passwordHasher;
         _httpContextAccessor = httpContextAccessor;
+        _tokenBlocklistService = tokenBlocklistService;
     }
 
     /// <inheritdoc />
@@ -178,7 +181,25 @@ public class DoctorService : BaseCRUDService<DoctorDto, DoctorSearchObject, Doct
         if (user is not null)
         {
             user.IsActive = false;
+
+            // Correction letter item 3: IsActive alone only blocks a *new* login -
+            // a JWT already issued to this doctor stays valid until it naturally
+            // expires (JWT_EXPIRY_MINUTES). Stamping the same cutoff UserService
+            // uses on a password change ends it immediately.
+            user.RevokeOutstandingTokens();
         }
+    }
+
+    /// <summary>
+    /// Runs after BeforeDeleteAsync's cutoff has actually been committed by
+    /// SaveChangesAsync - see PatientService.AfterDeleteAsync for why the order
+    /// matters (evicting the cache any earlier risks it being repopulated with
+    /// the stale, pre-archive cutoff).
+    /// </summary>
+    protected override Task AfterDeleteAsync(Doctor entity, CancellationToken cancellationToken)
+    {
+        _tokenBlocklistService.InvalidateTokensValidFrom(entity.UserId);
+        return Task.CompletedTask;
     }
 
     /// <summary>

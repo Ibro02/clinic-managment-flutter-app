@@ -6,6 +6,7 @@ using ClinicNow.Model.Requests;
 using ClinicNow.Model.SearchObjects;
 using ClinicNow.Services.Database;
 using ClinicNow.Services.Database.Entities;
+using ClinicNow.Services.Security;
 using ClinicNow.Services.Validation;
 using MapsterMapper;
 using Microsoft.AspNetCore.Http;
@@ -16,11 +17,15 @@ namespace ClinicNow.Services.People;
 public class PatientService : BaseCRUDService<PatientDto, PatientSearchObject, Patient, PatientInsertRequest, PatientUpdateRequest>, IPatientService
 {
     private readonly IHttpContextAccessor _httpContextAccessor;
+    private readonly ITokenBlocklistService _tokenBlocklistService;
 
-    public PatientService(ClinicNowContext context, IMapper mapper, IHttpContextAccessor httpContextAccessor)
+    public PatientService(
+        ClinicNowContext context, IMapper mapper, IHttpContextAccessor httpContextAccessor,
+        ITokenBlocklistService tokenBlocklistService)
         : base(context, mapper)
     {
         _httpContextAccessor = httpContextAccessor;
+        _tokenBlocklistService = tokenBlocklistService;
     }
 
     /// <inheritdoc />
@@ -177,8 +182,30 @@ public class PatientService : BaseCRUDService<PatientDto, PatientSearchObject, P
             if (user is not null)
             {
                 user.IsActive = false;
+
+                // Correction letter item 3: IsActive alone only blocks a *new*
+                // login - a JWT already issued to this patient stays valid until
+                // it naturally expires (JWT_EXPIRY_MINUTES). Stamping the same
+                // cutoff UserService uses on a password change ends it immediately.
+                user.RevokeOutstandingTokens();
             }
         }
+    }
+
+    /// <summary>
+    /// Runs after BeforeDeleteAsync's cutoff has actually been committed by
+    /// SaveChangesAsync - evicting the cache before that would risk another
+    /// request re-populating it with the pre-archive (null) cutoff, defeating
+    /// the whole point of the cutoff for up to its positive-cache lifetime.
+    /// </summary>
+    protected override Task AfterDeleteAsync(Patient entity, CancellationToken cancellationToken)
+    {
+        if (entity.UserId is int userId)
+        {
+            _tokenBlocklistService.InvalidateTokensValidFrom(userId);
+        }
+
+        return Task.CompletedTask;
     }
 
     public async Task<PatientDto> RestoreAsync(int id, CancellationToken cancellationToken = default)

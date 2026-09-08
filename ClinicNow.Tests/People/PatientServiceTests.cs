@@ -4,6 +4,7 @@ using ClinicNow.Model.SearchObjects;
 using ClinicNow.Services.Database;
 using ClinicNow.Services.Database.Entities;
 using ClinicNow.Services.People;
+using ClinicNow.Services.Security;
 using ClinicNow.Tests.TestSupport;
 using Microsoft.EntityFrameworkCore;
 
@@ -30,8 +31,10 @@ public class PatientServiceTests
     /// none of these archive/restore tests call - it is here because the service
     /// resolves the caller from the token rather than from a parameter.
     /// </summary>
-    private static PatientService NewService(ClinicNow.Services.Database.ClinicNowContext context) =>
-        new(context, TestContextFactory.CreateMapper(), TestContextFactory.CreateHttpContextAccessor(1));
+    private static PatientService NewService(
+        ClinicNow.Services.Database.ClinicNowContext context, ITokenBlocklistService? tokenBlocklistService = null) =>
+        new(context, TestContextFactory.CreateMapper(), TestContextFactory.CreateHttpContextAccessor(1),
+            tokenBlocklistService ?? new RecordingTokenBlocklistService());
 
     private static Patient NewPatient(int id, int? userId = null) => new()
     {
@@ -135,6 +138,58 @@ public class PatientServiceTests
     }
 
     /// <summary>
+    /// Correction letter item 3: deactivating the account only blocks a *new*
+    /// login - a JWT already in the archived patient's hands stays valid until it
+    /// naturally expires (JWT_EXPIRY_MINUTES). Archiving must stamp the same
+    /// <see cref="User.TokensValidFromUtc"/> cutoff UserService uses on a password
+    /// change/reset, and evict the cached value so JWT validation actually reads it
+    /// on the very next request.
+    /// </summary>
+    [Fact]
+    public async Task DeleteAsync_RevokesTheLinkedUserAccountsOutstandingTokens()
+    {
+        await using var context = TestContextFactory.CreateContext();
+        var user = new User
+        {
+            Id = 510, Email = "token-cutoff-test-patient@clinicnow.test", PasswordHash = "x",
+            FirstName = "Token", LastName = "Test", IsActive = true, CreatedAtUtc = DateTime.UtcNow
+        };
+        context.Users.Add(user);
+        context.Patients.Add(NewPatient(509, userId: 510));
+        await context.SaveChangesAsync();
+        var blocklist = new RecordingTokenBlocklistService();
+        var service = NewService(context, blocklist);
+
+        var before = DateTime.UtcNow.AddSeconds(-1);
+        await service.DeleteAsync(509);
+
+        var reloadedUser = await context.Users.SingleAsync(u => u.Id == 510);
+
+        Assert.NotNull(reloadedUser.TokensValidFromUtc);
+        Assert.True(reloadedUser.TokensValidFromUtc >= before);
+
+        // The cached cutoff has to be dropped too, or JWT validation keeps reading
+        // the stale (null) value for up to the positive-cache lifetime.
+        Assert.Contains(510, blocklist.InvalidatedUserIds);
+    }
+
+    /// <summary>
+    /// A walk-in patient has no login at all (Patient.UserId is nullable) - archiving
+    /// one must not try to invalidate a session that was never issued.
+    /// </summary>
+    [Fact]
+    public async Task DeleteAsync_WalkInPatientWithNoLinkedUser_DoesNotTouchTheTokenBlocklist()
+    {
+        await using var context = await ContextWithPatientAsync(NewPatient(511));
+        var blocklist = new RecordingTokenBlocklistService();
+        var service = NewService(context, blocklist);
+
+        await service.DeleteAsync(511);
+
+        Assert.Empty(blocklist.InvalidatedUserIds);
+    }
+
+    /// <summary>
     /// Feature requested by Ibrahim after C3 landed: Administrator/Staff need a
     /// way to see archived patients and undo an archive. <see cref="PatientService.RestoreAsync"/>
     /// is the exact reverse of BeforeDeleteAsync's archiving.
@@ -178,6 +233,39 @@ public class PatientServiceTests
         Assert.True(reloadedUser.IsActive);
     }
 
+    /// <summary>
+    /// Restoring a patient should not hand back tokens issued before the archive -
+    /// the task explicitly does not require un-revoking them. A login afterwards
+    /// (with IsActive restored) issues a fresh token whose <c>iat</c> naturally
+    /// lands after the old cutoff, so nothing further is needed for the restored
+    /// user to sign back in.
+    /// </summary>
+    [Fact]
+    public async Task RestoreAsync_DoesNotClearThePreviousTokenCutoff()
+    {
+        await using var context = TestContextFactory.CreateContext();
+        var cutoff = DateTime.UtcNow.AddDays(-1);
+        var user = new User
+        {
+            Id = 513, Email = "restore-cutoff-test-patient@clinicnow.test", PasswordHash = "x",
+            FirstName = "Restore", LastName = "Cutoff", IsActive = false,
+            TokensValidFromUtc = cutoff, CreatedAtUtc = DateTime.UtcNow
+        };
+        context.Users.Add(user);
+        var patient = NewPatient(512, userId: 513);
+        patient.IsDeleted = true;
+        patient.DeletedAtUtc = DateTime.UtcNow.AddDays(-1);
+        context.Patients.Add(patient);
+        await context.SaveChangesAsync();
+        var service = NewService(context);
+
+        await service.RestoreAsync(512);
+
+        var reloadedUser = await context.Users.SingleAsync(u => u.Id == 513);
+        Assert.True(reloadedUser.IsActive);
+        Assert.Equal(cutoff, reloadedUser.TokensValidFromUtc);
+    }
+
     [Fact]
     public async Task RestoreAsync_PatientNotArchived_Throws()
     {
@@ -214,5 +302,24 @@ public class PatientServiceTests
         var archivedResult = await service.GetPagedAsync(new PatientSearchObject { OnlyDeleted = true });
         Assert.Contains(archivedResult.ResultList, p => p.Id == 507);
         Assert.DoesNotContain(archivedResult.ResultList, p => p.Id == 508);
+    }
+
+    private sealed class RecordingTokenBlocklistService : ITokenBlocklistService
+    {
+        public List<int> InvalidatedUserIds { get; } = [];
+
+        public Task RevokeAsync(string jti, DateTime tokenExpiresAtUtc, CancellationToken cancellationToken = default) =>
+            throw new InvalidOperationException("Archiving a patient must not revoke an individual token.");
+
+        public Task<bool> IsRevokedAsync(string jti, CancellationToken cancellationToken = default) =>
+            throw new InvalidOperationException("Archiving a patient must not check the blocklist.");
+
+        public Task<DateTime?> GetTokensValidFromUtcAsync(int userId, CancellationToken cancellationToken = default) =>
+            throw new InvalidOperationException("Archiving a patient must not read the cutoff.");
+
+        public void InvalidateTokensValidFrom(int userId) => InvalidatedUserIds.Add(userId);
+
+        public Task<int> PurgeExpiredAsync(CancellationToken cancellationToken = default) =>
+            throw new InvalidOperationException("Archiving a patient must not purge the blocklist.");
     }
 }
