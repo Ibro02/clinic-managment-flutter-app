@@ -6,7 +6,7 @@
         "ASPNETCORE_ENVIRONMENT": "Development"
       },
       "dotnetRunMessages": true,
-      "applicationUrl": "http://localhost:5235"
+      "applicationUrl": "http://localhost:5203"
     },
     "https": {
       "commandName": "Project",
@@ -14,14 +14,14 @@
         "ASPNETCORE_ENVIRONMENT": "Development"
       },
       "dotnetRunMessages": true,
-      "applicationUrl": "https://localhost:7112;http://localhost:5235"
+      "applicationUrl": "https://localhost:7112;http://localhost:5203"
     },
     "WSL": {
       "commandName": "WSL2",
       "launchUrl": "https://localhost:7112",
       "environmentVariables": {
         "ASPNETCORE_ENVIRONMENT": "Development",
-        "ASPNETCORE_URLS": "https://localhost:7112;http://localhost:5235"
+        "ASPNETCORE_URLS": "https://localhost:7112;http://localhost:5203"
       },
       "distributionName": ""
     }

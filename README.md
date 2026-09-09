@@ -232,23 +232,35 @@ startup — no manual DB setup needed.
 ### Option B — running the API/Worker directly on your machine (local dev)
 
 Useful for a faster inner dev loop, or when you can't run the full stack under Docker. Bring up
-just the dependencies:
+just the dependencies — MailHog included, since a host-run Worker still needs an SMTP server to
+deliver to:
 
 ```bash
-docker-compose up clinicnow-sql rabbitmq
+docker-compose up clinicnow-sql rabbitmq mailhog
 ```
 
-`.env.example`'s `DB_CONNECTION_STRING` (`Server=localhost,1433;...`) already matches the host port
-`clinicnow-sql` publishes (`ports: 1433:1433` in `docker-compose.yml`), so no edit is needed for
-that case. If you'd rather point at your own SQL Server / LocalDB instance instead, change
-`DB_CONNECTION_STRING` in `.env` to match its host/port. Either way, `RABBITMQ_HOST`/`RABBITMQ_PORT`
-in `.env` also need to say `localhost`/`5673` — the container hostname `rabbitmq` docker-compose.yml
-sets for the containerized API/Worker doesn't resolve on your host. Then:
+A few `.env` values name *containers*, and container hostnames don't resolve on your host machine,
+so they need host-side values first. Which ones actually need editing depends on which `.env` you
+started from:
+
+| Setting | `.env` from `.env-tajne.zip` | `.env.example` | Value to use on the host |
+|---|---|---|---|
+| `DB_CONNECTION_STRING` | `Server=(localdb)\MSSQLLocalDB;…` | `Server=localhost,1433;…` | `Server=localhost,1433;…` — the port `clinicnow-sql` publishes (`ports: 1433:1433`) |
+| `RABBITMQ_HOST` / `RABBITMQ_PORT` | `localhost` / `5673` — already correct | `rabbitmq` / `5672` | `localhost` / `5673` (the host-mapped AMQP port) |
+| `SMTP_HOST` | `mailhog` | `mailhog` | `localhost` (`SMTP_PORT=1025` stays as is) |
+
+The archive's `.env` targets a local **SQL Server LocalDB** instance rather than the container —
+fine if you have LocalDB installed and prefer it, otherwise switch it to the `localhost,1433` form
+above. To point at your own SQL Server instance instead, match its host/port there. Then:
 
 ```bash
-dotnet run --project ClinicNow.API
+dotnet run --project ClinicNow.API      # serves http://localhost:5203, same port as the container
 dotnet run --project ClinicNow.Worker   # separate terminal
 ```
+
+The port comes from `ClinicNow.API/Properties/launchSettings.json` and deliberately matches the
+containerized API's, so every `--dart-define=API_BASE_URL=...` and health-check URL in this README
+stays correct however the backend was started.
 
 ### Migrations
 
