@@ -133,4 +133,16 @@ class Appointment {
             .map((e) => AppointmentAuditLog.fromJson(e as Map<String, dynamic>))
             .toList(),
       );
+
+  /// Value equality so a `FormBuilderDropdown` can match its initial value
+  /// against a freshly-fetched list instance - same reason [Diagnosis] carries
+  /// it. The referral and lab-finding dialogs are pre-filled with the
+  /// `Appointment` the caller was already holding while their dropdown items
+  /// come from their own fetch; under identity equality those never match, so
+  /// the field's first rebuild cleared a value the user could not re-enter.
+  @override
+  bool operator ==(Object other) => other is Appointment && other.id == id;
+
+  @override
+  int get hashCode => id.hashCode;
 }
