@@ -6,12 +6,16 @@ import '../../core/api_exception.dart';
 import '../../core/auth_session.dart';
 import '../../core/design_tokens.dart';
 import '../../models/news_item.dart';
+import '../../providers/appointment_provider.dart';
 import '../../providers/news_item_provider.dart';
+import '../../widgets/home_summary_card.dart';
 import '../../widgets/ui/app_card.dart';
 import '../../widgets/ui/app_states.dart';
 
-/// News/announcements list - patient-facing "home" screen. Master-detail:
-/// tapping a card opens the full text + image (rulebook Part II §K).
+/// The patient-facing "home" screen: a greeting carrying the patient's own
+/// appointment counters ([HomeSummaryCard]), then the news/announcements feed.
+/// The feed is master-detail - tapping a card opens the full text + image
+/// (rulebook Part II §K).
 class NewsListScreen extends StatefulWidget {
   const NewsListScreen({super.key});
 
@@ -20,20 +24,37 @@ class NewsListScreen extends StatefulWidget {
 }
 
 class _NewsListScreenState extends State<NewsListScreen> {
+  /// Mirrors .NET's `AppointmentStatus` - same values the "Termini" filter bar
+  /// uses, so the two screens can never disagree about what "Na čekanju" means.
+  static const _statusPending = 0;
+  static const _statusConfirmed = 1;
+
   late final NewsItemProvider _provider;
+  late final AppointmentProvider _appointmentProvider;
   final _dateFormat = DateFormat('dd.MM.yyyy');
 
   List<NewsItem>? _items;
   String? _error;
 
+  /// Null until the counters load. A failed count request leaves them null
+  /// rather than zero - "0 potvrđenih" would read as "my appointment is gone".
+  int? _pendingCount;
+  int? _confirmedCount;
+
   @override
   void initState() {
     super.initState();
-    _provider = NewsItemProvider(context.read<AuthSession>());
+    final session = context.read<AuthSession>();
+    _provider = NewsItemProvider(session);
+    _appointmentProvider = AppointmentProvider(session);
     _load();
   }
 
-  Future<void> _load() async {
+  /// Reloads both halves of the screen. They are independent on purpose: a
+  /// counter that fails to load must not blank out the news feed, or vice versa.
+  Future<void> _load() => Future.wait([_loadNews(), _loadCounts()]);
+
+  Future<void> _loadNews() async {
     setState(() => _error = null);
     try {
       final items = await _provider.getPaged({'pageSize': 20});
@@ -43,75 +64,128 @@ class _NewsListScreenState extends State<NewsListScreen> {
     }
   }
 
+  /// Counts come from the list endpoint's `count` with `pageSize: 1`, so the
+  /// server never serialises rows this screen will not draw. The list is
+  /// already scoped to the caller by the JWT (rulebook §5), so these are the
+  /// patient's own appointments.
+  Future<void> _loadCounts() async {
+    try {
+      final results = await Future.wait([
+        _appointmentProvider.getPaged({'pageSize': 1, 'status': _statusPending}),
+        _appointmentProvider.getPaged({'pageSize': 1, 'status': _statusConfirmed}),
+      ]);
+      if (!mounted) return;
+      setState(() {
+        _pendingCount = results[0].count;
+        _confirmedCount = results[1].count;
+      });
+    } catch (_) {
+      // Non-fatal: the card keeps its placeholder and the news feed below still
+      // renders. Pull-to-refresh retries both halves.
+      if (!mounted) return;
+      setState(() {
+        _pendingCount = null;
+        _confirmedCount = null;
+      });
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    if (_error != null) {
-      return Padding(
+    // `watch`, not `read`: renaming yourself on the profile screen has to
+    // change the greeting when you come back, without a re-login.
+    final session = context.watch<AuthSession>();
+
+    return RefreshIndicator(
+      onRefresh: _load,
+      child: ListView(
         padding: const EdgeInsets.all(AppSpacing.md),
-        child: AppErrorState(message: _error!, onRetry: _load),
-      );
+        // Keeps pull-to-refresh working when the feed is short enough not to
+        // scroll on its own.
+        physics: const AlwaysScrollableScrollPhysics(),
+        children: [
+          HomeSummaryCard(
+            name: session.fullName,
+            pendingCount: _pendingCount,
+            confirmedCount: _confirmedCount,
+          ),
+          const SizedBox(height: AppSpacing.md),
+          const AppSectionHeader(label: 'Obavijesti'),
+          ..._newsSection(context),
+        ],
+      ),
+    );
+  }
+
+  /// The feed's own body - loading, error, empty, or the cards. Returned as
+  /// children of the page's list rather than replacing the whole screen, so the
+  /// greeting stays put while only the section below it changes state.
+  List<Widget> _newsSection(BuildContext context) {
+    if (_error != null) {
+      return [AppErrorState(message: _error!, onRetry: _loadNews)];
     }
     if (_items == null) {
-      return const Center(child: CircularProgressIndicator());
+      return const [
+        Padding(
+          padding: EdgeInsets.symmetric(vertical: AppSpacing.xl),
+          child: Center(child: CircularProgressIndicator()),
+        ),
+      ];
     }
     if (_items!.isEmpty) {
-      return const Padding(
-        padding: EdgeInsets.all(AppSpacing.md),
-        child: AppEmptyState(
+      return const [
+        AppEmptyState(
           icon: Icons.campaign_outlined,
           title: 'Nema obavijesti',
           message: 'Novosti iz klinike pojavit će se ovdje.',
         ),
-      );
+      ];
     }
 
+    final cards = <Widget>[];
+    for (var i = 0; i < _items!.length; i++) {
+      if (i > 0) cards.add(const SizedBox(height: AppSpacing.xs));
+      cards.add(_newsCard(context, _items![i]));
+    }
+    return cards;
+  }
+
+  Widget _newsCard(BuildContext context, NewsItem item) {
     final c = context.colors;
 
-    return RefreshIndicator(
-      onRefresh: _load,
-      child: ListView.separated(
-        padding: const EdgeInsets.all(AppSpacing.md),
-        itemCount: _items!.length,
-        separatorBuilder: (context, index) => const SizedBox(height: AppSpacing.xs),
-        itemBuilder: (context, index) {
-          final item = _items![index];
-
-          return AppCard(
-            padding: const EdgeInsets.all(AppSpacing.sm + 2),
-            onTap: () => Navigator.of(context).push(
-              MaterialPageRoute(builder: (_) => _NewsDetailScreen(item: item, provider: _provider)),
-            ),
-            child: Row(
+    return AppCard(
+      padding: const EdgeInsets.all(AppSpacing.sm + 2),
+      onTap: () => Navigator.of(context).push(
+        MaterialPageRoute(builder: (_) => _NewsDetailScreen(item: item, provider: _provider)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Rulebook §K: the entity's image sits beside its name in a list.
+          _thumbnail(context, item),
+          const SizedBox(width: AppSpacing.sm),
+          Expanded(
+            child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
               children: [
-                // Rulebook §K: the entity's image sits beside its name in a list.
-                _thumbnail(context, item),
-                const SizedBox(width: AppSpacing.sm),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(item.title, style: context.text.titleSmall),
-                      const SizedBox(height: 3),
-                      Text(
-                        item.text,
-                        style: context.text.bodySmall?.copyWith(color: c.textSecondary),
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        _dateFormat.format(item.createdAtUtc.toLocal()),
-                        style: context.text.bodySmall?.copyWith(color: c.textMuted, fontSize: 12),
-                      ),
-                    ],
-                  ),
+                Text(item.title, style: context.text.titleSmall),
+                const SizedBox(height: 3),
+                Text(
+                  item.text,
+                  style: context.text.bodySmall?.copyWith(color: c.textSecondary),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  _dateFormat.format(item.createdAtUtc.toLocal()),
+                  style: context.text.bodySmall?.copyWith(color: c.textMuted, fontSize: 12),
                 ),
               ],
             ),
-          );
-        },
+          ),
+        ],
       ),
     );
   }
