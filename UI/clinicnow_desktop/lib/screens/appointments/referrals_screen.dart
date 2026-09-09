@@ -117,7 +117,7 @@ class _ReferralsScreenState extends State<ReferralsScreen> {
           'orderBy': 'StartUtc',
           'sortDirection': 'desc',
         }),
-        _doctorProvider.getPaged({'pageSize': 100, 'orderBy': 'LastName'}),
+        _doctorProvider.getPaged({'pageSize': 100, 'orderBy': 'User.LastName'}),
       ]);
       if (!mounted) return;
       setState(() {
