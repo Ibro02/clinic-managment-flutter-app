@@ -83,6 +83,24 @@ public static class PatientMessages
                 "Podsjetnik za termin",
                 $"Podsjetnik: imate zakazan termin kod dr. {doctorName} za {startUtc.ToString(DateTimeFormat)} UTC.");
 
+    public static LocalizedMessage LabFindingAdded(string language, string medicalServiceName, DateTime appointmentStartUtc) =>
+        PatientLanguage.Normalize(language) == PatientLanguage.English
+            ? new LocalizedMessage(
+                "New lab finding",
+                $"A new lab finding has been recorded for your appointment ({medicalServiceName}, {appointmentStartUtc.ToString(DateTimeFormat)} UTC). You can view it under \"My documents\".")
+            : new LocalizedMessage(
+                "Novi laboratorijski nalaz",
+                $"Za Vaš termin ({medicalServiceName}, {appointmentStartUtc.ToString(DateTimeFormat)} UTC) upisan je novi laboratorijski nalaz. Možete ga pogledati u dijelu \"Moja dokumentacija\".");
+
+    public static LocalizedMessage ReferralIssued(string language, string specializationName, string referringDoctorName) =>
+        PatientLanguage.Normalize(language) == PatientLanguage.English
+            ? new LocalizedMessage(
+                "New referral",
+                $"Dr. {referringDoctorName} has issued you a referral to a {specializationName} specialist. You can view it under \"My documents\" and book an appointment from it.")
+            : new LocalizedMessage(
+                "Nova uputnica",
+                $"Dr. {referringDoctorName} Vam je izdao/la uputnicu kod specijaliste za {specializationName}. Uputnicu možete pogledati u dijelu \"Moja dokumentacija\" i iz nje zakazati termin.");
+
     public static LocalizedMessage PaymentSuccessful(string language, decimal capturedAmountEur) =>
         PatientLanguage.Normalize(language) == PatientLanguage.English
             ? new LocalizedMessage(

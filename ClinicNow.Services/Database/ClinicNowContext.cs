@@ -39,6 +39,7 @@ public class ClinicNowContext : DbContext
     public DbSet<Specialization> Specializations => Set<Specialization>();
     public DbSet<Location> Locations => Set<Location>();
     public DbSet<MedicalService> MedicalServices => Set<MedicalService>();
+    public DbSet<Diagnosis> Diagnoses => Set<Diagnosis>();
 
     public DbSet<Patient> Patients => Set<Patient>();
     public DbSet<Doctor> Doctors => Set<Doctor>();

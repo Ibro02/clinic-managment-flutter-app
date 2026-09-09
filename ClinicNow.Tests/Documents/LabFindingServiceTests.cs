@@ -27,11 +27,16 @@ public class LabFindingServiceTests
     private const string ValidPdfBase64 =
         "JVBERi0xLjQKMSAwIG9iajw8L1R5cGUvQ2F0YWxvZy9QYWdlcyAyIDAgUj4+ZW5kb2JqCjIgMCBvYmo8PC9UeXBlL1BhZ2VzL0tpZHNbMyAwIFJdL0NvdW50IDE+PmVuZG9iagozIDAgb2JqPDwvVHlwZS9QYWdlL1BhcmVudCAyIDAgUi9NZWRpYUJveFswIDAgMjAwIDIwMF0+PmVuZG9iagp4cmVmCjAgNAowMDAwMDAwMDAwIDY1NTM1IGYgCnRyYWlsZXI8PC9TaXplIDQvUm9vdCAxIDAgUj4+CnN0YXJ0eHJlZgowCiUlRU9G";
 
-    private static ClinicNowContext ContextWithAccessor(int userId, string role, out LabFindingService service)
+    private static ClinicNowContext ContextWithAccessor(int userId, string role, out LabFindingService service) =>
+        ContextWithAccessor(userId, role, out service, out _);
+
+    private static ClinicNowContext ContextWithAccessor(
+        int userId, string role, out LabFindingService service, out RecordingNotificationService notifications)
     {
         var context = TestContextFactory.CreateContext();
         var accessor = TestContextFactory.CreateHttpContextAccessor(userId, role);
-        service = new LabFindingService(context, TestContextFactory.CreateMapper(), accessor);
+        notifications = new RecordingNotificationService();
+        service = new LabFindingService(context, TestContextFactory.CreateMapper(), accessor, notifications);
         return context;
     }
 
@@ -46,6 +51,7 @@ public class LabFindingServiceTests
         var dto = await service.CreateAsync(new LabFindingInsertRequest
         {
             AppointmentId = 2,
+            TestName = "Kompletna krvna slika (KKS)",
             Result = "Uredan nalaz urina.",
             FileName = "nalaz-urin.pdf",
             ContentType = "application/pdf",
@@ -61,6 +67,124 @@ public class LabFindingServiceTests
         Assert.Equal(3, entity.EnteredByUserId);
     }
 
+    /// <summary>
+    /// The prijava promises a notification for a "novi laboratorijski nalaz",
+    /// and rulebook §7.2 requires one per relevant event - asserted here as a
+    /// side effect, not inferred from the returned DTO.
+    ///
+    /// Uses Appointment 3, whose Patient 1 has a login (User 4). Patient 2 is
+    /// seeded deliberately without one, which is the case
+    /// <see cref="CreateAsync_PatientWithoutAnAccountIsNotNotified"/> covers.
+    /// </summary>
+    [Fact]
+    public async Task CreateAsync_NotifiesThePatient()
+    {
+        await using var context = ContextWithAccessor(3, Roles.Doctor, out var service, out var notifications);
+
+        await service.CreateAsync(new LabFindingInsertRequest
+        {
+            AppointmentId = 3,
+            TestName = "Urin - opšti pregled",
+            Result = "Uredan nalaz urina.",
+            FileName = "nalaz-urin.pdf",
+            ContentType = "application/pdf",
+            FileBase64 = ValidPdfBase64
+        });
+
+        var notification = Assert.Single(notifications.Created);
+        Assert.Equal(4, notification.UserId);
+        Assert.Equal("Novi laboratorijski nalaz", notification.Title);
+    }
+
+    /// <summary>
+    /// A patient record created by staff need not have a login account
+    /// (<c>Patient.UserId</c> is nullable). Entering a finding for one must
+    /// still succeed - there is simply nobody to notify.
+    /// </summary>
+    [Fact]
+    public async Task CreateAsync_PatientWithoutAnAccountIsNotNotified()
+    {
+        await using var context = ContextWithAccessor(3, Roles.Doctor, out var service, out var notifications);
+
+        // Appointment 2 belongs to Patient 2, seeded with UserId = null.
+        var dto = await service.CreateAsync(new LabFindingInsertRequest
+        {
+            AppointmentId = 2,
+            TestName = "Urin - opšti pregled",
+            Result = "Uredan nalaz urina.",
+            FileName = "nalaz-urin.pdf",
+            ContentType = "application/pdf",
+            FileBase64 = ValidPdfBase64
+        });
+
+        Assert.Equal(2, dto.PatientId);
+        Assert.Empty(notifications.Created);
+    }
+
+    /// <summary>
+    /// The prijava says the document "može se priložiti" - so a finding that
+    /// carries only its structured fields is valid, and simply has nothing to
+    /// download.
+    /// </summary>
+    [Fact]
+    public async Task CreateAsync_WithoutAFile_Succeeds()
+    {
+        await using var context = ContextWithAccessor(3, Roles.Doctor, out var service);
+
+        var dto = await service.CreateAsync(new LabFindingInsertRequest
+        {
+            AppointmentId = 3,
+            TestName = "Glukoza u krvi",
+            Value = "6.4",
+            Unit = "mmol/L",
+            ReferenceRange = "3.9 - 6.1",
+            Result = "Blago povišena glukoza natašte.",
+            DoctorNote = "Ponoviti nalaz za mjesec dana."
+        });
+
+        Assert.False(dto.HasFile);
+        Assert.Equal(string.Empty, dto.DownloadUrl);
+        Assert.Equal("6.4", dto.Value);
+        Assert.Equal("mmol/L", dto.Unit);
+        Assert.Equal("3.9 - 6.1", dto.ReferenceRange);
+        Assert.Equal("Ponoviti nalaz za mjesec dana.", dto.DoctorNote);
+
+        await Assert.ThrowsAsync<BusinessException>(() => service.GetFileForDownloadAsync(dto.Id));
+    }
+
+    /// <summary>A unit or reference range with no measured value describes nothing.</summary>
+    [Fact]
+    public async Task CreateAsync_UnitWithoutValue_Throws()
+    {
+        await using var context = ContextWithAccessor(3, Roles.Doctor, out var service);
+
+        var ex = await Assert.ThrowsAsync<ValidationException>(() => service.CreateAsync(new LabFindingInsertRequest
+        {
+            AppointmentId = 3,
+            TestName = "Glukoza u krvi",
+            Unit = "mmol/L",
+            Result = "Nalaz"
+        }));
+
+        Assert.Contains("value", ex.Errors.Keys);
+    }
+
+    /// <summary>The test name is what the finding is - required, like the result text.</summary>
+    [Fact]
+    public async Task CreateAsync_MissingTestName_Throws()
+    {
+        await using var context = ContextWithAccessor(3, Roles.Doctor, out var service);
+
+        var ex = await Assert.ThrowsAsync<ValidationException>(() => service.CreateAsync(new LabFindingInsertRequest
+        {
+            AppointmentId = 3,
+            TestName = "",
+            Result = "Nalaz"
+        }));
+
+        Assert.Contains("testName", ex.Errors.Keys);
+    }
+
     [Fact]
     public async Task CreateAsync_MissingResult_Throws()
     {
@@ -69,6 +193,7 @@ public class LabFindingServiceTests
         var ex = await Assert.ThrowsAsync<ValidationException>(() => service.CreateAsync(new LabFindingInsertRequest
         {
             AppointmentId = 2,
+            TestName = "Kompletna krvna slika (KKS)",
             Result = "",
             FileName = "nalaz.pdf",
             ContentType = "application/pdf",
@@ -86,6 +211,7 @@ public class LabFindingServiceTests
         await Assert.ThrowsAsync<ValidationException>(() => service.CreateAsync(new LabFindingInsertRequest
         {
             AppointmentId = 999_999,
+            TestName = "Kompletna krvna slika (KKS)",
             Result = "Nalaz",
             FileName = "nalaz.pdf",
             ContentType = "application/pdf",
@@ -102,6 +228,7 @@ public class LabFindingServiceTests
         await Assert.ThrowsAsync<ValidationException>(() => service.CreateAsync(new LabFindingInsertRequest
         {
             AppointmentId = 2,
+            TestName = "Kompletna krvna slika (KKS)",
             Result = "Nalaz",
             FileName = "nalaz.pdf",
             ContentType = "application/pdf",
@@ -116,6 +243,7 @@ public class LabFindingServiceTests
         await service.CreateAsync(new LabFindingInsertRequest
         {
             AppointmentId = 2,
+            TestName = "Kompletna krvna slika (KKS)",
             Result = "Nalaz za termin 2",
             FileName = "nalaz.pdf",
             ContentType = "application/pdf",
@@ -136,6 +264,7 @@ public class LabFindingServiceTests
         await service.CreateAsync(new LabFindingInsertRequest
         {
             AppointmentId = 2,
+            TestName = "Kompletna krvna slika (KKS)",
             Result = "Povišen šećer u krvi.",
             FileName = "glukoza.pdf",
             ContentType = "application/pdf",
@@ -173,10 +302,11 @@ public class LabFindingServiceTests
 
         // Seeded LabFinding Id=1 belongs to Patient 1 - so create one for Patient 2 first.
         var adminAccessor = TestContextFactory.CreateHttpContextAccessor(1, Roles.Administrator);
-        var adminService = new LabFindingService(context, TestContextFactory.CreateMapper(), adminAccessor);
+        var adminService = new LabFindingService(context, TestContextFactory.CreateMapper(), adminAccessor, new RecordingNotificationService());
         var created = await adminService.CreateAsync(new LabFindingInsertRequest
         {
             AppointmentId = 2, // Patient 2
+            TestName = "Kompletna krvna slika (KKS)",
             Result = "Tuđi nalaz",
             FileName = "nalaz.pdf",
             ContentType = "application/pdf",
@@ -193,6 +323,7 @@ public class LabFindingServiceTests
         var created = await service.CreateAsync(new LabFindingInsertRequest
         {
             AppointmentId = 2,
+            TestName = "Kompletna krvna slika (KKS)",
             Result = "Nalaz",
             FileName = "nalaz.pdf",
             ContentType = "application/pdf",

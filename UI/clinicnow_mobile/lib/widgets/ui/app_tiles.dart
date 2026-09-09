@@ -37,6 +37,11 @@ class AppListCard extends StatelessWidget {
   /// Draws a filled dot in the corner. Used for unread notifications.
   final bool highlighted;
 
+  /// How many lines the subtitle may occupy. Two keeps a list scannable and is
+  /// right for a one-sentence subtitle; a lab finding needs more, since its
+  /// measurement, interpretation and the doctor's remark are separate lines.
+  final int subtitleMaxLines;
+
   const AppListCard({
     super.key,
     required this.icon,
@@ -49,6 +54,7 @@ class AppListCard extends StatelessWidget {
     this.onTap,
     this.actions = const [],
     this.highlighted = false,
+    this.subtitleMaxLines = 2,
   });
 
   @override
@@ -96,7 +102,7 @@ class AppListCard extends StatelessWidget {
                     Text(
                       subtitle,
                       style: context.text.bodySmall?.copyWith(color: c.textSecondary),
-                      maxLines: 2,
+                      maxLines: subtitleMaxLines,
                       overflow: TextOverflow.ellipsis,
                     ),
                     if (meta != null) ...[

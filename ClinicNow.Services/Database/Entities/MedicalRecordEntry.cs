@@ -26,7 +26,24 @@ public class MedicalRecordEntry : ISoftDelete
     public MedicalRecord MedicalRecord { get; set; } = null!;
 
     public DateOnly EntryDate { get; set; }
-    public string Diagnosis { get; set; } = string.Empty;
+
+    /// <summary>
+    /// The diagnosis as a structured reference into the <see cref="Entities.Diagnosis"/>
+    /// codebook, not free text - prijava §4.1 ("Dijagnoza se ne upisuje kao
+    /// slobodan tekst nego kao strukturiran zapis") and the August review's item
+    /// 11. Being an FK also satisfies rulebook §3.1's rule that reference data is
+    /// never stored as a string column.
+    /// </summary>
+    public int DiagnosisId { get; set; }
+    public Diagnosis Diagnosis { get; set; } = null!;
+
+    /// <summary>
+    /// Optional free-text qualifier on top of the coded diagnosis (e.g. "lijeva
+    /// strana, drugi recidiv"). Deliberately additive: it can never stand in for
+    /// the code, only refine it.
+    /// </summary>
+    public string? DiagnosisNote { get; set; }
+
     public string Treatment { get; set; } = string.Empty;
     public string Description { get; set; } = string.Empty;
 

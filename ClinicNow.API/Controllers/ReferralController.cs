@@ -34,8 +34,8 @@ public class ReferralController : ControllerBase
 
     [HttpGet]
     public async Task<ActionResult<PagedResult<ReferralDto>>> GetPaged(
-        [FromQuery] ReferralSearchObject search, CancellationToken cancellationToken) =>
-        Ok(await _service.GetPagedAsync(search, cancellationToken));
+        [FromQuery] ReferralSearchObject criteria, CancellationToken cancellationToken) =>
+        Ok(await _service.GetPagedAsync(criteria, cancellationToken));
 
     [HttpPost]
     [Authorize(Roles = $"{Roles.Administrator},{Roles.Doctor}")]

@@ -20,9 +20,21 @@ public class LabFindingConfiguration : IEntityTypeConfiguration<LabFinding>
         // Fixed-width hex from ContentHash.Compute - without this EF picks nvarchar(max).
         builder.Property(f => f.ContentHash).HasMaxLength(32);
 
+        builder.Property(f => f.TestName).IsRequired().HasMaxLength(200);
+        builder.Property(f => f.Value).HasMaxLength(100);
+        builder.Property(f => f.Unit).HasMaxLength(50);
+        builder.Property(f => f.ReferenceRange).HasMaxLength(100);
         builder.Property(f => f.Result).IsRequired().HasMaxLength(2000);
-        builder.Property(f => f.FileName).IsRequired().HasMaxLength(260);
-        builder.Property(f => f.ContentType).IsRequired().HasMaxLength(100);
+        builder.Property(f => f.DoctorNote).HasMaxLength(1000);
+
+        // Optional attachment (prijava: the document "može se priložiti") - the
+        // finding's structured fields carry it on their own when there is none.
+        builder.Property(f => f.FileName).HasMaxLength(260);
+        builder.Property(f => f.ContentType).HasMaxLength(100);
+
+        // A test name is what the finding is looked up by, so the search filter
+        // on it deserves an index rather than a scan of every row.
+        builder.HasIndex(f => f.TestName);
 
         // Never cascade-delete a legally-retained finding just because the
         // entering staff account is later removed - same reasoning as
@@ -62,7 +74,12 @@ public class LabFindingConfiguration : IEntityTypeConfiguration<LabFinding>
             Id = 1,
             PatientId = 1,
             AppointmentId = 1,
+            TestName = "Kompletna krvna slika (KKS) - hemoglobin",
+            Value = "13.9",
+            Unit = "g/dL",
+            ReferenceRange = "12.0 - 16.0",
             Result = "Kompletna krvna slika - uredni parametri.",
+            DoctorNote = "Nalaz uredan, kontrola nije potrebna.",
             FileName = "nalaz-kks.pdf",
             ContentType = "application/pdf",
             FileData = SeedPdfBytes,

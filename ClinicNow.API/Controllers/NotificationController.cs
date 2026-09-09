@@ -26,8 +26,8 @@ public class NotificationController : ControllerBase
 
     [HttpGet]
     public async Task<ActionResult<PagedResult<NotificationDto>>> GetPaged(
-        [FromQuery] NotificationSearchObject search, CancellationToken cancellationToken) =>
-        Ok(await _service.GetPagedAsync(search, cancellationToken));
+        [FromQuery] NotificationSearchObject criteria, CancellationToken cancellationToken) =>
+        Ok(await _service.GetPagedAsync(criteria, cancellationToken));
 
     [HttpGet("unread-count")]
     public async Task<ActionResult<int>> GetUnreadCount(CancellationToken cancellationToken) =>

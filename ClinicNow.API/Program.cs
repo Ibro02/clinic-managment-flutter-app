@@ -112,6 +112,7 @@ builder.Services.AddScoped<ICRUDService<CityDto, CitySearchObject, CityInsertReq
 builder.Services.AddScoped<ICRUDService<SpecializationDto, SpecializationSearchObject, SpecializationInsertRequest, SpecializationUpdateRequest>, SpecializationService>();
 builder.Services.AddScoped<ICRUDService<LocationDto, LocationSearchObject, LocationInsertRequest, LocationUpdateRequest>, LocationService>();
 builder.Services.AddScoped<ICRUDService<MedicalServiceDto, MedicalServiceSearchObject, MedicalServiceInsertRequest, MedicalServiceUpdateRequest>, MedicalServiceService>();
+builder.Services.AddScoped<ICRUDService<DiagnosisDto, DiagnosisSearchObject, DiagnosisInsertRequest, DiagnosisUpdateRequest>, DiagnosisService>();
 
 // --- People: Patients & Doctors (Phase 3) -----------------------------------------
 // Patient is registered by its bespoke IPatientService (adds RestoreAsync on top of

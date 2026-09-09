@@ -60,13 +60,15 @@ public class MedicalRecordServiceTests
         var dto = await service.AddEntryAsync(600, new MedicalRecordEntryInsertRequest
         {
             EntryDate = DateOnly.FromDateTime(DateTime.UtcNow),
-            Diagnosis = "J06.9 - Akutna infekcija gornjih disajnih puteva",
+            DiagnosisId = 2, // J06.9 - Akutna infekcija gornjih disajnih puteva
             Treatment = "Antibiotska terapija",
             Description = "Propisan antibiotik na 7 dana."
         });
 
         Assert.Single(dto.Entries);
-        Assert.Equal("J06.9 - Akutna infekcija gornjih disajnih puteva", dto.Entries[0].Diagnosis);
+        Assert.Equal(2, dto.Entries[0].DiagnosisId);
+        Assert.Equal("J06.9", dto.Entries[0].DiagnosisCode);
+        Assert.Equal("J06.9 - Akutna infekcija gornjih disajnih puteva", dto.Entries[0].DiagnosisDisplayName);
 
         var reloadedRecord = await context.MedicalRecords.SingleAsync(r => r.Id == 600);
         Assert.True(reloadedRecord.UpdatedAtUtc > originalUpdatedAt);
@@ -85,12 +87,33 @@ public class MedicalRecordServiceTests
         var ex = await Assert.ThrowsAsync<ValidationException>(() => service.AddEntryAsync(601, new MedicalRecordEntryInsertRequest
         {
             EntryDate = DateOnly.FromDateTime(DateTime.UtcNow),
-            Diagnosis = "",
+            DiagnosisId = 0,
             Treatment = "Tretman",
             Description = "Opis"
         }));
 
-        Assert.Contains("diagnosis", ex.Errors.Keys);
+        Assert.Contains("diagnosisId", ex.Errors.Keys);
+    }
+
+    /// <summary>
+    /// The diagnosis is a reference into the codebook, so an id that is not in
+    /// it must be refused - the whole point of review item 11's "strukturiran
+    /// zapis" is that free text can no longer sneak in through the API.
+    /// </summary>
+    [Fact]
+    public async Task AddEntryAsync_UnknownDiagnosisId_Throws()
+    {
+        var (_, service, _) = await SetUpAsync(604, 604);
+
+        var ex = await Assert.ThrowsAsync<ValidationException>(() => service.AddEntryAsync(604, new MedicalRecordEntryInsertRequest
+        {
+            EntryDate = DateOnly.FromDateTime(DateTime.UtcNow),
+            DiagnosisId = 99999,
+            Treatment = "Tretman",
+            Description = "Opis"
+        }));
+
+        Assert.Contains("diagnosisId", ex.Errors.Keys);
     }
 
     /// <summary>The reviewer's literal complaint: UpdateEntryAsync did not refresh the parent's UpdatedAtUtc.</summary>
@@ -101,7 +124,7 @@ public class MedicalRecordServiceTests
         var created = await service.AddEntryAsync(602, new MedicalRecordEntryInsertRequest
         {
             EntryDate = DateOnly.FromDateTime(DateTime.UtcNow),
-            Diagnosis = "Prvobitna dijagnoza",
+            DiagnosisId = 2,
             Treatment = "Prvobitni tretman",
             Description = "Prvobitni opis"
         });
@@ -113,12 +136,13 @@ public class MedicalRecordServiceTests
         var dto = await service.UpdateEntryAsync(entryId, new MedicalRecordEntryUpdateRequest
         {
             EntryDate = DateOnly.FromDateTime(DateTime.UtcNow),
-            Diagnosis = "Ispravljena dijagnoza",
+            DiagnosisId = 3, // I10 - Esencijalna (primarna) hipertenzija
             Treatment = "Ispravljeni tretman",
             Description = "Ispravljeni opis"
         });
 
-        Assert.Equal("Ispravljena dijagnoza", dto.Entries[0].Diagnosis);
+        Assert.Equal(3, dto.Entries[0].DiagnosisId);
+        Assert.Equal("I10", dto.Entries[0].DiagnosisCode);
 
         var reloadedRecord = await context.MedicalRecords.SingleAsync(r => r.Id == 602);
         Assert.True(reloadedRecord.UpdatedAtUtc > afterCreateUpdatedAt);
@@ -137,7 +161,7 @@ public class MedicalRecordServiceTests
         var created = await service.AddEntryAsync(603, new MedicalRecordEntryInsertRequest
         {
             EntryDate = DateOnly.FromDateTime(DateTime.UtcNow),
-            Diagnosis = "Dijagnoza",
+            DiagnosisId = 2,
             Treatment = "Tretman",
             Description = "Opis"
         });

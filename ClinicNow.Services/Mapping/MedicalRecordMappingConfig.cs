@@ -33,7 +33,13 @@ public class MedicalRecordMappingConfig : IRegister
             .Map(dest => dest.Entries, src => src.Entries.OrderBy(e => e.EntryDate).ThenBy(e => e.CreatedAtUtc));
 
         config.NewConfig<MedicalRecordEntry, MedicalRecordEntryDto>()
-            .Map(dest => dest.CreatedByName, src => $"{src.CreatedByUser.FirstName} {src.CreatedByUser.LastName}");
+            .Map(dest => dest.CreatedByName, src => $"{src.CreatedByUser.FirstName} {src.CreatedByUser.LastName}")
+            // Requires Diagnosis to be Include-d (MedicalRecordService.LoadFullRecordAsync).
+            // The DTO carries code and name separately so the client can render
+            // "J06.9 - ..." without ever seeing the raw id (rulebook §6).
+            .Map(dest => dest.DiagnosisCode, src => src.Diagnosis.Code)
+            .Map(dest => dest.DiagnosisName, src => src.Diagnosis.Name)
+            .Map(dest => dest.DiagnosisSpecializationId, src => src.Diagnosis.SuggestedSpecializationId);
     }
 
     private static int? CalculateAge(DateOnly? dateOfBirth)

@@ -194,7 +194,8 @@ class _MyLabFindingsTabState extends State<_MyLabFindingsTab> {
       if (response.statusCode != 200) {
         throw Exception('HTTP ${response.statusCode}');
       }
-      await FilePicker.saveFile(fileName: finding.fileName, bytes: response.bodyBytes);
+      // Only reachable when hasFile is true, so fileName is populated.
+      await FilePicker.saveFile(fileName: finding.fileName ?? 'nalaz', bytes: response.bodyBytes);
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Preuzimanje nije uspjelo: $e')));
@@ -233,18 +234,38 @@ class _MyLabFindingsTabState extends State<_MyLabFindingsTab> {
         itemBuilder: (context, index) {
           final finding = _findings![index];
           final isPdf = finding.contentType == 'application/pdf';
+          // "13.9 g/dL (ref. 12.0 - 16.0)" - built from whichever of the three
+          // optional measurement fields this finding carries.
+          final measurement = [
+            if ((finding.value ?? '').isNotEmpty) finding.value!,
+            if ((finding.unit ?? '').isNotEmpty) finding.unit!,
+            if ((finding.referenceRange ?? '').isNotEmpty) '(ref. ${finding.referenceRange})',
+          ].join(' ');
 
           return AppListCard(
-            icon: isPdf ? Icons.picture_as_pdf_outlined : Icons.image_outlined,
+            icon: !finding.hasFile
+                ? Icons.science_outlined
+                : isPdf
+                ? Icons.picture_as_pdf_outlined
+                : Icons.image_outlined,
             tone: isPdf ? AppTone.danger : AppTone.info,
-            title: finding.result,
-            subtitle: '${finding.medicalServiceName} · ${_dateFormat.format(finding.appointmentStartUtc.toLocal())}',
+            title: finding.testName,
+            subtitle: [
+              if (measurement.isNotEmpty) measurement,
+              finding.result,
+              if ((finding.doctorNote ?? '').isNotEmpty) 'Napomena: ${finding.doctorNote}',
+              '${finding.medicalServiceName} · ${_dateFormat.format(finding.appointmentStartUtc.toLocal())}',
+            ].join('\n'),
+            subtitleMaxLines: 4,
             meta: _dateFormat.format(finding.createdAtUtc.toLocal()),
             actions: [
+              // Disabled with the reason rather than hidden (rulebook §6) - the
+              // finding is complete without an attachment, there is simply
+              // nothing to download.
               IconButton(
-                tooltip: 'Preuzmi',
+                tooltip: finding.hasFile ? 'Preuzmi' : 'Uz ovaj nalaz nije priložen dokument',
                 icon: const Icon(Icons.download_outlined),
-                onPressed: () => _download(finding),
+                onPressed: finding.hasFile ? () => _download(finding) : null,
               ),
             ],
           );

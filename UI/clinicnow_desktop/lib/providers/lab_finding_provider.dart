@@ -27,22 +27,35 @@ class LabFindingProvider {
     return list.map(LabFinding.fromJson).toList();
   }
 
+  /// [fileName]/[contentType]/[bytes] are optional and travel together - the
+  /// backend accepts a finding with no attachment, and rejects a half-supplied
+  /// one, so all three are either present or all omitted.
   Future<LabFinding> create({
     required int appointmentId,
+    required String testName,
     required String result,
-    required String fileName,
-    required String contentType,
-    required Uint8List bytes,
+    String? value,
+    String? unit,
+    String? referenceRange,
+    String? doctorNote,
+    String? fileName,
+    String? contentType,
+    Uint8List? bytes,
   }) async {
     final response = await apiPost(
       _base.buildUri('api/LabFinding'),
       headers: _base.authHeaders(),
       body: jsonEncode({
         'appointmentId': appointmentId,
+        'testName': testName,
+        'value': value,
+        'unit': unit,
+        'referenceRange': referenceRange,
         'result': result,
-        'fileName': fileName,
-        'contentType': contentType,
-        'fileBase64': base64Encode(bytes),
+        'doctorNote': doctorNote,
+        if (bytes != null) 'fileName': fileName,
+        if (bytes != null) 'contentType': contentType,
+        if (bytes != null) 'fileBase64': base64Encode(bytes),
       }),
       timeout: BaseProvider.fileTransferTimeout,
     );

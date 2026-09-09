@@ -30,11 +30,22 @@ public abstract class BaseController<TModel, TSearch> : ControllerBase
         Service = service;
     }
 
+    /// <summary>
+    /// The parameter is named <c>criteria</c>, not <c>search</c>, and that name
+    /// is load-bearing. ASP.NET Core binds a complex <c>[FromQuery]</c> object
+    /// with an empty prefix only while no query key matches the parameter's own
+    /// name; the moment one does, it switches to prefixed binding and expects
+    /// <c>search.Foo=…</c>. A search object with a plain <c>Search</c> property
+    /// (LabFinding, Referral, Diagnosis) would therefore have its filter
+    /// silently dropped for <c>?search=…</c> - the request still returns 200,
+    /// just unfiltered. Renaming the parameter removes the collision for every
+    /// search object at once. Don't rename it back.
+    /// </summary>
     [HttpGet]
     public virtual async Task<ActionResult<Model.Common.PagedResult<TModel>>> GetPaged(
-        [FromQuery] TSearch search, CancellationToken cancellationToken)
+        [FromQuery] TSearch criteria, CancellationToken cancellationToken)
     {
-        return Ok(await Service.GetPagedAsync(search, cancellationToken));
+        return Ok(await Service.GetPagedAsync(criteria, cancellationToken));
     }
 
     [HttpGet("{id:int}")]

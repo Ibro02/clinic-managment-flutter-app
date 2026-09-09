@@ -31,8 +31,8 @@ public class MedicalDocumentController : ControllerBase
 
     [HttpGet]
     public async Task<ActionResult<PagedResult<MedicalDocumentDto>>> GetPaged(
-        [FromQuery] MedicalDocumentSearchObject search, CancellationToken cancellationToken) =>
-        Ok(await _service.GetPagedAsync(search, cancellationToken));
+        [FromQuery] MedicalDocumentSearchObject criteria, CancellationToken cancellationToken) =>
+        Ok(await _service.GetPagedAsync(criteria, cancellationToken));
 
     [HttpPost]
     [Authorize(Roles = $"{Roles.Administrator},{Roles.Staff},{Roles.Doctor}")]

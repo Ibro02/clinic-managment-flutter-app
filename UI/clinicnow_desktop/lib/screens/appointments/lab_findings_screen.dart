@@ -162,16 +162,18 @@ class _LabFindingsScreenState extends State<LabFindingsScreen> {
                   : () async {
                       final form = formKey.currentState;
                       if (form == null || !form.saveAndValidate()) return;
-                      if (pickedFile == null) {
-                        setDialogState(() => fileError = 'Fajl je obavezan.');
-                        return;
-                      }
 
-                      final extension = pickedFile!.extension?.toLowerCase() ?? '';
-                      final contentType = _contentTypeByExtension[extension];
-                      if (contentType == null) {
-                        setDialogState(() => fileError = 'Dozvoljeni su samo PDF, PNG i JPEG fajlovi.');
-                        return;
+                      // The attachment is optional (prijava: it "može se
+                      // priložiti"), so only its *type* is validated, and only
+                      // when one was actually picked.
+                      String? contentType;
+                      if (pickedFile != null) {
+                        final extension = pickedFile!.extension?.toLowerCase() ?? '';
+                        contentType = _contentTypeByExtension[extension];
+                        if (contentType == null) {
+                          setDialogState(() => fileError = 'Dozvoljeni su samo PDF, PNG i JPEG fajlovi.');
+                          return;
+                        }
                       }
 
                       setDialogState(() {
@@ -180,11 +182,16 @@ class _LabFindingsScreenState extends State<LabFindingsScreen> {
                       });
 
                       try {
-                        final bytes = await pickedFile!.readAsBytes();
+                        final bytes = pickedFile == null ? null : await pickedFile!.readAsBytes();
                         await _provider.create(
                           appointmentId: (form.value['appointment'] as Appointment).id,
+                          testName: form.value['testName'] as String,
+                          value: form.value['value'] as String?,
+                          unit: form.value['unit'] as String?,
+                          referenceRange: form.value['referenceRange'] as String?,
                           result: form.value['result'] as String,
-                          fileName: pickedFile!.name,
+                          doctorNote: form.value['doctorNote'] as String?,
+                          fileName: pickedFile?.name,
                           contentType: contentType,
                           bytes: bytes,
                         );
@@ -233,6 +240,64 @@ class _LabFindingsScreenState extends State<LabFindingsScreen> {
                   ),
                 ),
                 AppField(
+                  label: 'Naziv pretrage',
+                  required: true,
+                  child: FormBuilderTextField(
+                    name: 'testName',
+                    decoration: InputDecoration(
+                      hintText: 'npr. Kompletna krvna slika (KKS) - hemoglobin',
+                      errorText: fieldErrors['testName']?.first,
+                    ),
+                    validator: FormBuilderValidators.required(errorText: 'Naziv pretrage je obavezan.'),
+                  ),
+                ),
+                // Measured value, unit and reference range travel together, so
+                // they sit on one row - a value is meaningless without the range
+                // it is read against.
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(
+                      child: AppField(
+                        label: 'Izmjerena vrijednost',
+                        child: FormBuilderTextField(
+                          name: 'value',
+                          decoration: InputDecoration(
+                            hintText: 'npr. 13.9',
+                            errorText: fieldErrors['value']?.first,
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: AppSpacing.sm),
+                    Expanded(
+                      child: AppField(
+                        label: 'Jedinica mjere',
+                        child: FormBuilderTextField(
+                          name: 'unit',
+                          decoration: InputDecoration(
+                            hintText: 'npr. g/dL',
+                            errorText: fieldErrors['unit']?.first,
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: AppSpacing.sm),
+                    Expanded(
+                      child: AppField(
+                        label: 'Referentni opseg',
+                        child: FormBuilderTextField(
+                          name: 'referenceRange',
+                          decoration: InputDecoration(
+                            hintText: 'npr. 12.0 - 16.0',
+                            errorText: fieldErrors['referenceRange']?.first,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                AppField(
                   label: 'Nalaz',
                   required: true,
                   child: FormBuilderTextField(
@@ -246,9 +311,19 @@ class _LabFindingsScreenState extends State<LabFindingsScreen> {
                   ),
                 ),
                 AppField(
+                  label: 'Napomena doktora',
+                  child: FormBuilderTextField(
+                    name: 'doctorNote',
+                    maxLines: 2,
+                    decoration: InputDecoration(
+                      hintText: 'npr. Ponoviti nalaz za mjesec dana.',
+                      errorText: fieldErrors['doctorNote']?.first,
+                    ),
+                  ),
+                ),
+                AppField(
                   label: 'Fajl',
-                  required: true,
-                  help: 'PDF, PNG ili JPEG.',
+                  help: 'Opcionalno. PDF, PNG ili JPEG.',
                   child: OutlinedButton.icon(
                     onPressed: () async {
                       final result = await FilePicker.pickFiles(
@@ -288,7 +363,9 @@ class _LabFindingsScreenState extends State<LabFindingsScreen> {
       if (response.statusCode != 200) {
         throw Exception('HTTP ${response.statusCode}');
       }
-      await FilePicker.saveFile(fileName: finding.fileName, bytes: response.bodyBytes);
+      // Only reachable when hasFile is true, so fileName is populated - the
+      // fallback is defensive rather than expected.
+      await FilePicker.saveFile(fileName: finding.fileName ?? 'nalaz', bytes: response.bodyBytes);
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Preuzimanje nije uspjelo: $e')));
@@ -430,6 +507,13 @@ class _LabFindingsScreenState extends State<LabFindingsScreen> {
                     itemBuilder: (context, index) {
                       final finding = _findings![index];
                       final isPdf = finding.contentType == 'application/pdf';
+                      // "13.9 g/dL (ref. 12.0 - 16.0)" - assembled from whichever
+                      // of the three optional fields the finding actually carries.
+                      final measurement = [
+                        if ((finding.value ?? '').isNotEmpty) finding.value!,
+                        if ((finding.unit ?? '').isNotEmpty) finding.unit!,
+                        if ((finding.referenceRange ?? '').isNotEmpty) '(ref. ${finding.referenceRange})',
+                      ].join(' ');
 
                       return AppCard(
                         padding: const EdgeInsets.all(AppSpacing.sm),
@@ -444,7 +528,11 @@ class _LabFindingsScreenState extends State<LabFindingsScreen> {
                                 borderRadius: AppRadius.all(AppRadius.sm),
                               ),
                               child: Icon(
-                                isPdf ? Icons.picture_as_pdf_outlined : Icons.image_outlined,
+                                !finding.hasFile
+                                    ? Icons.science_outlined
+                                    : isPdf
+                                    ? Icons.picture_as_pdf_outlined
+                                    : Icons.image_outlined,
                                 size: 19,
                                 color: (isPdf ? AppTone.danger : AppTone.info).foreground(context),
                               ),
@@ -455,11 +543,31 @@ class _LabFindingsScreenState extends State<LabFindingsScreen> {
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
-                                  Text(finding.result, style: context.text.titleSmall),
+                                  Text(finding.testName, style: context.text.titleSmall),
+                                  if (measurement.isNotEmpty) ...[
+                                    const SizedBox(height: 2),
+                                    Text(measurement, style: context.text.bodyMedium),
+                                  ],
                                   const SizedBox(height: 2),
                                   Text(
-                                    '${finding.medicalServiceName} (${_dateFormat.format(finding.appointmentStartUtc.toLocal())}) · '
-                                    '${finding.fileName} · ${finding.enteredByName}',
+                                    finding.result,
+                                    style: context.text.bodySmall,
+                                    maxLines: 2,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                  if ((finding.doctorNote ?? '').isNotEmpty) ...[
+                                    const SizedBox(height: 2),
+                                    Text(
+                                      'Napomena: ${finding.doctorNote}',
+                                      style: context.text.bodySmall?.copyWith(fontStyle: FontStyle.italic),
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ],
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    '${finding.medicalServiceName} (${_dateFormat.format(finding.appointmentStartUtc.toLocal())})'
+                                    '${finding.hasFile ? ' · ${finding.fileName}' : ''} · ${finding.enteredByName}',
                                     style: context.text.bodySmall?.copyWith(color: context.colors.textMuted),
                                     maxLines: 1,
                                     overflow: TextOverflow.ellipsis,
@@ -468,10 +576,15 @@ class _LabFindingsScreenState extends State<LabFindingsScreen> {
                               ),
                             ),
                             const SizedBox(width: AppSpacing.xs),
+                            // Disabled with the reason rather than hidden, per
+                            // rulebook §6 - the finding is complete without a
+                            // document, there is simply nothing to fetch.
                             AppRowAction(
                               icon: Icons.download_outlined,
-                              tooltip: 'Preuzmi',
-                              onPressed: () => _download(finding),
+                              tooltip: finding.hasFile
+                                  ? 'Preuzmi'
+                                  : 'Uz ovaj nalaz nije priložen dokument',
+                              onPressed: finding.hasFile ? () => _download(finding) : null,
                             ),
                             if (canDelete)
                               AppRowAction(

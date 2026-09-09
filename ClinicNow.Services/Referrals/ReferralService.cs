@@ -2,11 +2,13 @@ using System.Security.Claims;
 using ClinicNow.Model.Common;
 using ClinicNow.Model.Dto;
 using ClinicNow.Model.Exceptions;
+using ClinicNow.Model.Localization;
 using ClinicNow.Model.Requests;
 using ClinicNow.Model.SearchObjects;
 using ClinicNow.Model.Security;
 using ClinicNow.Services.Database;
 using ClinicNow.Services.Database.Entities;
+using ClinicNow.Services.Notifications;
 using MapsterMapper;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
@@ -18,12 +20,18 @@ public class ReferralService : IReferralService
     private readonly ClinicNowContext _context;
     private readonly IMapper _mapper;
     private readonly IHttpContextAccessor _httpContextAccessor;
+    private readonly INotificationService _notificationService;
 
-    public ReferralService(ClinicNowContext context, IMapper mapper, IHttpContextAccessor httpContextAccessor)
+    public ReferralService(
+        ClinicNowContext context,
+        IMapper mapper,
+        IHttpContextAccessor httpContextAccessor,
+        INotificationService notificationService)
     {
         _context = context;
         _mapper = mapper;
         _httpContextAccessor = httpContextAccessor;
+        _notificationService = notificationService;
     }
 
     public async Task<PagedResult<ReferralDto>> GetPagedAsync(ReferralSearchObject search, CancellationToken cancellationToken = default)
@@ -127,11 +135,26 @@ public class ReferralService : IReferralService
         await _context.SaveChangesAsync(cancellationToken);
 
         var reloaded = await _context.Referrals
-            .Include(r => r.Patient)
+            .Include(r => r.Patient).ThenInclude(p => p!.User)
             .Include(r => r.ReferringDoctor).ThenInclude(d => d.User)
             .Include(r => r.SourceAppointment)
             .Include(r => r.TargetSpecialization)
             .SingleAsync(r => r.Id == referral.Id, cancellationToken);
+
+        // The prijava promises the patient is notified when a referral is
+        // issued; rulebook §7.2 requires notifications for every relevant
+        // event. Same nullable-User guard as LabFindingService: a
+        // staff-created patient need not have a login account yet.
+        if (reloaded.Patient?.User is not null)
+        {
+            var message = PatientMessages.ReferralIssued(
+                reloaded.Patient.User.PreferredLanguage,
+                reloaded.TargetSpecialization.Name,
+                $"{reloaded.ReferringDoctor.User.FirstName} {reloaded.ReferringDoctor.User.LastName}");
+
+            await _notificationService.CreateAsync(
+                reloaded.Patient.User.Id, message.Title, message.Body, cancellationToken);
+        }
 
         return _mapper.Map<ReferralDto>(reloaded);
     }

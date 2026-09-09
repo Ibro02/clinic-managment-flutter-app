@@ -93,6 +93,11 @@ class PagedCodebookTable<T> extends StatefulWidget {
   /// stacked tables on the doctor-schedule screen) rather than filling a page.
   final bool expand;
 
+  /// Query-string key the search box writes to. Every codebook filters by
+  /// `name`, except the diagnosis codebook, whose `search` matches either the
+  /// ICD-10 code or the name - a doctor recalls whichever they saw last.
+  final String searchParam;
+
   const PagedCodebookTable({
     super.key,
     required this.title,
@@ -113,6 +118,7 @@ class PagedCodebookTable<T> extends StatefulWidget {
     this.extraActions = const [],
     this.showSearch = true,
     this.expand = true,
+    this.searchParam = 'name',
   });
 
   @override
@@ -165,7 +171,7 @@ class PagedCodebookTableState<T> extends State<PagedCodebookTable<T>> {
         'page': _page,
         'pageSize': _pageSize,
         'orderBy': widget.orderBy,
-        if (_searchController.text.trim().isNotEmpty) 'name': _searchController.text.trim(),
+        if (_searchController.text.trim().isNotEmpty) widget.searchParam: _searchController.text.trim(),
         ...widget.extraSearchParams,
       };
       final result = await widget.provider.getPaged(search);

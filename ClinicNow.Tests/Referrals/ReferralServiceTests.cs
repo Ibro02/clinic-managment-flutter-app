@@ -21,7 +21,17 @@ namespace ClinicNow.Tests.Referrals;
 public class ReferralServiceTests
 {
     private static ReferralService NewService(int userId, string role) =>
-        new(TestContextFactory.CreateContext(), TestContextFactory.CreateMapper(), TestContextFactory.CreateHttpContextAccessor(userId, role));
+        NewService(userId, role, out _);
+
+    private static ReferralService NewService(int userId, string role, out RecordingNotificationService notifications)
+    {
+        notifications = new RecordingNotificationService();
+        return new ReferralService(
+            TestContextFactory.CreateContext(),
+            TestContextFactory.CreateMapper(),
+            TestContextFactory.CreateHttpContextAccessor(userId, role),
+            notifications);
+    }
 
     [Fact]
     public async Task CreateAsync_DerivesPatientAndReferringDoctorFromAppointment()
@@ -40,6 +50,53 @@ public class ReferralServiceTests
         Assert.Equal(1, dto.ReferringDoctorId);
         Assert.Equal(4, dto.TargetSpecializationId);
         Assert.Equal("Kardiologija", dto.TargetSpecializationName);
+    }
+
+    /// <summary>
+    /// The prijava states the patient "o njenom izdavanju dobija notifikaciju",
+    /// and rulebook §7.2 requires a notification per relevant event - so this
+    /// asserts the side effect, not just the returned DTO.
+    /// </summary>
+    [Fact]
+    public async Task CreateAsync_NotifiesThePatient()
+    {
+        var service = NewService(3, Roles.Doctor, out var notifications);
+
+        // Seeded Appointment 3 is Patient 1, whose login is User 4. (Patient 2,
+        // used by the other tests here, is seeded without an account on
+        // purpose - see CreateAsync_PatientWithoutAnAccountIsNotNotified.)
+        await service.CreateAsync(new ReferralInsertRequest
+        {
+            SourceAppointmentId = 3,
+            TargetSpecializationId = 4,
+            Reason = "Sumnja na aritmiju."
+        });
+
+        var notification = Assert.Single(notifications.Created);
+        Assert.Equal(4, notification.UserId);
+        Assert.Equal("Nova uputnica", notification.Title);
+        Assert.Contains("Kardiologija", notification.Text);
+    }
+
+    /// <summary>
+    /// <c>Patient.UserId</c> is nullable - a staff-created patient has no
+    /// account to notify, and issuing the referral must still succeed.
+    /// </summary>
+    [Fact]
+    public async Task CreateAsync_PatientWithoutAnAccountIsNotNotified()
+    {
+        var service = NewService(3, Roles.Doctor, out var notifications);
+
+        // Appointment 4 belongs to Patient 2, seeded with UserId = null.
+        var dto = await service.CreateAsync(new ReferralInsertRequest
+        {
+            SourceAppointmentId = 4,
+            TargetSpecializationId = 4,
+            Reason = "Sumnja na aritmiju."
+        });
+
+        Assert.Equal(2, dto.PatientId);
+        Assert.Empty(notifications.Created);
     }
 
     [Fact]
@@ -87,7 +144,7 @@ public class ReferralServiceTests
     public async Task GetPagedAsync_FilteredByPatientId_ReturnsOnlyThatPatientsReferrals()
     {
         var context = TestContextFactory.CreateContext();
-        var service = new ReferralService(context, TestContextFactory.CreateMapper(), TestContextFactory.CreateHttpContextAccessor(3, Roles.Doctor));
+        var service = new ReferralService(context, TestContextFactory.CreateMapper(), TestContextFactory.CreateHttpContextAccessor(3, Roles.Doctor), new RecordingNotificationService());
 
         await service.CreateAsync(new ReferralInsertRequest
         {
@@ -130,7 +187,7 @@ public class ReferralServiceTests
         // Patient 1's User is Id=4 (Hana, per PatientConfiguration/AddIdentity seed).
         var context = TestContextFactory.CreateContext();
         var adminAccessor = TestContextFactory.CreateHttpContextAccessor(1, Roles.Administrator);
-        var adminService = new ReferralService(context, TestContextFactory.CreateMapper(), adminAccessor);
+        var adminService = new ReferralService(context, TestContextFactory.CreateMapper(), adminAccessor, new RecordingNotificationService());
         await adminService.CreateAsync(new ReferralInsertRequest
         {
             SourceAppointmentId = 4, // Patient 2
@@ -139,7 +196,7 @@ public class ReferralServiceTests
         });
 
         var patientAccessor = TestContextFactory.CreateHttpContextAccessor(4, Roles.Patient);
-        var patientService = new ReferralService(context, TestContextFactory.CreateMapper(), patientAccessor);
+        var patientService = new ReferralService(context, TestContextFactory.CreateMapper(), patientAccessor, new RecordingNotificationService());
 
         var result = await patientService.GetPagedAsync(new ReferralSearchObject { PatientId = 2 }); // attempted spoof
 
@@ -155,14 +212,14 @@ public class ReferralServiceTests
         // ResultingAppointmentId alone is what the archived/active split now
         // keys off, independent of the soft-delete flag.
         var context = TestContextFactory.CreateContext();
-        var created = await new ReferralService(context, TestContextFactory.CreateMapper(), TestContextFactory.CreateHttpContextAccessor(3, Roles.Doctor))
+        var created = await new ReferralService(context, TestContextFactory.CreateMapper(), TestContextFactory.CreateHttpContextAccessor(3, Roles.Doctor), new RecordingNotificationService())
             .CreateAsync(new ReferralInsertRequest { SourceAppointmentId = 4, TargetSpecializationId = 2, Reason = "Nalaz" });
 
         var referral = await context.Referrals.SingleAsync(r => r.Id == created.Id);
         referral.ResultingAppointmentId = 999_999;
         await context.SaveChangesAsync();
 
-        var service = new ReferralService(context, TestContextFactory.CreateMapper(), TestContextFactory.CreateHttpContextAccessor(3, Roles.Doctor));
+        var service = new ReferralService(context, TestContextFactory.CreateMapper(), TestContextFactory.CreateHttpContextAccessor(3, Roles.Doctor), new RecordingNotificationService());
 
         var active = await service.GetPagedAsync(new ReferralSearchObject { PatientId = 2, OnlyArchived = false });
         Assert.DoesNotContain(active.ResultList, r => r.Id == created.Id);
@@ -175,7 +232,7 @@ public class ReferralServiceTests
     public async Task DeleteAsync_SoftDeletes()
     {
         var context = TestContextFactory.CreateContext();
-        var service = new ReferralService(context, TestContextFactory.CreateMapper(), TestContextFactory.CreateHttpContextAccessor(1, Roles.Administrator));
+        var service = new ReferralService(context, TestContextFactory.CreateMapper(), TestContextFactory.CreateHttpContextAccessor(1, Roles.Administrator), new RecordingNotificationService());
         var created = await service.CreateAsync(new ReferralInsertRequest
         {
             SourceAppointmentId = 4,

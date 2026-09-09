@@ -299,7 +299,7 @@ class _ReferralsScreenState extends State<ReferralsScreen> {
       if (response.statusCode != 200) {
         throw Exception('HTTP ${response.statusCode}');
       }
-      await FilePicker.saveFile(fileName: finding.fileName, bytes: response.bodyBytes);
+      await FilePicker.saveFile(fileName: finding.fileName ?? 'nalaz', bytes: response.bodyBytes);
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Preuzimanje nije uspjelo: $e')));
@@ -390,11 +390,15 @@ class _ReferralsScreenState extends State<ReferralsScreen> {
                   padding: const EdgeInsets.only(bottom: AppSpacing.xs),
                   child: AppCard(
                     padding: const EdgeInsets.all(AppSpacing.sm),
-                    onTap: () => _downloadFinding(finding),
+                    // A finding need not carry a document - tapping one that
+                    // doesn't would only 400, so the whole tile is inert then.
+                    onTap: finding.hasFile ? () => _downloadFinding(finding) : null,
                     child: Row(
                       children: [
                         Icon(
-                          finding.contentType == 'application/pdf'
+                          !finding.hasFile
+                              ? Icons.science_outlined
+                              : finding.contentType == 'application/pdf'
                               ? Icons.picture_as_pdf_outlined
                               : Icons.image_outlined,
                           size: 18,
@@ -406,6 +410,7 @@ class _ReferralsScreenState extends State<ReferralsScreen> {
                             crossAxisAlignment: CrossAxisAlignment.start,
                             mainAxisSize: MainAxisSize.min,
                             children: [
+                              Text(finding.testName, maxLines: 1, overflow: TextOverflow.ellipsis),
                               Text(finding.result, maxLines: 2, overflow: TextOverflow.ellipsis),
                               Text(
                                 '${finding.medicalServiceName} · ${_dateFormat.format(finding.appointmentStartUtc.toLocal())}',

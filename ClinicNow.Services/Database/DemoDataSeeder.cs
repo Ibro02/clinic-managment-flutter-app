@@ -735,17 +735,20 @@ public class DemoDataSeeder
 
     private static List<MedicalRecordEntry> BuildMedicalRecordEntries(DateTime nowUtc)
     {
-        (int RecordId, string Diagnosis, string Treatment, string Description, int CreatedByUserId)[] rows =
+        // DiagnosisId references the codebook seeded by DiagnosisConfiguration -
+        // the same structured reference the application itself writes, never a
+        // free-text copy of the diagnosis (prijava §4.1 / August review item 11).
+        (int RecordId, int DiagnosisId, string Treatment, string Description, int CreatedByUserId)[] rows =
         [
-            (1, "I10 - Esencijalna hipertenzija", "Antihipertenziv, kontrola za mjesec dana", "Povišen krvni pritisak na kontroli, uveden lijek.", 3),
-            (1, "J06.9 - Akutna infekcija gornjih disajnih puteva", "Simptomatska terapija", "Blaga infekcija, savjetovan odmor i tečnost.", 3),
-            (100, "Z00.1 - Rutinska pedijatrijska kontrola", "Nema", "Uredan razvoj, sve vakcine ažurne.", 100),
-            (100, "J45.9 - Astma", "Inhalator po potrebi", "Blagi napadi na fizički napor, propisan inhalator.", 100),
-            (100, "L20.9 - Atopijski dermatitis", "Lokalna terapija", "Blage promjene na koži, kontrola za 3 mjeseca.", 101),
-            (101, "N94.6 - Dismenoreja", "Analgetik po potrebi", "Bolni menstrualni ciklusi, savjetovana terapija.", 101),
-            (101, "E03.9 - Hipotireoza", "Nadomjesna terapija hormonima štitnjače", "Nalazi ukazuju na hipotireozu, uvedena terapija.", 3),
-            (102, "I25.9 - Hronična ishemijska bolest srca", "Redovna kontrola i terapija", "Stabilno stanje, nastaviti propisanu terapiju.", 102),
-            (102, "E11.9 - Dijabetes melitus tip 2", "Dijeta i oralna terapija", "Novodijagnostikovan dijabetes, edukacija pacijenta.", 102)
+            (1, 3, "Antihipertenziv, kontrola za mjesec dana", "Povišen krvni pritisak na kontroli, uveden lijek.", 3),
+            (1, 2, "Simptomatska terapija", "Blaga infekcija, savjetovan odmor i tečnost.", 3),
+            (100, 11, "Nema", "Uredan razvoj, sve vakcine ažurne.", 100),
+            (100, 7, "Inhalator po potrebi", "Blagi napadi na fizički napor, propisan inhalator.", 100),
+            (100, 5, "Lokalna terapija", "Blage promjene na koži, kontrola za 3 mjeseca.", 101),
+            (101, 8, "Analgetik po potrebi", "Bolni menstrualni ciklusi, savjetovana terapija.", 101),
+            (101, 12, "Nadomjesna terapija hormonima štitnjače", "Nalazi ukazuju na hipotireozu, uvedena terapija.", 3),
+            (102, 13, "Redovna kontrola i terapija", "Stabilno stanje, nastaviti propisanu terapiju.", 102),
+            (102, 9, "Dijeta i oralna terapija", "Novodijagnostikovan dijabetes, edukacija pacijenta.", 102)
         ];
 
         var entries = new List<MedicalRecordEntry>();
@@ -757,7 +760,7 @@ public class DemoDataSeeder
                 Id = FirstSeederId + i,
                 MedicalRecordId = row.RecordId,
                 EntryDate = DateOnly.FromDateTime(nowUtc.AddDays(-(rows.Length - i) * 4)),
-                Diagnosis = row.Diagnosis,
+                DiagnosisId = row.DiagnosisId,
                 Treatment = row.Treatment,
                 Description = row.Description,
                 CreatedByUserId = row.CreatedByUserId,

@@ -32,8 +32,8 @@ public class LabFindingController : ControllerBase
 
     [HttpGet]
     public async Task<ActionResult<PagedResult<LabFindingDto>>> GetPaged(
-        [FromQuery] LabFindingSearchObject search, CancellationToken cancellationToken) =>
-        Ok(await _service.GetPagedAsync(search, cancellationToken));
+        [FromQuery] LabFindingSearchObject criteria, CancellationToken cancellationToken) =>
+        Ok(await _service.GetPagedAsync(criteria, cancellationToken));
 
     [HttpPost]
     [Authorize(Roles = $"{Roles.Administrator},{Roles.Staff},{Roles.Doctor}")]
@@ -46,8 +46,11 @@ public class LabFindingController : ControllerBase
     [HttpGet("{id:int}/download")]
     public async Task<IActionResult> Download(int id, CancellationToken cancellationToken)
     {
+        // The attachment is optional on the entity, but GetFileForDownloadAsync
+        // rejects a finding without one (400) before returning - so by this line
+        // the file columns are guaranteed populated.
         var finding = await _service.GetFileForDownloadAsync(id, cancellationToken);
-        return this.CacheableFile(finding.FileData, finding.ContentType, finding.ContentHash, finding.FileName);
+        return this.CacheableFile(finding.FileData!, finding.ContentType!, finding.ContentHash, finding.FileName);
     }
 
     [HttpDelete("{id:int}")]

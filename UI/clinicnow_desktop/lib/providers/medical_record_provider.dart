@@ -48,7 +48,8 @@ class MedicalRecordProvider {
   Future<MedicalRecord> addEntry(
     int patientId, {
     required DateTime entryDate,
-    required String diagnosis,
+    required int diagnosisId,
+    String? diagnosisNote,
     required String treatment,
     required String description,
   }) async {
@@ -57,7 +58,8 @@ class MedicalRecordProvider {
       headers: _base.authHeaders(),
       body: jsonEncode({
         'entryDate': _dateOnly(entryDate),
-        'diagnosis': diagnosis,
+        'diagnosisId': diagnosisId,
+        'diagnosisNote': diagnosisNote,
         'treatment': treatment,
         'description': description,
       }),
@@ -69,7 +71,8 @@ class MedicalRecordProvider {
   Future<MedicalRecord> updateEntry(
     int entryId, {
     required DateTime entryDate,
-    required String diagnosis,
+    required int diagnosisId,
+    String? diagnosisNote,
     required String treatment,
     required String description,
   }) async {
@@ -78,7 +81,8 @@ class MedicalRecordProvider {
       headers: _base.authHeaders(),
       body: jsonEncode({
         'entryDate': _dateOnly(entryDate),
-        'diagnosis': diagnosis,
+        'diagnosisId': diagnosisId,
+        'diagnosisNote': diagnosisNote,
         'treatment': treatment,
         'description': description,
       }),

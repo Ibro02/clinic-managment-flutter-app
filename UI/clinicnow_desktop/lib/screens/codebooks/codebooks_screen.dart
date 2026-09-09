@@ -2,11 +2,12 @@ import 'package:flutter/material.dart';
 
 import 'appointment_status_screen.dart';
 import 'city_screen.dart';
+import 'diagnosis_screen.dart';
 import 'location_screen.dart';
 import 'medical_service_screen.dart';
 import 'specialization_screen.dart';
 
-/// One screen, five tabs - the four editable codebooks (Phase 2) plus the
+/// One screen, six tabs - the five editable codebooks plus the
 /// read-only "Statusi termina" tab (review item S2) share this container
 /// rather than each claiming their own top-level nav destination, so the
 /// staff nav rail stays uncluttered as later phases add Patients/Doctors/
@@ -17,7 +18,7 @@ class CodebooksScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return DefaultTabController(
-      length: 5,
+      length: 6,
       child: Column(
         children: [
           const Material(
@@ -29,6 +30,7 @@ class CodebooksScreen extends StatelessWidget {
                 Tab(text: 'Specijalizacije'),
                 Tab(text: 'Lokacije'),
                 Tab(text: 'Usluge'),
+                Tab(text: 'Dijagnoze'),
                 Tab(text: 'Statusi termina'),
               ],
             ),
@@ -40,6 +42,7 @@ class CodebooksScreen extends StatelessWidget {
                 SpecializationScreen(),
                 LocationScreen(),
                 MedicalServiceScreen(),
+                DiagnosisScreen(),
                 AppointmentStatusScreen(),
               ],
             ),

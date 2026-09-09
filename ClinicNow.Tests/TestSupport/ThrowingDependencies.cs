@@ -37,6 +37,35 @@ public sealed class ThrowingNotificationService : INotificationService
         throw new InvalidOperationException(Message);
 }
 
+/// <summary>
+/// Records what would have been notified instead of writing it. Used where the
+/// notification <em>is</em> the behaviour under test - the prijava promises one
+/// for a new lab finding and a new referral, and rulebook §7.2 requires
+/// notifications for every relevant event, so those code paths assert on
+/// <see cref="Created"/> rather than merely tolerating the call.
+/// </summary>
+public sealed class RecordingNotificationService : INotificationService
+{
+    public List<(int UserId, string Title, string Text)> Created { get; } = [];
+
+    public Task<PagedResult<NotificationDto>> GetPagedAsync(
+        NotificationSearchObject search, CancellationToken cancellationToken = default) =>
+        Task.FromResult(new PagedResult<NotificationDto>());
+
+    public Task<int> GetUnreadCountAsync(CancellationToken cancellationToken = default) =>
+        Task.FromResult(Created.Count);
+
+    public Task MarkAsReadAsync(int id, CancellationToken cancellationToken = default) => Task.CompletedTask;
+
+    public Task MarkAllAsReadAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
+
+    public Task CreateAsync(int userId, string title, string text, CancellationToken cancellationToken = default)
+    {
+        Created.Add((userId, title, text));
+        return Task.CompletedTask;
+    }
+}
+
 public sealed class ThrowingEmailPublisher : IEmailPublisher
 {
     public Task<bool> PublishAsync(EmailMessage message, CancellationToken cancellationToken) =>

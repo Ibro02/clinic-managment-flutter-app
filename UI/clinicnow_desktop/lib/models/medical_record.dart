@@ -4,7 +4,20 @@ import 'gender.dart';
 class MedicalRecordEntry {
   final int id;
   final DateTime entryDate;
-  final String diagnosis;
+
+  /// The diagnosis is a reference into the diagnosis codebook, not free text -
+  /// the raw [diagnosisId] never reaches the UI, [diagnosisDisplayName] does.
+  final int diagnosisId;
+  final String diagnosisCode;
+  final String diagnosisName;
+
+  /// Which specialization normally treats this diagnosis, when there is one -
+  /// lets a referral be started straight from the entry.
+  final int? diagnosisSpecializationId;
+
+  /// Optional free-text qualifier on top of the coded diagnosis.
+  final String? diagnosisNote;
+
   final String treatment;
   final String description;
   final String createdByName;
@@ -13,17 +26,28 @@ class MedicalRecordEntry {
   const MedicalRecordEntry({
     required this.id,
     required this.entryDate,
-    required this.diagnosis,
+    required this.diagnosisId,
+    required this.diagnosisCode,
+    required this.diagnosisName,
+    this.diagnosisSpecializationId,
+    this.diagnosisNote,
     required this.treatment,
     required this.description,
     required this.createdByName,
     required this.createdAtUtc,
   });
 
+  /// "J06.9 - Akutna infekcija gornjih disajnih puteva".
+  String get diagnosisDisplayName => '$diagnosisCode - $diagnosisName';
+
   factory MedicalRecordEntry.fromJson(Map<String, dynamic> json) => MedicalRecordEntry(
         id: json['id'] as int,
         entryDate: DateTime.parse(json['entryDate'] as String),
-        diagnosis: json['diagnosis'] as String? ?? '',
+        diagnosisId: json['diagnosisId'] as int? ?? 0,
+        diagnosisCode: json['diagnosisCode'] as String? ?? '',
+        diagnosisName: json['diagnosisName'] as String? ?? '',
+        diagnosisSpecializationId: json['diagnosisSpecializationId'] as int?,
+        diagnosisNote: json['diagnosisNote'] as String?,
         treatment: json['treatment'] as String? ?? '',
         description: json['description'] as String? ?? '',
         createdByName: json['createdByName'] as String? ?? '',

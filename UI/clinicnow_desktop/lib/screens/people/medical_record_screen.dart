@@ -7,7 +7,9 @@ import 'package:provider/provider.dart';
 import '../../core/api_exception.dart';
 import '../../core/auth_session.dart';
 import '../../core/roles.dart';
+import '../../models/diagnosis.dart';
 import '../../models/medical_record.dart';
+import '../../providers/diagnosis_provider.dart';
 import '../../providers/medical_record_provider.dart';
 import '../../core/design_tokens.dart';
 import '../../widgets/ui/app_badge.dart';
@@ -31,16 +33,25 @@ class MedicalRecordScreen extends StatefulWidget {
 
 class _MedicalRecordScreenState extends State<MedicalRecordScreen> {
   late final MedicalRecordProvider _provider;
+  late final DiagnosisProvider _diagnosisProvider;
   final _dateFormat = DateFormat('dd.MM.yyyy');
 
   MedicalRecord? _record;
   String? _error;
 
+  /// The diagnosis codebook, loaded once and reused by every open of the entry
+  /// dialog - the dropdown is populated from the database, never typed as free
+  /// text (rulebook §6, prijava §4.1).
+  List<Diagnosis> _diagnoses = [];
+
   @override
   void initState() {
     super.initState();
-    _provider = MedicalRecordProvider(context.read<AuthSession>());
+    final authSession = context.read<AuthSession>();
+    _provider = MedicalRecordProvider(authSession);
+    _diagnosisProvider = DiagnosisProvider(authSession);
     _load();
+    _loadDiagnoses();
   }
 
   Future<void> _load() async {
@@ -50,6 +61,17 @@ class _MedicalRecordScreenState extends State<MedicalRecordScreen> {
       if (mounted) setState(() => _record = record);
     } on ApiException catch (e) {
       if (mounted) setState(() => _error = e.message);
+    }
+  }
+
+  Future<void> _loadDiagnoses() async {
+    try {
+      final diagnoses = await _diagnosisProvider.getAllForDropdown();
+      if (mounted) setState(() => _diagnoses = diagnoses);
+    } on ApiException {
+      // Leaves _diagnoses empty; _openEntryForm refuses to open in that case
+      // with an explanation, rather than showing an empty dropdown
+      // (rulebook §6: don't open an add-form when its preconditions fail).
     }
   }
 
@@ -200,6 +222,21 @@ class _MedicalRecordScreenState extends State<MedicalRecordScreen> {
   }
 
   Future<void> _openEntryForm({MedicalRecordEntry? initial}) async {
+    // The diagnosis dropdown is the entry's required field, so an empty
+    // codebook means the form cannot be completed - explain that instead of
+    // opening a dead form (rulebook §6).
+    if (_diagnoses.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Šifrarnik dijagnoza je prazan ili nije učitan. '
+            'Dodajte dijagnoze pod Šifrarnici → Dijagnoze prije upisa u karton.',
+          ),
+        ),
+      );
+      return;
+    }
+
     final formKey = GlobalKey<FormBuilderState>();
     var isSubmitting = false;
     Map<String, List<String>> fieldErrors = {};
@@ -228,18 +265,22 @@ class _MedicalRecordScreenState extends State<MedicalRecordScreen> {
                         fieldErrors = {};
                       });
                       try {
+                        final diagnosisId = (form.value['diagnosis'] as Diagnosis).id;
+                        final diagnosisNote = (form.value['diagnosisNote'] as String?)?.trim();
                         final record = initial == null
                             ? await _provider.addEntry(
                                 widget.patientId,
                                 entryDate: form.value['entryDate'] as DateTime,
-                                diagnosis: form.value['diagnosis'] as String,
+                                diagnosisId: diagnosisId,
+                                diagnosisNote: diagnosisNote?.isEmpty == true ? null : diagnosisNote,
                                 treatment: form.value['treatment'] as String,
                                 description: form.value['description'] as String,
                               )
                             : await _provider.updateEntry(
                                 initial.id,
                                 entryDate: form.value['entryDate'] as DateTime,
-                                diagnosis: form.value['diagnosis'] as String,
+                                diagnosisId: diagnosisId,
+                                diagnosisNote: diagnosisNote?.isEmpty == true ? null : diagnosisNote,
                                 treatment: form.value['treatment'] as String,
                                 description: form.value['description'] as String,
                               );
@@ -261,7 +302,8 @@ class _MedicalRecordScreenState extends State<MedicalRecordScreen> {
             key: formKey,
             initialValue: {
               'entryDate': initial?.entryDate ?? DateTime.now(),
-              'diagnosis': initial?.diagnosis ?? '',
+              'diagnosis': _diagnoses.where((d) => d.id == initial?.diagnosisId).firstOrNull,
+              'diagnosisNote': initial?.diagnosisNote ?? '',
               'treatment': initial?.treatment ?? '',
               'description': initial?.description ?? '',
             },
@@ -281,13 +323,34 @@ class _MedicalRecordScreenState extends State<MedicalRecordScreen> {
                 AppField(
                   label: 'Dijagnoza',
                   required: true,
-                  child: FormBuilderTextField(
+                  help: 'Bira se iz MKB-10 šifrarnika, ne upisuje se slobodno.',
+                  child: FormBuilderDropdown<Diagnosis>(
                     name: 'diagnosis',
+                    isExpanded: true,
                     decoration: InputDecoration(
-                      hintText: 'npr. J06.9 - Akutna infekcija gornjih disajnih puteva',
-                      errorText: fieldErrors['diagnosis']?.first,
+                      hintText: 'Odaberite dijagnozu',
+                      errorText: fieldErrors['diagnosisId']?.first,
                     ),
                     validator: FormBuilderValidators.required(errorText: 'Dijagnoza je obavezna.'),
+                    items: _diagnoses
+                        .map(
+                          (d) => DropdownMenuItem(
+                            value: d,
+                            child: Text(d.displayName, overflow: TextOverflow.ellipsis),
+                          ),
+                        )
+                        .toList(),
+                  ),
+                ),
+                AppField(
+                  label: 'Napomena uz dijagnozu',
+                  help: 'Opcionalno. Npr. zahvaćena strana, recidiv.',
+                  child: FormBuilderTextField(
+                    name: 'diagnosisNote',
+                    decoration: InputDecoration(
+                      hintText: 'npr. lijeva strana, drugi recidiv',
+                      errorText: fieldErrors['diagnosisNote']?.first,
+                    ),
                   ),
                 ),
                 AppField(
@@ -519,7 +582,24 @@ class _MedicalRecordScreenState extends State<MedicalRecordScreen> {
                         (entry) => DataRow(
                           cells: [
                             DataCell(Text(_dateFormat.format(entry.entryDate))),
-                            DataCell(SizedBox(width: 220, child: Text(entry.diagnosis))),
+                            DataCell(
+                              SizedBox(
+                                width: 220,
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    Text(entry.diagnosisDisplayName, overflow: TextOverflow.ellipsis),
+                                    if ((entry.diagnosisNote ?? '').isNotEmpty)
+                                      Text(
+                                        entry.diagnosisNote!,
+                                        style: context.text.bodySmall?.copyWith(color: context.colors.textMuted),
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                  ],
+                                ),
+                              ),
+                            ),
                             DataCell(Text(entry.treatment)),
                             DataCell(SizedBox(width: 280, child: Text(entry.description))),
                             DataCell(Text(entry.createdByName)),

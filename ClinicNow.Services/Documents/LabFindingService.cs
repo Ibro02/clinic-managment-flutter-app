@@ -2,11 +2,13 @@ using System.Security.Claims;
 using ClinicNow.Model.Common;
 using ClinicNow.Model.Dto;
 using ClinicNow.Model.Exceptions;
+using ClinicNow.Model.Localization;
 using ClinicNow.Model.Requests;
 using ClinicNow.Model.SearchObjects;
 using ClinicNow.Model.Security;
 using ClinicNow.Services.Database;
 using ClinicNow.Services.Database.Entities;
+using ClinicNow.Services.Notifications;
 using MapsterMapper;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
@@ -18,12 +20,18 @@ public class LabFindingService : ILabFindingService
     private readonly ClinicNowContext _context;
     private readonly IMapper _mapper;
     private readonly IHttpContextAccessor _httpContextAccessor;
+    private readonly INotificationService _notificationService;
 
-    public LabFindingService(ClinicNowContext context, IMapper mapper, IHttpContextAccessor httpContextAccessor)
+    public LabFindingService(
+        ClinicNowContext context,
+        IMapper mapper,
+        IHttpContextAccessor httpContextAccessor,
+        INotificationService notificationService)
     {
         _context = context;
         _mapper = mapper;
         _httpContextAccessor = httpContextAccessor;
+        _notificationService = notificationService;
     }
 
     public async Task<PagedResult<LabFindingDto>> GetPagedAsync(LabFindingSearchObject search, CancellationToken cancellationToken = default)
@@ -60,7 +68,10 @@ public class LabFindingService : ILabFindingService
         if (!string.IsNullOrWhiteSpace(search.Search))
         {
             var term = search.Search.Trim();
-            query = query.Where(f => f.Result.Contains(term) || f.FileName.Contains(term));
+            query = query.Where(f =>
+                f.TestName.Contains(term)
+                || f.Result.Contains(term)
+                || (f.FileName != null && f.FileName.Contains(term)));
         }
 
         query = query.OrderByDescending(f => f.CreatedAtUtc);
@@ -84,10 +95,19 @@ public class LabFindingService : ILabFindingService
                 AppointmentId = f.AppointmentId,
                 AppointmentStartUtc = f.Appointment.StartUtc,
                 MedicalServiceName = f.Appointment.MedicalService.Name,
+                TestName = f.TestName,
+                Value = f.Value,
+                Unit = f.Unit,
+                ReferenceRange = f.ReferenceRange,
                 Result = f.Result,
+                DoctorNote = f.DoctorNote,
                 FileName = f.FileName,
                 ContentType = f.ContentType,
                 FileSizeBytes = f.FileSizeBytes,
+                // Translated to SQL as a length test on the blob column, so the
+                // bytes themselves are never read into memory - the whole reason
+                // this projection exists instead of materializing entities.
+                HasFile = f.FileData != null && f.FileData.Length > 0,
                 EnteredByName = f.EnteredByUser.FirstName + " " + f.EnteredByUser.LastName,
                 CreatedAtUtc = f.CreatedAtUtc
             })
@@ -95,7 +115,9 @@ public class LabFindingService : ILabFindingService
 
         foreach (var row in rows)
         {
-            row.DownloadUrl = $"/api/LabFinding/{row.Id}/download";
+            // Left empty when there is nothing attached, so a client can never
+            // offer a download that would 404.
+            row.DownloadUrl = row.HasFile ? $"/api/LabFinding/{row.Id}/download" : string.Empty;
         }
 
         return new PagedResult<LabFindingDto>
@@ -109,14 +131,22 @@ public class LabFindingService : ILabFindingService
     {
         var actingUserId = CurrentUserId(CurrentUser());
 
+        if (string.IsNullOrWhiteSpace(request.TestName))
+        {
+            throw new ValidationException("testName", "Naziv pretrage je obavezan.");
+        }
+
         if (string.IsNullOrWhiteSpace(request.Result))
         {
             throw new ValidationException("result", "Nalaz je obavezan.");
         }
 
-        if (string.IsNullOrWhiteSpace(request.FileName))
+        // A unit or a reference range without a measured value describes nothing -
+        // catch that here rather than storing a row the UI cannot render sensibly.
+        if (string.IsNullOrWhiteSpace(request.Value)
+            && (!string.IsNullOrWhiteSpace(request.Unit) || !string.IsNullOrWhiteSpace(request.ReferenceRange)))
         {
-            throw new ValidationException("fileName", "Naziv fajla je obavezan.");
+            throw new ValidationException("value", "Unesite izmjerenu vrijednost ako navodite jedinicu mjere ili referentni opseg.");
         }
 
         // The appointment is the single source of truth for which patient this
@@ -127,18 +157,41 @@ public class LabFindingService : ILabFindingService
         var appointment = await _context.Appointments.SingleOrDefaultAsync(a => a.Id == request.AppointmentId, cancellationToken)
             ?? throw new ValidationException("appointmentId", "Odabrani termin ne postoji.");
 
-        var bytes = FileValidation.DecodeAndValidateFile(request.FileBase64, request.ContentType);
+        // The attachment is optional (prijava: "uz nalaz se *može* priložiti i
+        // dokument"). Supplying one still enforces the full MIME + magic-byte
+        // check; supplying only half of it is a validation error rather than a
+        // silently half-stored file.
+        byte[]? bytes = null;
+        var hasFile = !string.IsNullOrWhiteSpace(request.FileBase64);
+        if (hasFile)
+        {
+            if (string.IsNullOrWhiteSpace(request.FileName))
+            {
+                throw new ValidationException("fileName", "Naziv fajla je obavezan kada prilažete dokument.");
+            }
+
+            bytes = FileValidation.DecodeAndValidateFile(request.FileBase64!, request.ContentType ?? string.Empty);
+        }
+        else if (!string.IsNullOrWhiteSpace(request.FileName))
+        {
+            throw new ValidationException("fileBase64", "Odaberite dokument ili uklonite naziv fajla.");
+        }
 
         var finding = new LabFinding
         {
             PatientId = appointment.PatientId,
             AppointmentId = appointment.Id,
+            TestName = request.TestName.Trim(),
+            Value = Normalize(request.Value),
+            Unit = Normalize(request.Unit),
+            ReferenceRange = Normalize(request.ReferenceRange),
             Result = request.Result.Trim(),
-            FileName = request.FileName.Trim(),
-            ContentType = request.ContentType,
+            DoctorNote = Normalize(request.DoctorNote),
+            FileName = bytes is null ? null : request.FileName!.Trim(),
+            ContentType = bytes is null ? null : request.ContentType,
             FileData = bytes,
-            ContentHash = Documents.ContentHash.Compute(bytes),
-            FileSizeBytes = bytes.LongLength,
+            ContentHash = bytes is null ? null : Documents.ContentHash.Compute(bytes),
+            FileSizeBytes = bytes?.LongLength ?? 0,
             EnteredByUserId = actingUserId,
             CreatedAtUtc = DateTime.UtcNow
         };
@@ -147,10 +200,26 @@ public class LabFindingService : ILabFindingService
         await _context.SaveChangesAsync(cancellationToken);
 
         var reloaded = await _context.LabFindings
-            .Include(f => f.Patient)
+            .Include(f => f.Patient).ThenInclude(p => p!.User)
             .Include(f => f.Appointment).ThenInclude(a => a.MedicalService)
             .Include(f => f.EnteredByUser)
             .SingleAsync(f => f.Id == finding.Id, cancellationToken);
+
+        // The prijava promises a notification for "novi laboratorijski nalaz",
+        // and rulebook §7.2 requires notifications for every relevant event -
+        // not only the booking ones. Guarded on User because Patient.UserId is
+        // nullable: a patient created by staff need not have a login yet, and
+        // there is then nobody to notify.
+        if (reloaded.Patient?.User is not null)
+        {
+            var message = PatientMessages.LabFindingAdded(
+                reloaded.Patient.User.PreferredLanguage,
+                reloaded.Appointment.MedicalService.Name,
+                reloaded.Appointment.StartUtc);
+
+            await _notificationService.CreateAsync(
+                reloaded.Patient.User.Id, message.Title, message.Body, cancellationToken);
+        }
 
         return _mapper.Map<LabFindingDto>(reloaded);
     }
@@ -161,6 +230,14 @@ public class LabFindingService : ILabFindingService
 
         var finding = await _context.LabFindings.SingleOrDefaultAsync(f => f.Id == id, cancellationToken)
             ?? throw new NotFoundException(nameof(LabFinding), id);
+
+        // Checked before the ownership rules on purpose: "there is no document"
+        // is not an authorization answer, and answering it first keeps the
+        // 403 reserved for genuinely forbidden access.
+        if (!finding.HasFile)
+        {
+            throw new BusinessException("Uz ovaj nalaz nije priložen dokument.");
+        }
 
         if (principal.IsInRole(Roles.Patient))
         {
@@ -206,6 +283,10 @@ public class LabFindingService : ILabFindingService
         finding.DeletedAtUtc = DateTime.UtcNow;
         await _context.SaveChangesAsync(cancellationToken);
     }
+
+    /// <summary>Trims an optional field, collapsing whitespace-only input to null so "empty" has one representation in the database.</summary>
+    private static string? Normalize(string? value) =>
+        string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 
     private async Task<int> GetOwnPatientIdAsync(int userId, CancellationToken cancellationToken)
     {

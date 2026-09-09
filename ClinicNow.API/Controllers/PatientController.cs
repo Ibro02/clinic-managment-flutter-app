@@ -29,8 +29,8 @@ public class PatientController : BaseCRUDController<PatientDto, PatientSearchObj
 
     [Authorize(Roles = $"{Roles.Administrator},{Roles.Staff},{Roles.Doctor}")]
     public override Task<ActionResult<Model.Common.PagedResult<PatientDto>>> GetPaged(
-        [FromQuery] PatientSearchObject search, CancellationToken cancellationToken) =>
-        base.GetPaged(search, cancellationToken);
+        [FromQuery] PatientSearchObject criteria, CancellationToken cancellationToken) =>
+        base.GetPaged(criteria, cancellationToken);
 
     [Authorize(Roles = $"{Roles.Administrator},{Roles.Staff},{Roles.Doctor}")]
     public override Task<ActionResult<PatientDto>> GetById(int id, CancellationToken cancellationToken) =>

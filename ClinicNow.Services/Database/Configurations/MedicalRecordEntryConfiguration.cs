@@ -8,9 +8,17 @@ public class MedicalRecordEntryConfiguration : IEntityTypeConfiguration<MedicalR
 {
     public void Configure(EntityTypeBuilder<MedicalRecordEntry> builder)
     {
-        builder.Property(e => e.Diagnosis).IsRequired().HasMaxLength(300);
+        builder.Property(e => e.DiagnosisNote).HasMaxLength(300);
         builder.Property(e => e.Treatment).IsRequired().HasMaxLength(200);
         builder.Property(e => e.Description).IsRequired().HasMaxLength(2000);
+
+        // Restrict: a diagnosis that has been used in a patient's medical history
+        // must never disappear from under it. DiagnosisService.BeforeDeleteAsync
+        // turns the attempt into a readable message before it ever reaches here.
+        builder.HasOne(e => e.Diagnosis)
+            .WithMany()
+            .HasForeignKey(e => e.DiagnosisId)
+            .OnDelete(DeleteBehavior.Restrict);
 
         builder.HasOne(e => e.MedicalRecord)
             .WithMany(r => r.Entries)
@@ -28,7 +36,8 @@ public class MedicalRecordEntryConfiguration : IEntityTypeConfiguration<MedicalR
             Id = 1,
             MedicalRecordId = 1,
             EntryDate = new DateOnly(2026, 8, 10),
-            Diagnosis = "Z00.0 - Opća kontrola bez nalaza",
+            // Diagnosis 1 = "Z00.0 - Opća kontrola bez nalaza" (DiagnosisConfiguration).
+            DiagnosisId = 1,
             Treatment = "Redovni pregled",
             Description = "Opći pregled bez nalaza. Preporučena kontrola za 6 mjeseci.",
             CreatedByUserId = 3,

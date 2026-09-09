@@ -77,7 +77,7 @@ public class MedicalRecordService : IMedicalRecordService
 
     public async Task<MedicalRecordDto> AddEntryAsync(int patientId, MedicalRecordEntryInsertRequest request, CancellationToken cancellationToken = default)
     {
-        ValidateEntry(request.Diagnosis, request.Treatment, request.Description);
+        await ValidateEntryAsync(request.DiagnosisId, request.Treatment, request.Description, cancellationToken);
 
         var record = await GetTrackedAsync(patientId, cancellationToken);
         var actingUserId = CurrentUserId(CurrentUser());
@@ -87,7 +87,8 @@ public class MedicalRecordService : IMedicalRecordService
         {
             MedicalRecordId = record.Id,
             EntryDate = request.EntryDate,
-            Diagnosis = request.Diagnosis.Trim(),
+            DiagnosisId = request.DiagnosisId,
+            DiagnosisNote = NormalizeNote(request.DiagnosisNote),
             Treatment = treatment,
             Description = request.Description.Trim(),
             CreatedByUserId = actingUserId,
@@ -103,7 +104,7 @@ public class MedicalRecordService : IMedicalRecordService
 
     public async Task<MedicalRecordDto> UpdateEntryAsync(int entryId, MedicalRecordEntryUpdateRequest request, CancellationToken cancellationToken = default)
     {
-        ValidateEntry(request.Diagnosis, request.Treatment, request.Description);
+        await ValidateEntryAsync(request.DiagnosisId, request.Treatment, request.Description, cancellationToken);
 
         var entry = await _context.MedicalRecordEntries
             .Include(e => e.MedicalRecord)
@@ -113,7 +114,8 @@ public class MedicalRecordService : IMedicalRecordService
         var treatment = request.Treatment.Trim();
 
         entry.EntryDate = request.EntryDate;
-        entry.Diagnosis = request.Diagnosis.Trim();
+        entry.DiagnosisId = request.DiagnosisId;
+        entry.DiagnosisNote = NormalizeNote(request.DiagnosisNote);
         entry.Treatment = treatment;
         entry.Description = request.Description.Trim();
 
@@ -154,9 +156,14 @@ public class MedicalRecordService : IMedicalRecordService
         return await _context.MedicalRecords
             .Include(r => r.Patient)
             .Include(r => r.Entries).ThenInclude(e => e.CreatedByUser)
+            .Include(r => r.Entries).ThenInclude(e => e.Diagnosis)
             .SingleOrDefaultAsync(r => r.PatientId == patientId, cancellationToken)
             ?? throw new NotFoundException("Nije pronađen medicinski karton za ovog pacijenta.");
     }
+
+    /// <summary>Trims an optional note, collapsing whitespace-only input to null so "no note" has one representation.</summary>
+    private static string? NormalizeNote(string? note) =>
+        string.IsNullOrWhiteSpace(note) ? null : note.Trim();
 
     private async Task<MedicalRecord> GetTrackedAsync(int patientId, CancellationToken cancellationToken)
     {
@@ -212,13 +219,22 @@ public class MedicalRecordService : IMedicalRecordService
         return string.IsNullOrWhiteSpace(existing) ? trimmedAddition : $"{existing}\n{trimmedAddition}";
     }
 
-    private static void ValidateEntry(string diagnosis, string treatment, string description)
+    /// <summary>
+    /// Validates one history row. The diagnosis is checked as an FK into the
+    /// codebook rather than as non-empty text (review item 11 / prijava §4.1),
+    /// which is why this is async - the code has to exist to be recorded.
+    /// </summary>
+    private async Task ValidateEntryAsync(int diagnosisId, string treatment, string description, CancellationToken cancellationToken)
     {
         var errors = new Dictionary<string, string[]>();
 
-        if (string.IsNullOrWhiteSpace(diagnosis))
+        if (diagnosisId <= 0)
         {
-            errors["diagnosis"] = ["Dijagnoza je obavezna."];
+            errors["diagnosisId"] = ["Dijagnoza je obavezna - odaberite je iz šifrarnika."];
+        }
+        else if (!await _context.Diagnoses.AnyAsync(d => d.Id == diagnosisId, cancellationToken))
+        {
+            errors["diagnosisId"] = ["Odabrana dijagnoza ne postoji u šifrarniku."];
         }
 
         if (string.IsNullOrWhiteSpace(treatment))

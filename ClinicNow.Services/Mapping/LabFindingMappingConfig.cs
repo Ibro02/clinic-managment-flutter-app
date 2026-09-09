@@ -17,6 +17,11 @@ public class LabFindingMappingConfig : IRegister
             .Map(dest => dest.AppointmentStartUtc, src => src.Appointment.StartUtc)
             .Map(dest => dest.MedicalServiceName, src => src.Appointment.MedicalService.Name)
             .Map(dest => dest.EnteredByName, src => $"{src.EnteredByUser.FirstName} {src.EnteredByUser.LastName}")
-            .Map(dest => dest.DownloadUrl, src => $"/api/LabFinding/{src.Id}/download");
+            .Map(dest => dest.HasFile, src => src.FileData != null && src.FileData.Length > 0)
+            // Empty when nothing is attached (the attachment is optional) so a
+            // client never renders a download that would fail.
+            .Map(dest => dest.DownloadUrl, src => src.FileData != null && src.FileData.Length > 0
+                ? $"/api/LabFinding/{src.Id}/download"
+                : string.Empty);
     }
 }

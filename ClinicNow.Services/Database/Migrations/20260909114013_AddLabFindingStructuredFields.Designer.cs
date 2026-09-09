@@ -4,6 +4,7 @@ using ClinicNow.Services.Database;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -11,9 +12,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace ClinicNow.Services.Database.Migrations
 {
     [DbContext(typeof(ClinicNowContext))]
-    partial class ClinicNowContextModelSnapshot : ModelSnapshot
+    [Migration("20260909114013_AddLabFindingStructuredFields")]
+    partial class AddLabFindingStructuredFields
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -316,130 +319,6 @@ namespace ClinicNow.Services.Database.Migrations
                     b.HasIndex("UserId");
 
                     b.ToTable("DeviceTokens");
-                });
-
-            modelBuilder.Entity("ClinicNow.Services.Database.Entities.Diagnosis", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("int");
-
-                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
-
-                    b.Property<string>("Code")
-                        .IsRequired()
-                        .HasMaxLength(10)
-                        .HasColumnType("nvarchar(10)");
-
-                    b.Property<string>("Name")
-                        .IsRequired()
-                        .HasMaxLength(200)
-                        .HasColumnType("nvarchar(200)");
-
-                    b.Property<int?>("SuggestedSpecializationId")
-                        .HasColumnType("int");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("Code")
-                        .IsUnique();
-
-                    b.HasIndex("SuggestedSpecializationId");
-
-                    b.ToTable("Diagnoses");
-
-                    b.HasData(
-                        new
-                        {
-                            Id = 1,
-                            Code = "Z00.0",
-                            Name = "Opća kontrola bez nalaza",
-                            SuggestedSpecializationId = 1
-                        },
-                        new
-                        {
-                            Id = 2,
-                            Code = "J06.9",
-                            Name = "Akutna infekcija gornjih disajnih puteva",
-                            SuggestedSpecializationId = 1
-                        },
-                        new
-                        {
-                            Id = 3,
-                            Code = "I10",
-                            Name = "Esencijalna (primarna) hipertenzija",
-                            SuggestedSpecializationId = 4
-                        },
-                        new
-                        {
-                            Id = 4,
-                            Code = "I48",
-                            Name = "Atrijalna fibrilacija i treperenje",
-                            SuggestedSpecializationId = 4
-                        },
-                        new
-                        {
-                            Id = 5,
-                            Code = "L20.9",
-                            Name = "Atopijski dermatitis",
-                            SuggestedSpecializationId = 2
-                        },
-                        new
-                        {
-                            Id = 6,
-                            Code = "L70.0",
-                            Name = "Acne vulgaris",
-                            SuggestedSpecializationId = 2
-                        },
-                        new
-                        {
-                            Id = 7,
-                            Code = "J45.9",
-                            Name = "Astma",
-                            SuggestedSpecializationId = 3
-                        },
-                        new
-                        {
-                            Id = 8,
-                            Code = "N94.6",
-                            Name = "Dismenoreja",
-                            SuggestedSpecializationId = 5
-                        },
-                        new
-                        {
-                            Id = 9,
-                            Code = "E11.9",
-                            Name = "Dijabetes melitus tip 2",
-                            SuggestedSpecializationId = 1
-                        },
-                        new
-                        {
-                            Id = 10,
-                            Code = "R51",
-                            Name = "Glavobolja",
-                            SuggestedSpecializationId = 1
-                        },
-                        new
-                        {
-                            Id = 11,
-                            Code = "Z00.1",
-                            Name = "Rutinska pedijatrijska kontrola",
-                            SuggestedSpecializationId = 3
-                        },
-                        new
-                        {
-                            Id = 12,
-                            Code = "E03.9",
-                            Name = "Hipotireoza",
-                            SuggestedSpecializationId = 1
-                        },
-                        new
-                        {
-                            Id = 13,
-                            Code = "I25.9",
-                            Name = "Hronična ishemijska bolest srca",
-                            SuggestedSpecializationId = 4
-                        });
                 });
 
             modelBuilder.Entity("ClinicNow.Services.Database.Entities.Doctor", b =>
@@ -880,10 +759,8 @@ namespace ClinicNow.Services.Database.Migrations
                         .HasMaxLength(2000)
                         .HasColumnType("nvarchar(2000)");
 
-                    b.Property<int>("DiagnosisId")
-                        .HasColumnType("int");
-
-                    b.Property<string>("DiagnosisNote")
+                    b.Property<string>("Diagnosis")
+                        .IsRequired()
                         .HasMaxLength(300)
                         .HasColumnType("nvarchar(300)");
 
@@ -905,8 +782,6 @@ namespace ClinicNow.Services.Database.Migrations
 
                     b.HasIndex("CreatedByUserId");
 
-                    b.HasIndex("DiagnosisId");
-
                     b.HasIndex("MedicalRecordId");
 
                     b.ToTable("MedicalRecordEntries");
@@ -918,7 +793,7 @@ namespace ClinicNow.Services.Database.Migrations
                             CreatedAtUtc = new DateTime(2026, 8, 10, 9, 30, 0, 0, DateTimeKind.Utc),
                             CreatedByUserId = 3,
                             Description = "Opći pregled bez nalaza. Preporučena kontrola za 6 mjeseci.",
-                            DiagnosisId = 1,
+                            Diagnosis = "Z00.0 - Opća kontrola bez nalaza",
                             EntryDate = new DateOnly(2026, 8, 10),
                             IsDeleted = false,
                             MedicalRecordId = 1,
@@ -2121,16 +1996,6 @@ namespace ClinicNow.Services.Database.Migrations
                     b.Navigation("User");
                 });
 
-            modelBuilder.Entity("ClinicNow.Services.Database.Entities.Diagnosis", b =>
-                {
-                    b.HasOne("ClinicNow.Services.Database.Entities.Specialization", "SuggestedSpecialization")
-                        .WithMany()
-                        .HasForeignKey("SuggestedSpecializationId")
-                        .OnDelete(DeleteBehavior.Restrict);
-
-                    b.Navigation("SuggestedSpecialization");
-                });
-
             modelBuilder.Entity("ClinicNow.Services.Database.Entities.Doctor", b =>
                 {
                     b.HasOne("ClinicNow.Services.Database.Entities.Location", "Location")
@@ -2261,12 +2126,6 @@ namespace ClinicNow.Services.Database.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
-                    b.HasOne("ClinicNow.Services.Database.Entities.Diagnosis", "Diagnosis")
-                        .WithMany()
-                        .HasForeignKey("DiagnosisId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
                     b.HasOne("ClinicNow.Services.Database.Entities.MedicalRecord", "MedicalRecord")
                         .WithMany("Entries")
                         .HasForeignKey("MedicalRecordId")
@@ -2274,8 +2133,6 @@ namespace ClinicNow.Services.Database.Migrations
                         .IsRequired();
 
                     b.Navigation("CreatedByUser");
-
-                    b.Navigation("Diagnosis");
 
                     b.Navigation("MedicalRecord");
                 });
