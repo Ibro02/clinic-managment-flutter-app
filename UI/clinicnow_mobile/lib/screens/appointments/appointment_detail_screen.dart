@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 
 import '../../core/auth_session.dart';
 import '../../core/error_text.dart';
+import '../../core/money.dart';
 import '../../models/appointment.dart';
 import '../../providers/appointment_provider.dart';
 import '../../core/design_tokens.dart';
@@ -144,10 +145,6 @@ class _AppointmentDetailScreenState extends State<AppointmentDetailScreen> {
     }
   }
 
-  /// Bosnian decimal comma, without pulling in locale data the app doesn't
-  /// otherwise initialise.
-  static String _money(double amount) => amount.toStringAsFixed(2).replaceAll('.', ',');
-
   /// Rulebook Part II §K: an irreversible action asks first (review item C18).
   /// Paying is the most irreversible thing a patient can do in this app, so the
   /// dialog states the exact sum, the currency PayPal will charge in, and that
@@ -155,8 +152,7 @@ class _AppointmentDetailScreenState extends State<AppointmentDetailScreen> {
   /// decide whether "Plati" was a mistake.
   Future<bool> _confirmPayment() async {
     final amountLine = _appointment.priceKm > 0
-        ? 'Iznos: ${_money(_appointment.priceKm)} KM '
-              '(naplaćuje se ${_money(_appointment.payableAmountEur)} EUR preko PayPala).\n\n'
+        ? 'Iznos: ${formatPriceWithEur(_appointment.priceKm, _appointment.payableAmountEur)}.\n\n'
         // Zero means the API didn't send a price (an older build). Better to
         // say the amount will be shown on the next screen than to invent one.
         : 'Tačan iznos će vam PayPal prikazati prije potvrde plaćanja.\n\n';

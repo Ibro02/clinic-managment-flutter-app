@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 
 import '../../core/api_exception.dart';
 import '../../core/auth_session.dart';
+import '../../core/money.dart';
 import '../../models/doctor.dart';
 import '../../models/medical_service.dart';
 import '../../models/recommendation.dart';
@@ -356,6 +357,12 @@ class _BookAppointmentScreenState extends State<BookAppointmentScreen> {
       });
       if (!mounted) return;
 
+      // The just-created appointment carries the server's own price, so the sum
+      // offered here is the same one the payment confirmation and PayPal will
+      // charge. The catalogue price is only a fallback for an API build that
+      // predates `priceKm` - it would otherwise read as "0,00 KM".
+      final quotedPriceKm = appointment.priceKm > 0 ? appointment.priceKm : _service!.price;
+
       final wantsToPay = await showAppDialog<bool>(
         context: context,
         builder: (dialogContext) => AppDialog(
@@ -376,7 +383,7 @@ class _BookAppointmentScreenState extends State<BookAppointmentScreen> {
           ],
           child: Text(
             'Željeli biste li odmah platiti '
-            '${_service!.price.toStringAsFixed(2)} KM? '
+            '${formatPriceWithEur(quotedPriceKm, appointment.payableAmountEur)}? '
             'Plaćanje možete izvršiti i kasnije sa ekrana termina.',
             style: dialogContext.text.bodyMedium?.copyWith(
               color: dialogContext.colors.textSecondary,
