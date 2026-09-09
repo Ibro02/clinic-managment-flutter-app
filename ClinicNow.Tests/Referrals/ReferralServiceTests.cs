@@ -99,6 +99,46 @@ public class ReferralServiceTests
         Assert.Empty(notifications.Created);
     }
 
+    /// <summary>
+    /// The prijava's "a po potrebi i konkretnog specijalistu": naming one is
+    /// optional, but the named doctor must actually hold the target
+    /// specialization or the referral could never be redeemed.
+    /// </summary>
+    [Fact]
+    public async Task CreateAsync_WithTargetDoctor_StoresAndResolvesTheName()
+    {
+        var service = NewService(3, Roles.Doctor);
+
+        // Doctor 2 holds Specialization 4 (Kardiologija) per the seed.
+        var dto = await service.CreateAsync(new ReferralInsertRequest
+        {
+            SourceAppointmentId = 4,
+            TargetSpecializationId = 4,
+            TargetDoctorId = 2,
+            Reason = "Sumnja na aritmiju."
+        });
+
+        Assert.Equal(2, dto.TargetDoctorId);
+        Assert.False(string.IsNullOrWhiteSpace(dto.TargetDoctorName));
+    }
+
+    [Fact]
+    public async Task CreateAsync_TargetDoctorLacksTheSpecialization_Throws()
+    {
+        var service = NewService(3, Roles.Doctor);
+
+        // Doctor 1 holds Specializations 1 and 2 - not 4 (Kardiologija).
+        var ex = await Assert.ThrowsAsync<ValidationException>(() => service.CreateAsync(new ReferralInsertRequest
+        {
+            SourceAppointmentId = 4,
+            TargetSpecializationId = 4,
+            TargetDoctorId = 1,
+            Reason = "Sumnja na aritmiju."
+        }));
+
+        Assert.Contains("targetDoctorId", ex.Errors.Keys);
+    }
+
     [Fact]
     public async Task CreateAsync_MissingReason_Throws()
     {

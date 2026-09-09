@@ -42,7 +42,8 @@ public class ReferralService : IReferralService
             .Include(r => r.Patient)
             .Include(r => r.ReferringDoctor).ThenInclude(d => d.User)
             .Include(r => r.SourceAppointment)
-            .Include(r => r.TargetSpecialization);
+            .Include(r => r.TargetSpecialization)
+            .Include(r => r.TargetDoctor).ThenInclude(d => d!.User);
 
         // "Arhiva" means "no longer available to book with" - either a real
         // soft-delete (Administrator's manual removal of a mistaken entry) or
@@ -120,12 +121,32 @@ public class ReferralService : IReferralService
             throw new ValidationException("targetSpecializationId", "Odabrana specijalizacija ne postoji.");
         }
 
+        // Naming a specialist is optional, but naming one who does not hold the
+        // requested specialization would produce a referral nobody could ever
+        // book against - the same doctor↔specialization rule the booking itself
+        // enforces (DoctorCompatibility), applied at the point the referral is
+        // written rather than only when it is redeemed.
+        if (request.TargetDoctorId.HasValue)
+        {
+            var qualified = await _context.DoctorSpecializations.AnyAsync(
+                ds => ds.DoctorId == request.TargetDoctorId.Value
+                    && ds.SpecializationId == request.TargetSpecializationId,
+                cancellationToken);
+
+            if (!qualified)
+            {
+                throw new ValidationException(
+                    "targetDoctorId", "Odabrani doktor nema traženu specijalizaciju.");
+            }
+        }
+
         var referral = new Referral
         {
             PatientId = appointment.PatientId,
             ReferringDoctorId = appointment.DoctorId,
             SourceAppointmentId = appointment.Id,
             TargetSpecializationId = request.TargetSpecializationId,
+            TargetDoctorId = request.TargetDoctorId,
             Reason = request.Reason.Trim(),
             CreatedByUserId = actingUserId,
             CreatedAtUtc = DateTime.UtcNow
@@ -139,6 +160,7 @@ public class ReferralService : IReferralService
             .Include(r => r.ReferringDoctor).ThenInclude(d => d.User)
             .Include(r => r.SourceAppointment)
             .Include(r => r.TargetSpecialization)
+            .Include(r => r.TargetDoctor).ThenInclude(d => d!.User)
             .SingleAsync(r => r.Id == referral.Id, cancellationToken);
 
         // The prijava promises the patient is notified when a referral is

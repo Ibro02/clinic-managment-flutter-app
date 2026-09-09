@@ -682,6 +682,12 @@ public class DemoDataSeeder
                 ReferringDoctorId = source.DoctorId,
                 SourceAppointmentId = source.Id,
                 TargetSpecializationId = 4, // Kardiologija
+                // Every second referral names the specific specialist (Doctor
+                // 102 holds Kardiologija), so a clean database demonstrates both
+                // shapes the prijava describes: "traženu specijalizaciju" alone,
+                // and "po potrebi i konkretnog specijalistu". Skipped when the
+                // referring doctor *is* 102 - nobody refers to themselves.
+                TargetDoctorId = i % 2 == 1 && source.DoctorId != 102 ? 102 : null,
                 Reason = "Povišen krvni pritisak i nepravilan puls - potrebna kardiološka evaluacija.",
                 ResultingAppointmentId = i == 0 ? resultingAppointmentId : null,
                 CreatedByUserId = source.CreatedByUserId,
@@ -708,21 +714,43 @@ public class DemoDataSeeder
             .Take(8)
             .ToList();
 
+        // A rotating set so the demo shows real variety in the structured
+        // fields rather than eight identical rows.
+        (string TestName, string Value, string Unit, string ReferenceRange, string Result)[] templates =
+        [
+            ("Kompletna krvna slika (KKS) - hemoglobin", "13.9", "g/dL", "12.0 - 16.0", "Kompletna krvna slika - uredni parametri."),
+            ("Glukoza u krvi natašte", "6.4", "mmol/L", "3.9 - 6.1", "Blago povišena glukoza natašte."),
+            ("Ukupni holesterol", "5.9", "mmol/L", "< 5.2", "Povišen holesterol, preporučena dijeta."),
+            ("Kreatinin", "78", "µmol/L", "62 - 106", "Bubrežna funkcija uredna.")
+        ];
+
         var findings = new List<LabFinding>();
         for (var i = 0; i < completed.Count; i++)
         {
             var appointment = completed[i];
+            var template = templates[i % templates.Length];
+
+            // Every fourth finding is entered with no attachment - the prijava
+            // says the document "može se priložiti", so a clean database has to
+            // show that case working too, not only the file-backed one.
+            var withFile = i % 4 != 3;
+
             findings.Add(new LabFinding
             {
                 Id = FirstSeederId + i,
                 PatientId = appointment.PatientId,
                 AppointmentId = appointment.Id,
-                Result = "Kompletna krvna slika - uredni parametri.",
-                FileName = $"nalaz-{appointment.Id}.pdf",
-                ContentType = "application/pdf",
-                FileData = SeedPdfBytes,
-                FileSizeBytes = SeedPdfBytes.LongLength,
-                ContentHash = ContentHash.Compute(SeedPdfBytes),
+                TestName = template.TestName,
+                Value = template.Value,
+                Unit = template.Unit,
+                ReferenceRange = template.ReferenceRange,
+                Result = template.Result,
+                DoctorNote = i % 2 == 0 ? "Kontrola za šest mjeseci." : null,
+                FileName = withFile ? $"nalaz-{appointment.Id}.pdf" : null,
+                ContentType = withFile ? "application/pdf" : null,
+                FileData = withFile ? SeedPdfBytes : null,
+                FileSizeBytes = withFile ? SeedPdfBytes.LongLength : 0,
+                ContentHash = withFile ? ContentHash.Compute(SeedPdfBytes) : null,
                 EnteredByUserId = appointment.CreatedByUserId,
                 CreatedAtUtc = appointment.StartUtc.AddHours(2)
             });

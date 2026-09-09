@@ -8,9 +8,20 @@ import '../../core/api_exception.dart';
 import '../../core/auth_session.dart';
 import '../../core/roles.dart';
 import '../../models/diagnosis.dart';
+import '../../models/lab_finding.dart';
+import '../../models/medical_document.dart';
 import '../../models/medical_record.dart';
+import '../../models/patient.dart';
+import '../../models/referral.dart';
 import '../../providers/diagnosis_provider.dart';
+import '../../providers/lab_finding_provider.dart';
+import '../../providers/medical_document_provider.dart';
 import '../../providers/medical_record_provider.dart';
+import '../../providers/patient_provider.dart';
+import '../../providers/referral_provider.dart';
+import '../appointments/lab_findings_screen.dart';
+import '../appointments/referrals_screen.dart';
+import 'patient_documents_screen.dart';
 import '../../core/design_tokens.dart';
 import '../../widgets/ui/app_badge.dart';
 import '../../widgets/ui/app_dialog.dart';
@@ -34,6 +45,10 @@ class MedicalRecordScreen extends StatefulWidget {
 class _MedicalRecordScreenState extends State<MedicalRecordScreen> {
   late final MedicalRecordProvider _provider;
   late final DiagnosisProvider _diagnosisProvider;
+  late final LabFindingProvider _labFindingProvider;
+  late final ReferralProvider _referralProvider;
+  late final MedicalDocumentProvider _documentProvider;
+  late final PatientProvider _patientProvider;
   final _dateFormat = DateFormat('dd.MM.yyyy');
 
   MedicalRecord? _record;
@@ -44,14 +59,58 @@ class _MedicalRecordScreenState extends State<MedicalRecordScreen> {
   /// text (rulebook §6, prijava §4.1).
   List<Diagnosis> _diagnoses = [];
 
+  /// The prijava requires the karton to show "svi laboratorijski nalazi, izdate
+  /// uputnice i dokumenti tog pacijenta ... bez prelaska na druge ekrane", so
+  /// these three live alongside the treatment history rather than only on their
+  /// own screens. Read-only here; the dedicated screens stay the place to
+  /// enter or delete them.
+  List<LabFinding> _labFindings = [];
+  List<Referral> _referrals = [];
+  List<MedicalDocument> _documents = [];
+
+  /// Needed only to hand [PatientDocumentsScreen] the full Patient it takes.
+  Patient? _patient;
+
+  /// How many of each to surface inline before "Otvori sve" takes over. The
+  /// karton is a summary view, not a fourth copy of three list screens.
+  static const _relatedPreviewLimit = 3;
+
   @override
   void initState() {
     super.initState();
     final authSession = context.read<AuthSession>();
     _provider = MedicalRecordProvider(authSession);
     _diagnosisProvider = DiagnosisProvider(authSession);
+    _labFindingProvider = LabFindingProvider(authSession);
+    _referralProvider = ReferralProvider(authSession);
+    _documentProvider = MedicalDocumentProvider(authSession);
+    _patientProvider = PatientProvider(authSession);
     _load();
     _loadDiagnoses();
+    _loadRelatedRecords();
+  }
+
+  /// Best-effort and parallel (rulebook Appendix A.2: parallelize independent
+  /// HTTP calls). A failure here leaves the section empty rather than blocking
+  /// the karton itself, which is the screen's actual subject.
+  Future<void> _loadRelatedRecords() async {
+    try {
+      final results = await Future.wait([
+        _labFindingProvider.getPaged(patientId: widget.patientId),
+        _referralProvider.getPaged(patientId: widget.patientId),
+        _documentProvider.getPaged(patientId: widget.patientId),
+        _patientProvider.getById(widget.patientId),
+      ]);
+      if (!mounted) return;
+      setState(() {
+        _labFindings = results[0] as List<LabFinding>;
+        _referrals = results[1] as List<Referral>;
+        _documents = results[2] as List<MedicalDocument>;
+        _patient = results[3] as Patient;
+      });
+    } on ApiException {
+      // Leaves the three lists empty; the section renders its own empty state.
+    }
   }
 
   Future<void> _load() async {
@@ -446,9 +505,168 @@ class _MedicalRecordScreenState extends State<MedicalRecordScreen> {
                   _buildNotesSection(context, canAppend: canAppend, canFullyEdit: canFullyEdit),
                   const SizedBox(height: 24),
                   _buildEntriesTable(context, canAppend: canAppend, canFullyEdit: canFullyEdit),
+                  const SizedBox(height: 24),
+                  _buildRelatedRecords(context),
                 ],
               ),
             ),
+    );
+  }
+
+  /// Lab findings, referrals and documents in the karton itself - the prijava's
+  /// "na jednom mjestu ... bez prelaska na druge ekrane". Read-only summaries;
+  /// each header links through to the screen that owns the full list and the
+  /// write actions, so this never becomes a second place to enter data.
+  Widget _buildRelatedRecords(BuildContext context) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Nalazi, uputnice i dokumenti', style: Theme.of(context).textTheme.titleMedium),
+            const SizedBox(height: 4),
+            Text(
+              'Pregled cjelokupne dokumentacije pacijenta bez napuštanja kartona.',
+              style: context.text.bodySmall?.copyWith(color: context.colors.textMuted),
+            ),
+            const SizedBox(height: 12),
+            _relatedGroup(
+              context,
+              icon: Icons.biotech_outlined,
+              title: 'Laboratorijski nalazi',
+              total: _labFindings.length,
+              emptyMessage: 'Nema evidentiranih laboratorijskih nalaza.',
+              lines: _labFindings
+                  .take(_relatedPreviewLimit)
+                  .map(
+                    (f) => (
+                      f.testName,
+                      '${f.result} · ${_dateFormat.format(f.createdAtUtc.toLocal())}',
+                    ),
+                  )
+                  .toList(),
+              onOpenAll: () => Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) => LabFindingsScreen(
+                    patientId: widget.patientId,
+                    patientName: widget.patientName,
+                  ),
+                ),
+              ),
+            ),
+            const Divider(height: 28),
+            _relatedGroup(
+              context,
+              icon: Icons.assignment_outlined,
+              title: 'Uputnice',
+              total: _referrals.length,
+              emptyMessage: 'Nema izdatih uputnica.',
+              lines: _referrals
+                  .take(_relatedPreviewLimit)
+                  .map(
+                    (r) => (
+                      r.targetDoctorName == null
+                          ? r.targetSpecializationName
+                          : '${r.targetSpecializationName} — ${r.targetDoctorName}',
+                      '${r.reason} · ${_dateFormat.format(r.createdAtUtc.toLocal())}',
+                    ),
+                  )
+                  .toList(),
+              onOpenAll: () => Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) => ReferralsScreen(
+                    patientId: widget.patientId,
+                    patientName: widget.patientName,
+                  ),
+                ),
+              ),
+            ),
+            const Divider(height: 28),
+            _relatedGroup(
+              context,
+              icon: Icons.folder_outlined,
+              title: 'Dokumenti',
+              total: _documents.length,
+              emptyMessage: 'Nema priloženih dokumenata.',
+              lines: _documents
+                  .take(_relatedPreviewLimit)
+                  .map(
+                    (d) => (
+                      d.fileName,
+                      '${d.description?.isNotEmpty == true ? '${d.description} · ' : ''}'
+                          '${_dateFormat.format(d.createdAtUtc.toLocal())}',
+                    ),
+                  )
+                  .toList(),
+              // Disabled until the Patient row has loaded - that screen takes
+              // the whole object, and a half-built one would be worse than a
+              // briefly inert link.
+              onOpenAll: _patient == null
+                  ? null
+                  : () => Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => PatientDocumentsScreen(patient: _patient!),
+                      ),
+                    ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// One titled group inside [_buildRelatedRecords]: a count, up to
+  /// [_relatedPreviewLimit] title/detail lines, and a link to the full list.
+  Widget _relatedGroup(
+    BuildContext context, {
+    required IconData icon,
+    required String title,
+    required int total,
+    required String emptyMessage,
+    required List<(String, String)> lines,
+    required VoidCallback? onOpenAll,
+  }) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Icon(icon, size: 18, color: context.colors.primary),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text('$title ($total)', style: Theme.of(context).textTheme.labelLarge),
+            ),
+            TextButton(onPressed: onOpenAll, child: const Text('Otvori sve')),
+          ],
+        ),
+        const SizedBox(height: 4),
+        if (lines.isEmpty)
+          Text(emptyMessage, style: context.text.bodySmall?.copyWith(color: context.colors.textMuted))
+        else
+          ...lines.map(
+            (line) => Padding(
+              padding: const EdgeInsets.only(bottom: 6),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(line.$1, maxLines: 1, overflow: TextOverflow.ellipsis),
+                  Text(
+                    line.$2,
+                    style: context.text.bodySmall?.copyWith(color: context.colors.textMuted),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ],
+              ),
+            ),
+          ),
+        if (total > lines.length)
+          Text(
+            'i još ${total - lines.length}…',
+            style: context.text.bodySmall?.copyWith(color: context.colors.textMuted),
+          ),
+      ],
     );
   }
 

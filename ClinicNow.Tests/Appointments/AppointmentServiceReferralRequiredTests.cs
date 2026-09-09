@@ -93,4 +93,40 @@ public class AppointmentServiceReferralRequiredTests
         Assert.Contains("referralId", ex.Errors.Keys);
     }
 
+    /// <summary>
+    /// A referral that names a specific specialist can only be redeemed with
+    /// that specialist. Without this the <c>TargetDoctorId</c> the prijava
+    /// describes would be collected and then ignored, which rulebook §2.4
+    /// rejects outright.
+    /// </summary>
+    [Fact]
+    public async Task ScheduleAsync_ReferralNamingAnotherDoctor_Throws()
+    {
+        var context = TestContextFactory.CreateContext();
+        var referral = new Referral
+        {
+            PatientId = 1,
+            ReferringDoctorId = 1,
+            SourceAppointmentId = 1,
+            TargetSpecializationId = 4,
+            TargetDoctorId = 2, // the referral names Doctor 2...
+            Reason = "Test",
+            CreatedByUserId = 3,
+            CreatedAtUtc = DateTime.UtcNow
+        };
+        context.Referrals.Add(referral);
+        await context.SaveChangesAsync();
+
+        var service = BuildService(context);
+        var request = new AppointmentInsertRequest
+        {
+            DoctorId = 1, // ...but the booking is attempted with Doctor 1
+            MedicalServiceId = 5,
+            StartUtc = DateTime.UtcNow.AddDays(1),
+            ReferralId = referral.Id
+        };
+
+        var ex = await Assert.ThrowsAsync<ValidationException>(() => service.ScheduleAsync(request));
+        Assert.Contains("doctorId", ex.Errors.Keys);
+    }
 }

@@ -24,10 +24,15 @@ class ReferralProvider {
     return list.map(Referral.fromJson).toList();
   }
 
+  /// [targetDoctorId] is optional - omit it to refer to a specialization
+  /// rather than to one named specialist. When supplied, the backend requires
+  /// that doctor to hold [targetSpecializationId], and later refuses to redeem
+  /// the referral against anyone else.
   Future<Referral> create({
     required int sourceAppointmentId,
     required int targetSpecializationId,
     required String reason,
+    int? targetDoctorId,
   }) async {
     final response = await apiPost(
       _base.buildUri('api/Referral'),
@@ -35,6 +40,7 @@ class ReferralProvider {
       body: jsonEncode({
         'sourceAppointmentId': sourceAppointmentId,
         'targetSpecializationId': targetSpecializationId,
+        'targetDoctorId': targetDoctorId,
         'reason': reason,
       }),
     );

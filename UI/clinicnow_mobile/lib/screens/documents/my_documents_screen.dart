@@ -321,6 +321,10 @@ class _MyReferralsTabState extends State<_MyReferralsTab> {
       MaterialPageRoute(
         builder: (_) => BookAppointmentScreen(
           initialSpecializationId: referral.targetSpecializationId,
+          // A referral that names a specialist can only be redeemed with that
+          // specialist - the server refuses any other doctor - so the booking
+          // form opens on them rather than offering a choice it would reject.
+          initialDoctorId: referral.targetDoctorId,
           referralId: referral.id,
         ),
       ),
@@ -390,7 +394,9 @@ class _MyReferralsTabState extends State<_MyReferralsTab> {
           return AppListCard(
             icon: Icons.assignment_outlined,
             tone: AppTone.primary,
-            title: 'Uputnica: ${referral.targetSpecializationName}',
+            title: referral.targetDoctorName == null
+                ? 'Uputnica: ${referral.targetSpecializationName}'
+                : 'Uputnica: ${referral.targetSpecializationName} — ${referral.targetDoctorName}',
             subtitle: referral.reason,
             meta: '${referral.referringDoctorName} · ${_dateFormat.format(referral.createdAtUtc.toLocal())}',
             onTap: _showArchived ? null : () => _bookWithSpecialist(referral),

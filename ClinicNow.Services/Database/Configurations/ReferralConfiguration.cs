@@ -39,6 +39,15 @@ public class ReferralConfiguration : IEntityTypeConfiguration<Referral>
             .HasForeignKey(r => r.TargetSpecializationId)
             .OnDelete(DeleteBehavior.Restrict);
 
+        // Optional - the referring doctor may name a specific specialist, or
+        // leave the choice to the patient. A second relationship onto Doctor
+        // alongside ReferringDoctor; EF tells them apart by their FK property.
+        builder.HasOne(r => r.TargetDoctor)
+            .WithMany()
+            .HasForeignKey(r => r.TargetDoctorId)
+            .IsRequired(false)
+            .OnDelete(DeleteBehavior.Restrict);
+
         // Optional - only set once a booking is made "from" this referral
         // (review item C5's "continue to booking"). A second, independent
         // relationship onto Appointment alongside SourceAppointment - EF

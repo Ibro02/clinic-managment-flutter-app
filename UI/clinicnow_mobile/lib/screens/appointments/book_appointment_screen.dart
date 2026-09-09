@@ -148,6 +148,14 @@ class _BookAppointmentScreenState extends State<BookAppointmentScreen> {
       _doctors = widget.initialSpecializationId == null
           ? doctors.resultList
           : doctors.resultList.where((d) => d.specializationIds.contains(widget.initialSpecializationId)).toList();
+
+      // Booking from a referral that names one specialist: narrow the list to
+      // that doctor alone. The server rejects redeeming such a referral against
+      // anyone else, so offering the other doctors of that specialization would
+      // only produce a 400 after the patient had picked one.
+      if (widget.referralId != null && widget.initialDoctorId != null) {
+        _doctors = _doctors.where((d) => d.id == widget.initialDoctorId).toList();
+      }
       _services = services;
       _ownReferrals = ownReferrals;
       _isLoadingOptions = false;

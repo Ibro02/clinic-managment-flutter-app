@@ -14,10 +14,12 @@ import '../../core/auth_session.dart';
 import '../../core/design_tokens.dart';
 import '../../core/roles.dart';
 import '../../models/appointment.dart';
+import '../../models/doctor.dart';
 import '../../models/lab_finding.dart';
 import '../../models/referral.dart';
 import '../../models/specialization.dart';
 import '../../providers/appointment_provider.dart';
+import '../../providers/doctor_provider.dart';
 import '../../providers/lab_finding_provider.dart';
 import '../../providers/referral_provider.dart';
 import '../../providers/specialization_provider.dart';
@@ -63,6 +65,7 @@ class _ReferralsScreenState extends State<ReferralsScreen> {
   late final SpecializationProvider _specializationProvider;
   late final AppointmentProvider _appointmentProvider;
   late final LabFindingProvider _labFindingProvider;
+  late final DoctorProvider _doctorProvider;
   final _dateFormat = DateFormat('dd.MM.yyyy HH:mm');
 
   /// How many of the patient's most recent lab findings the details dialog
@@ -77,6 +80,11 @@ class _ReferralsScreenState extends State<ReferralsScreen> {
   List<Referral>? _referrals;
   List<Specialization> _specializations = [];
   List<Appointment> _appointments = [];
+
+  /// Every doctor, so the "konkretan specijalista" dropdown can be narrowed to
+  /// whichever specialization the form has selected without a second round trip.
+  List<Doctor> _doctors = [];
+
   String? _error;
 
   /// The term the currently-displayed list was actually fetched with - see
@@ -92,6 +100,7 @@ class _ReferralsScreenState extends State<ReferralsScreen> {
     _specializationProvider = SpecializationProvider(authSession);
     _appointmentProvider = AppointmentProvider(authSession);
     _labFindingProvider = LabFindingProvider(authSession);
+    _doctorProvider = DoctorProvider(authSession);
     _load();
   }
 
@@ -108,12 +117,14 @@ class _ReferralsScreenState extends State<ReferralsScreen> {
           'orderBy': 'StartUtc',
           'sortDirection': 'desc',
         }),
+        _doctorProvider.getPaged({'pageSize': 100, 'orderBy': 'LastName'}),
       ]);
       if (!mounted) return;
       setState(() {
         _referrals = results[0] as List<Referral>;
         _specializations = (results[1] as dynamic).resultList as List<Specialization>;
         _appointments = (results[2] as dynamic).resultList as List<Appointment>;
+        _doctors = (results[3] as dynamic).resultList as List<Doctor>;
         _appliedSearch = term;
       });
     } on ApiException catch (e) {
@@ -160,6 +171,12 @@ class _ReferralsScreenState extends State<ReferralsScreen> {
     var isSubmitting = false;
     Map<String, List<String>> fieldErrors = {};
 
+    // Drives the optional specialist dropdown: only doctors who actually hold
+    // the chosen specialization may be named, which is the same rule the
+    // backend enforces on save.
+    Specialization? selectedSpecialization;
+    Doctor? selectedDoctor;
+
     await showAppDialog<void>(
       context: context,
       builder: (dialogContext) => StatefulBuilder(
@@ -187,6 +204,7 @@ class _ReferralsScreenState extends State<ReferralsScreen> {
                         await _referralProvider.create(
                           sourceAppointmentId: (form.value['appointment'] as Appointment).id,
                           targetSpecializationId: (form.value['specialization'] as Specialization).id,
+                          targetDoctorId: (form.value['targetDoctor'] as Doctor?)?.id,
                           reason: form.value['reason'] as String,
                         );
                         if (dialogContext.mounted) Navigator.of(dialogContext).pop();
@@ -245,6 +263,39 @@ class _ReferralsScreenState extends State<ReferralsScreen> {
                     validator: FormBuilderValidators.required(errorText: 'Specijalizacija je obavezna.'),
                     items: _specializations
                         .map((s) => DropdownMenuItem(value: s, child: Text(s.name)))
+                        .toList(),
+                    onChanged: (value) {
+                      // Changing the specialization invalidates any doctor
+                      // already picked - keeping a now-unqualified one would
+                      // just be rejected by the server on save.
+                      formKey.currentState?.fields['targetDoctor']?.didChange(null);
+                      setDialogState(() {
+                        selectedSpecialization = value;
+                        selectedDoctor = null;
+                      });
+                    },
+                  ),
+                ),
+                AppField(
+                  label: 'Konkretan specijalista',
+                  help: selectedSpecialization == null
+                      ? 'Opcionalno. Prvo odaberite specijalizaciju.'
+                      : 'Opcionalno. Ostavite prazno da pacijent sam bira doktora.',
+                  child: FormBuilderDropdown<Doctor>(
+                    name: 'targetDoctor',
+                    // Disabled with a stated reason rather than silently empty
+                    // (rulebook §6) until a specialization narrows the list.
+                    enabled: selectedSpecialization != null,
+                    initialValue: selectedDoctor,
+                    decoration: InputDecoration(
+                      hintText: selectedSpecialization == null
+                          ? 'Odaberite specijalizaciju'
+                          : 'Bilo koji doktor te specijalizacije',
+                      errorText: fieldErrors['targetDoctorId']?.first,
+                    ),
+                    items: _doctors
+                        .where((d) => d.specializationIds.contains(selectedSpecialization?.id))
+                        .map((d) => DropdownMenuItem(value: d, child: Text(d.fullName)))
                         .toList(),
                   ),
                 ),
@@ -361,6 +412,10 @@ class _ReferralsScreenState extends State<ReferralsScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             _detailRow('Uputiti kod specijaliste za', referral.targetSpecializationName),
+            _detailRow(
+              'Konkretan specijalista',
+              referral.targetDoctorName ?? 'Bilo koji doktor te specijalizacije',
+            ),
             _detailRow('Razlog upućivanja', referral.reason),
             _detailRow('Uputio', referral.referringDoctorName),
             _detailRow(
@@ -591,7 +646,9 @@ class _ReferralsScreenState extends State<ReferralsScreen> {
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
                                   Text(
-                                    'Uputnica za: ${referral.targetSpecializationName}',
+                                    referral.targetDoctorName == null
+                                        ? 'Uputnica za: ${referral.targetSpecializationName}'
+                                        : 'Uputnica za: ${referral.targetSpecializationName} — ${referral.targetDoctorName}',
                                     style: context.text.titleSmall,
                                   ),
                                   const SizedBox(height: 2),

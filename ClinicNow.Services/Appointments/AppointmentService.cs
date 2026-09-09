@@ -183,6 +183,18 @@ public class AppointmentService : IAppointmentService
             {
                 throw new BusinessException("Ova uputnica je već iskorištena za zakazivanje termina.");
             }
+
+            // A referral that names a specific specialist can only be redeemed
+            // with that specialist. Without this the field would be collected
+            // and then ignored, which rulebook §2.4 rejects outright - and the
+            // patient could quietly book someone the referring doctor did not
+            // send them to. Referrals with no named doctor stay open to any
+            // doctor holding the target specialization.
+            if (referral.TargetDoctorId is not null && referral.TargetDoctorId != request.DoctorId)
+            {
+                throw new ValidationException(
+                    "doctorId", "Uputnica je izdana za konkretnog specijalistu - termin morate zakazati kod njega.");
+            }
         }
 
         // Some services (e.g. a surgical consultation) can't be self-booked

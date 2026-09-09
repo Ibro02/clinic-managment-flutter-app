@@ -22,6 +22,7 @@ import '../../widgets/ui/app_fields.dart';
 import '../../widgets/ui/app_states.dart';
 import 'lab_findings_screen.dart';
 import 'referrals_screen.dart';
+import '../people/medical_record_screen.dart';
 import 'reschedule_appointment_dialog.dart';
 import 'schedule_appointment_dialog.dart';
 
@@ -289,6 +290,19 @@ class _AppointmentScreenState extends State<AppointmentScreen> {
                     ),
                 ],
               ),
+      ),
+    );
+  }
+
+  /// The prijava says the karton opens "iz liste pacijenata ili iz pojedinog
+  /// termina" - this is the second of those two entry points.
+  Future<void> _openMedicalRecord(Appointment appointment) async {
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => MedicalRecordScreen(
+          patientId: appointment.patientId,
+          patientName: appointment.patientName,
+        ),
       ),
     );
   }
@@ -622,6 +636,11 @@ class _AppointmentScreenState extends State<AppointmentScreen> {
                     tooltip: a.canRefund ? 'Povrat sredstava' : a.refundBlockedReason!,
                     onPressed: a.canRefund ? () => _refund(a) : null,
                   ),
+                AppRowAction(
+                  icon: Icons.folder_shared_outlined,
+                  tooltip: 'Medicinski karton',
+                  onPressed: () => _openMedicalRecord(a),
+                ),
                 AppRowAction(
                   icon: Icons.biotech_outlined,
                   tooltip: 'Laboratorijski nalazi',

@@ -44,6 +44,20 @@ public class Referral : ISoftDelete
     public int TargetSpecializationId { get; set; }
     public Specialization TargetSpecialization { get; set; } = null!;
 
+    /// <summary>
+    /// The specific specialist the patient is being referred to, when the
+    /// referring doctor names one - the prijava's "a po potrebi i konkretnog
+    /// specijalistu kojem se pacijent upućuje". Optional: a referral to a
+    /// specialization with no particular doctor in mind is the common case.
+    ///
+    /// Not decorative. When set, <c>AppointmentService.ScheduleAsync</c>
+    /// refuses to redeem the referral against any other doctor, so the field
+    /// actually constrains the booking rather than merely being collected
+    /// (rulebook §2.4 rejects signals that are stored and then ignored).
+    /// </summary>
+    public int? TargetDoctorId { get; set; }
+    public Doctor? TargetDoctor { get; set; }
+
     /// <summary>The diagnosis/reason for the referral (e.g. "Sumnja na aritmiju, potrebna kardiološka evaluacija.").</summary>
     public string Reason { get; set; } = string.Empty;
 

@@ -17,6 +17,11 @@ public class ReferralMappingConfig : IRegister
             .Map(dest => dest.ReferringDoctorName, src => $"{src.ReferringDoctor.User.FirstName} {src.ReferringDoctor.User.LastName}")
             .Map(dest => dest.SourceAppointmentStartUtc, src => src.SourceAppointment.StartUtc)
             .Map(dest => dest.TargetSpecializationName, src => src.TargetSpecialization.Name)
+            // Null whenever the referral names no particular specialist, which
+            // is the ordinary case - the client renders "bilo koji doktor" then.
+            .Map(dest => dest.TargetDoctorName, src => src.TargetDoctor == null
+                ? null
+                : $"{src.TargetDoctor.User.FirstName} {src.TargetDoctor.User.LastName}")
             .Map(dest => dest.IsUsed, src => src.ResultingAppointmentId != null);
     }
 }

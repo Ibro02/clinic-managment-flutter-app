@@ -9,6 +9,11 @@ class Referral {
   final DateTime sourceAppointmentStartUtc;
   final int targetSpecializationId;
   final String targetSpecializationName;
+
+  /// The specific specialist named on the referral, if any. Null means the
+  /// patient may book with any doctor holding [targetSpecializationName].
+  final int? targetDoctorId;
+  final String? targetDoctorName;
   final String reason;
 
   /// True once an appointment has been booked "from" this referral - the
@@ -26,6 +31,8 @@ class Referral {
     required this.sourceAppointmentStartUtc,
     required this.targetSpecializationId,
     required this.targetSpecializationName,
+    this.targetDoctorId,
+    this.targetDoctorName,
     required this.reason,
     required this.isUsed,
     required this.createdAtUtc,
@@ -39,6 +46,8 @@ class Referral {
       sourceAppointmentStartUtc: DateTime.parse(json['sourceAppointmentStartUtc'] as String),
       targetSpecializationId: json['targetSpecializationId'] as int,
       targetSpecializationName: json['targetSpecializationName'] as String? ?? '',
+      targetDoctorId: json['targetDoctorId'] as int?,
+      targetDoctorName: json['targetDoctorName'] as String?,
       reason: json['reason'] as String? ?? '',
       isUsed: json['isUsed'] as bool? ?? false,
       createdAtUtc: DateTime.parse(json['createdAtUtc'] as String),
